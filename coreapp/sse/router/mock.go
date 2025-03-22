@@ -15,6 +15,7 @@ func (successQPUForTest) Send(j core.Job) error {
 	j.JobData().Result.Counts = map[string]uint32{"00": 400, "11": 600}
 	j.JobData().Result.TranspilerInfo.PhysicalVirtualMapping = map[uint32]uint32{0: 1, 1: 0}
 	j.JobData().Result.Message = "dummysuccessresult"
+	j.JobData().Status = core.SUCCEEDED
 	return nil
 }
 
@@ -23,6 +24,16 @@ type failQPUForTest struct {
 }
 
 func (failQPUForTest) Send(j core.Job) error {
+	j.JobData().Result.Message = "dummyfailureresult"
+	j.JobData().Status = core.FAILED
+	return nil
+}
+
+type errorQPUForTest struct {
+	core.UnimplementedQPU
+}
+
+func (errorQPUForTest) Send(j core.Job) error {
 	return fmt.Errorf("QPU error")
 }
 

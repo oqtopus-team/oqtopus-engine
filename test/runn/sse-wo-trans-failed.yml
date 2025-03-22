@@ -1,0 +1,48 @@
+desc: Run SSE job without transpiler failed
+runners:
+  req: https://${USER_API_ENDPOINT}
+vars:
+  token: ${Q_API_TOKEN}
+steps:
+  post:
+    desc: post SSE job without transpiler to fail due to unsupported gate
+    req:
+      /v1/jobs:
+        post:
+          headers:
+            q-api-token: "{{ vars.token }}"
+          body:
+            application/json:
+              description: runn test/SSE job without transpiler to fail due to unsupported gate
+              device_id: Kawasaki
+              job_info:
+                program:
+                - aW1wb3J0IG1hdHBsb3RsaWIKaW1wb3J0IG51bXB5CmltcG9ydCB5YW1sCmltcG9ydCBuZXR3b3JreAppbXBvcnQgcGFuZGFzCmltcG9ydCB0cWRtCmltcG9ydCBzY2lweQppbXBvcnQgc2tsZWFybgppbXBvcnQgcXVyaV9wYXJ0cwppbXBvcnQgcWlza2l0CmltcG9ydCBxdWxhY3MKaW1wb3J0IHNrcXVsYWNzCmltcG9ydCBweXF1Ym8KaW1wb3J0IG9wZW5qaWoKaW1wb3J0IGNpcnEKaW1wb3J0IHBlbm55bGFuZQppbXBvcnQgb3BlbmZlcm1pb24KaW1wb3J0IHRpbWUKCmZyb20gcXVyaV9wYXJ0c19vcXRvcHVzLmJhY2tlbmQuc2FtcGxpbmcgaW1wb3J0IE9xdG9wdXNTYW1wbGluZ0JhY2tlbmQsIE9xdG9wdXNDb25maWcKZnJvbSBxdXJpX3BhcnRzLmNpcmN1aXQgaW1wb3J0IFF1YW50dW1DaXJjdWl0Cgpmb3IgaSBpbiByYW5nZSgzKToKICB0aW1lLnNsZWVwKDEpCiAgcHJpbnQoZiIjIyBTdGFydCBpdGVyYXRpb24ge2l9ICMjIikKICB0cnk6CiAgICBjaXJjdWl0ID0gUXVhbnR1bUNpcmN1aXQoMikKICAgIGNpcmN1aXQuYWRkX0hfZ2F0ZSgwKQogICAgY2lyY3VpdC5hZGRfWF9nYXRlKDEpCiAgICBjaXJjdWl0LmFkZF9DTk9UX2dhdGUoMCwgMSkKICAgIGNpcmN1aXQuYWRkX1JZX2dhdGUoMSwgMC4xKmkpCiAgICB0cmFuc3BpbGVyX2luZm8gPSB7CiAgICAgICJ0cmFuc3BpbGVyX2xpYiI6IE5vbmUKICAgIH0KICAgIGpvYiA9IE9xdG9wdXNTYW1wbGluZ0JhY2tlbmQoKS5zYW1wbGUoY2lyY3VpdCwgc2hvdHM9MTAqaSsxMDAsIG5hbWU9InRlc3QgY2lyY3VpdCIsIGRldmljZV9pZD0iIiwgdHJhbnNwaWxlcl9pbmZvPXRyYW5zcGlsZXJfaW5mbykKICAgIHByaW50KGpvYikKICAgIHJlc3VsdCA9IGpvYi5yZXN1bHQoKQogICAgcHJpbnQoIiMjIyMgUmVzdWx0OiIpCiAgICBwcmludChyZXN1bHQuY291bnRzKQoKICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICBpbXBvcnQgdHJhY2ViYWNrCiAgICBwcmludCh0cmFjZWJhY2suZm9ybWF0X2V4YygpKQogICAgcHJpbnQoIiMjIyMgRkFJTEVEIikKCnByaW50KCIjIyBGaW5pc2ggIyMiKQo=
+              job_type: sse
+              name: SSE test
+              shots: 1
+              status: submitted
+    test: |
+      current.res.status == 200
+    dump:
+      expr: current.res.body.job_id + "(SSE job wo transpiler failed) is posted"
+  wait:
+    desc: check job status
+    loop:
+      count: 20
+      until: 'current.res.body.status  == "succeeded" || current.res.body.status  == "failed"'
+      minInterval: 5
+      maxInterval: 20
+    req:
+      /v1/jobs/{{steps.post.res.body.job_id}}:
+        get:
+          headers:
+            q-api-token: "{{ vars.token }}"
+    dump:
+      expr: steps.post.res.body.job_id + "(SSE job wo transpiler failed) is in " + current.res.body.status
+  check:
+    test: |
+      steps.wait.res.body.status == "failed"
+  check-transpiler-lib:
+    test: |
+      steps.wait.res.body.transpiler_info.transpiler_lib == null

@@ -106,7 +106,7 @@ func (j *SSEJob) Process() {
 		core.SetFailureWithError(j, err)
 		return
 	}
-	jd.Status = core.SUCCEEDED
+	// Status is set in RunSSE
 	jd.Result.ExecutionTime = time.Since(startTime)
 	jd.Ended = strfmt.DateTime(time.Now())
 	zap.L().Debug(fmt.Sprintf("SSE execution of Job ID:%s is finished", jd.ID))

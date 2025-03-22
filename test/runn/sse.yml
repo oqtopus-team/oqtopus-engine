@@ -1,11 +1,11 @@
-desc: Run SSE job
+desc: Run SSE job with default transpiler
 runners:
   req: https://${USER_API_ENDPOINT}
 vars:
   token: ${Q_API_TOKEN}
 steps:
   post:
-    desc: post SSE job
+    desc: post SSE job with default transpiler
     req:
       /v1/jobs:
         post:
@@ -13,11 +13,11 @@ steps:
             q-api-token: "{{ vars.token }}"
           body:
             application/json:
-              description: runn test/SSE job
+              description: runn test/SSE job with default transpiler
               device_id: Kawasaki
               job_info:
                 program:
-                - aW1wb3J0IG1hdHBsb3RsaWIKaW1wb3J0IG51bXB5CmltcG9ydCB5YW1sCmltcG9ydCBuZXR3b3JreAppbXBvcnQgcGFuZGFzCmltcG9ydCB0cWRtCmltcG9ydCBzY2lweQppbXBvcnQgc2tsZWFybgppbXBvcnQgcXVyaV9wYXJ0cwojaW1wb3J0IHF1cmlfcGFydHMucmlxdQppbXBvcnQgcWlza2l0CmltcG9ydCBxdWxhY3MKaW1wb3J0IHNrcXVsYWNzCmltcG9ydCBweXF1Ym8KaW1wb3J0IG9wZW5qaWoKaW1wb3J0IGNpcnEKaW1wb3J0IHBlbm55bGFuZQppbXBvcnQgb3BlbmZlcm1pb24KCmltcG9ydCB0aW1lCgpmcm9tIHF1cmlfcGFydHNfb3F0b3B1cy5iYWNrZW5kLnNhbXBsaW5nIGltcG9ydCBPcXRvcHVzU2FtcGxpbmdCYWNrZW5kLCBPcXRvcHVzQ29uZmlnCmZyb20gcXVyaV9wYXJ0cy5jaXJjdWl0IGltcG9ydCBRdWFudHVtQ2lyY3VpdAoKCmZvciBpIGluIHJhbmdlKDMpOgogIHRpbWUuc2xlZXAoMSkKICBwcmludChmIiMjIFN0YXJ0IGl0ZXJhdGlvbiB7aX0gIyMiKQogIHRyeToKICAgIGNpcmN1aXQgPSBRdWFudHVtQ2lyY3VpdCgyKQogICAgY2lyY3VpdC5hZGRfSF9nYXRlKDApCiAgICBjaXJjdWl0LmFkZF9YX2dhdGUoMSkKICAgIGNpcmN1aXQuYWRkX0NOT1RfZ2F0ZSgwLCAxKQogICAgY2lyY3VpdC5hZGRfUllfZ2F0ZSgxLCAwLjEqaSkKICAgICNqb2IgPSBPcXRvcHVzU2FtcGxpbmdCYWNrZW5kKE9xdG9wdXNDb25maWcoIiIsICIiKSkuc2FtcGxlKGNpcmN1aXQsIDEwKmkrMTAwLCB0cmFuc3BpbGVyPSJub3JtYWwiKQogICAgam9iID0gT3F0b3B1c1NhbXBsaW5nQmFja2VuZCgpLnNhbXBsZShjaXJjdWl0LCBzaG90cz0xMCppKzEwMCwgbmFtZT0icXVyaS1wYXJ0cyB0ZXN0IiwgZGV2aWNlX2lkPSJwb2xsaW5nX3Rlc3RfZGV2aWNlIiwgdHJhbnNwaWxlcl9pbmZvPXt9KQogICAgI2pvYiA9IE9xdG9wdXNTYW1wbGluZ0JhY2tlbmQoKS5zYW1wbGUoY2lyY3VpdCwgMTAqaSsxMDAsIHRyYW5zcGlsZXI9Im5vcm1hbCIpCiAgICAjam9iID0gT3F0b3B1c1NhbXBsaW5nQmFja2VuZCgpLnNhbXBsZShjaXJjdWl0LCAxMCppKzEwMCwgdHJhbnNwaWxlcj0ibm9uZSIpCiAgICBwcmludCgiIyMjIyBKb2IxOiIpCiAgICBwcmludChqb2IpCiAgICByZXN1bHQgPSBqb2IucmVzdWx0KCkKICAgIHByaW50KCIjIyMjIFJlc3VsdDoiKQogICAgcHJpbnQocmVzdWx0LmNvdW50cykKCiAgICBqb2IyID0gT3F0b3B1c1NhbXBsaW5nQmFja2VuZChPcXRvcHVzQ29uZmlnKCJkdW1teSIsICJkdW1teSIpKS5zYW1wbGUoY2lyY3VpdCwgc2hvdHM9MTAqaSsxMDAsIG5hbWU9InF1cmktcGFydHMgdGVzdCIsIGRldmljZV9pZD0icG9sbGluZ190ZXN0X2RldmljZSIsIHRyYW5zcGlsZXJfaW5mbz17fSkKICAgICNqb2IyID0gT3F0b3B1c1NhbXBsaW5nQmFja2VuZChPcXRvcHVzQ29uZmlnKCJkdW1teSIsICJkdW1teSIpKS5zYW1wbGUoY2lyY3VpdCwgMTAqaSsxMDAsIHRyYW5zcGlsZXI9Im5vcm1hbCIpCiAgICAjam9iMiA9IE9xdG9wdXNTYW1wbGluZ0JhY2tlbmQoT3F0b3B1c0NvbmZpZygiZHVtbXkiLCAiZHVtbXkiKSkuc2FtcGxlKGNpcmN1aXQsIDEwKmkrMTAwLCB0cmFuc3BpbGVyPSJub25lIikKICAgIHByaW50KCIjIyMjIEpvYjI6IikKICAgIHByaW50KGpvYjIpCiAgICByZXN1bHQyID0gam9iMi5yZXN1bHQoKQogICAgcHJpbnQoIiMjIyMgUmVzdWx0OiIpCiAgICBwcmludChyZXN1bHQyLmNvdW50cykKICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICBwcmludChlKQogICAgaW1wb3J0IHRyYWNlYmFjawogICAgcHJpbnQodHJhY2ViYWNrLmZvcm1hdF9leGMoKSkKICAgIHByaW50KCJGQUlMIikKICAjYQogICN0aW1lLnNsZWVwKDYwKQoKcHJpbnQoIiMjIEZpbmlzaCAjIyIpCg==
+                - aW1wb3J0IG1hdHBsb3RsaWIKaW1wb3J0IG51bXB5CmltcG9ydCB5YW1sCmltcG9ydCBuZXR3b3JreAppbXBvcnQgcGFuZGFzCmltcG9ydCB0cWRtCmltcG9ydCBzY2lweQppbXBvcnQgc2tsZWFybgppbXBvcnQgcXVyaV9wYXJ0cwppbXBvcnQgcWlza2l0CmltcG9ydCBxdWxhY3MKaW1wb3J0IHNrcXVsYWNzCmltcG9ydCBweXF1Ym8KaW1wb3J0IG9wZW5qaWoKaW1wb3J0IGNpcnEKaW1wb3J0IHBlbm55bGFuZQppbXBvcnQgb3BlbmZlcm1pb24KaW1wb3J0IHRpbWUKCmZyb20gcXVyaV9wYXJ0c19vcXRvcHVzLmJhY2tlbmQuc2FtcGxpbmcgaW1wb3J0IE9xdG9wdXNTYW1wbGluZ0JhY2tlbmQsIE9xdG9wdXNDb25maWcKZnJvbSBxdXJpX3BhcnRzLmNpcmN1aXQgaW1wb3J0IFF1YW50dW1DaXJjdWl0Cgpmb3IgaSBpbiByYW5nZSgzKToKICB0aW1lLnNsZWVwKDEpCiAgcHJpbnQoZiIjIyBTdGFydCBpdGVyYXRpb24ge2l9ICMjIikKICB0cnk6CiAgICBjaXJjdWl0ID0gUXVhbnR1bUNpcmN1aXQoMikKICAgIGNpcmN1aXQuYWRkX0hfZ2F0ZSgwKQogICAgY2lyY3VpdC5hZGRfWF9nYXRlKDEpCiAgICBjaXJjdWl0LmFkZF9DTk9UX2dhdGUoMCwgMSkKICAgIGNpcmN1aXQuYWRkX1JZX2dhdGUoMSwgMC4xKmkpCiAgICB0cmFuc3BpbGVyX2luZm8gPSB7fQogICAgam9iID0gT3F0b3B1c1NhbXBsaW5nQmFja2VuZCgpLnNhbXBsZShjaXJjdWl0LCBzaG90cz0xMCppKzEwMCwgbmFtZT0idGVzdCBjaXJjdWl0IiwgZGV2aWNlX2lkPSIiLCB0cmFuc3BpbGVyX2luZm89dHJhbnNwaWxlcl9pbmZvKQogICAgcHJpbnQoam9iKQogICAgcmVzdWx0ID0gam9iLnJlc3VsdCgpCiAgICBwcmludCgiIyMjIyBSZXN1bHQ6IikKICAgIHByaW50KHJlc3VsdC5jb3VudHMpCgogIGV4Y2VwdCBFeGNlcHRpb24gYXMgZToKICAgIGltcG9ydCB0cmFjZWJhY2sKICAgIHByaW50KHRyYWNlYmFjay5mb3JtYXRfZXhjKCkpCiAgICBwcmludCgiIyMjIyBGQUlMRUQiKQoKcHJpbnQoIiMjIEZpbmlzaCAjIyIpCg==
               job_type: sse
               name: SSE test
               shots: 1
@@ -25,7 +25,7 @@ steps:
     test: |
       current.res.status == 200
     dump:
-      expr: current.res.body.job_id + "(SSE job) is posted"
+      expr: current.res.body.job_id + "(SSE job with default transpiler) is posted"
   wait:
     desc: check job status
     loop:
@@ -39,7 +39,13 @@ steps:
           headers:
             q-api-token: "{{ vars.token }}"
     dump:
-      expr: steps.post.res.body.job_id + "(SSE job) is in " + current.res.body.status
+      expr: steps.post.res.body.job_id + "(SSE job with default transpiler) is in " + current.res.body.status
   check:
     test: |
       steps.wait.res.body.status == "succeeded"
+  check-transpiler-lib:
+    test: |
+      steps.wait.res.body.transpiler_info.transpiler_lib == "qiskit"
+  check-transpiler-options:
+    test: |
+      steps.wait.res.body.transpiler_info.transpiler_options.optimization_level == 2

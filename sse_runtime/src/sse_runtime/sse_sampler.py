@@ -58,14 +58,9 @@ def req_transpile_and_exec(
         request = sse_pb2.TranspileAndExecRequest(job_data_json=json.dumps(req_json))
         response = stub.TranspileAndExec(request)
 
-        if response.status != "succeeded":
-            msg = f"To execute sampling on OQTOPUS server is failed. reason: {response.message}"  # noqa: E501
-            raise BackendError(msg)
-
+        # make content of output file to pass the result to sserunner
         ended = datetime.datetime.now(tz=datetime.UTC) \
-                                .strftime("%Y-%m-%d %H:%M:%S")
-
-        # make content of output file to pass to sserunner
+                        .strftime("%Y-%m-%d %H:%M:%S")
         job = _make_job_def(job_json, qasm[0], n_shots, transpiler, response)
         job.submitted_at = created
         job.ready_at = created
@@ -74,6 +69,11 @@ def req_transpile_and_exec(
 
         # write the content into result.json
         _log_result(_make_resultjson(job), "result.json")
+
+        # raise error if the job execution is failed
+        if response.status != "succeeded":
+            msg = f"To execute sampling on OQTOPUS server is failed. reason: {response.message}"  # noqa: E501
+            raise BackendError(msg)
 
         return job
 
@@ -86,21 +86,21 @@ def _make_job_def(
     response: sse_pb2.TranspileAndExecResponse,
 ) -> JobsJobDef:
     job_dict = json.loads(job_json)
-    result_dict = json.loads(response.result)
+    result_dict = json.loads(response.result or "{}")
 
     # result related data
-    counts = result_dict["counts"]
+    counts = result_dict.get("counts", None)
 
     # transpile result related data
-    transpiled_program = response.transpiled_qasm
-    stats = result_dict["transpiler_info"].get("stats", "")
+    transpiled_program = response.transpiled_qasm or ""
+    stats = result_dict.get("transpiler_info", {}).get("stats", "")
     virtual_physical_mapping = json.dumps(
-        result_dict["transpiler_info"].get("virtual_physical_mapping", "")
-    )  # the key name mismatch should be fixed
+        result_dict.get("transpiler_info", {}).get("virtual_physical_mapping", {})
+    )
 
     # job_info related data
     program = [qasm]
-    message = result_dict["message"]
+    message = response.message or ""
 
     # make job objects
     sampling_result = JobsSamplingResult(

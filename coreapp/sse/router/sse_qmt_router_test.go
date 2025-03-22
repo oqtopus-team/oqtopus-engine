@@ -45,7 +45,7 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			},
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.SUCCEEDED.String(),
-				Message:        "",
+				Message:        "dummysuccessresult",
 				TranspilerInfo: `{"transpiler_lib":"qiskit","transpiler_options":{"optimization_level":2}}`,
 				TranspiledQasm: "transpiled QASM",
 				Result:         `{"counts":{"00":400,"11":600},"divided_result":null,"transpiler_info":{"stats":"","physical_virtual_mapping":{"0":1, "1":0},"virtual_physical_mapping":{}},"estimation":null,"message":"dummy success result","execution_time":0}`,
@@ -65,7 +65,7 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			},
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.SUCCEEDED.String(),
-				Message:        "",
+				Message:        "dummysuccessresult",
 				TranspilerInfo: `{"transpiler_lib":"qiskit","transpiler_options":{"optimization_level":2}}`,
 				TranspiledQasm: "transpiled QASM",
 				Result:         `{"counts":{"00":400,"11":600},"divided_result":null,"transpiler_info":{"stats":"","physical_virtual_mapping":{"0":1, "1":0},"virtual_physical_mapping":{}},"estimation":null,"message":"dummy success result","execution_time":0}`,
@@ -85,7 +85,7 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			},
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.SUCCEEDED.String(),
-				Message:        "",
+				Message:        "dummysuccessresult",
 				TranspilerInfo: `{"transpiler_lib":"qiskit","transpiler_options":{"optimization_level":2}}`,
 				TranspiledQasm: "transpiled QASM",
 				Result:         `{"counts":{"00":400,"11":600},"divided_result":null,"transpiler_info":{"stats":"","physical_virtual_mapping":{"0":1, "1":0},"virtual_physical_mapping":{}},"estimation":null,"message":"dummy success result","execution_time":0}`,
@@ -106,7 +106,7 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			},
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.SUCCEEDED.String(),
-				Message:        "",
+				Message:        "dummysuccessresult",
 				TranspilerInfo: `{"transpiler_lib":null,"transpiler_options":{"optimization_level":2}}`,
 				TranspiledQasm: "",
 				Result:         `{"counts":{"00":400,"11":600},"divided_result":null,"transpiler_info":{"stats":"","physical_virtual_mapping":{"0":1, "1":0},"virtual_physical_mapping":{}},"estimation":null,"message":"dummy success result","execution_time":0}`,
@@ -168,7 +168,7 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.FAILED.String(),
 				Message:        "Failed to transpile: Transpile Error",
-				TranspilerInfo: "",
+				TranspilerInfo: "{\"transpiler_lib\":\"qiskit\",\"transpiler_options\":{\"optimization_level\":2}}",
 				TranspiledQasm: "",
 				Result:         "",
 			},
@@ -198,7 +198,7 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			name: "QPU error",
 			fields: fields{
 				container: getContainer(&successTranspilerForTest{},
-					&failQPUForTest{}), // returns error
+					&errorQPUForTest{}), // returns error
 			},
 			args: args{
 				ctx: context.Background(),
@@ -209,8 +209,29 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.FAILED.String(),
 				Message:        "Failed to execute qpu",
-				TranspilerInfo: "",
-				TranspiledQasm: "",
+				TranspilerInfo: "{\"transpiler_lib\":\"qiskit\",\"transpiler_options\":{\"optimization_level\":2}}",
+				TranspiledQasm: "transpiled QASM",
+				Result:         "",
+			},
+			wantErr: false,
+		},
+		{
+			name: "QPU status failure",
+			fields: fields{
+				container: getContainer(&successTranspilerForTest{},
+					&failQPUForTest{}), // returns nil but the status is FAILED
+			},
+			args: args{
+				ctx: context.Background(),
+				userReq: &sse.TranspileAndExecRequest{
+					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level": 2}}}`,
+				},
+			},
+			wantRes: &sse.TranspileAndExecResponse{
+				Status:         core.FAILED.String(),
+				Message:        "Failed to execute qpu",
+				TranspilerInfo: "{\"transpiler_lib\":\"qiskit\",\"transpiler_options\":{\"optimization_level\":2}}",
+				TranspiledQasm: "transpiled QASM",
 				Result:         "",
 			},
 			wantErr: false,

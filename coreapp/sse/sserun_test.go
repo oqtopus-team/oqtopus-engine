@@ -194,8 +194,6 @@ func Test_startContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerCreate(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(container.CreateResponse{ID: "ABCD1234"}, nil)
@@ -228,8 +226,6 @@ func Test_startContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerCreate(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(container.CreateResponse{ID: "ABCD1234"}, fmt.Errorf(""))
@@ -262,8 +258,6 @@ func Test_startContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerCreate(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(container.CreateResponse{ID: "ABCD1234"}, nil)
@@ -319,8 +313,6 @@ func Test_copyUserProgramIntoContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().CopyToContainer(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 						return mock
@@ -349,8 +341,6 @@ func Test_copyUserProgramIntoContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().CopyToContainer(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(0)
 						return mock
@@ -381,8 +371,6 @@ func Test_copyUserProgramIntoContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().CopyToContainer(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(fmt.Errorf(""))
@@ -455,8 +443,6 @@ func Test_execCommandInContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerExecCreate(gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(types.IDResponse{}, nil)
@@ -495,8 +481,6 @@ func Test_execCommandInContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerExecCreate(gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(types.IDResponse{}, fmt.Errorf("error"))
@@ -535,8 +519,6 @@ func Test_execCommandInContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerExecCreate(gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(types.IDResponse{}, nil)
@@ -575,8 +557,6 @@ func Test_execCommandInContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerExecCreate(gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(types.IDResponse{}, nil)
@@ -615,8 +595,6 @@ func Test_execCommandInContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerExecCreate(gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(types.IDResponse{}, nil)
@@ -655,8 +633,6 @@ func Test_execCommandInContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerExecCreate(gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(types.IDResponse{}, nil)
@@ -740,8 +716,6 @@ func Test_copyResultFromContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().CopyFromContainer(gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(io.NopCloser(tarData()), types.ContainerPathStat{}, nil)
@@ -770,8 +744,6 @@ func Test_copyResultFromContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().CopyFromContainer(gomock.Any(), gomock.Any(), gomock.Any()).
 							Return(io.NopCloser(tarData()), types.ContainerPathStat{}, fmt.Errorf("error"))
@@ -828,8 +800,6 @@ func Test_getContainerLog(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerLogs(gomock.Any(), gomock.Any(), gomock.Any()).Return(io.NopCloser(strings.NewReader("test")), nil)
 						return mock
@@ -859,8 +829,6 @@ func Test_getContainerLog(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerLogs(gomock.Any(), gomock.Any(), gomock.Any()).Return(io.NopCloser(strings.NewReader("test")), fmt.Errorf("error"))
 						return mock
@@ -890,8 +858,6 @@ func Test_getContainerLog(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerLogs(gomock.Any(), gomock.Any(), gomock.Any()).Return(io.NopCloser(FakeReader{sleep: 0}), nil)
 						return mock
@@ -948,8 +914,6 @@ func Test_stopContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "running"},
@@ -983,8 +947,6 @@ func Test_stopContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "created"},
@@ -1018,8 +980,6 @@ func Test_stopContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "running"},
@@ -1053,8 +1013,6 @@ func Test_stopContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "running"},
@@ -1105,8 +1063,6 @@ func Test_removeContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "exited"},
@@ -1118,8 +1074,6 @@ func Test_removeContainer(t *testing.T) {
 					}(),
 					volumeClient: func() client.VolumeAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().VolumeRemove(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 						return mock
@@ -1144,22 +1098,17 @@ func Test_removeContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "running"},
 						},
 						},
 							nil)
-						//mock.EXPECT().ContainerRemove(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 						return mock
 					}(),
 					volumeClient: func() client.VolumeAPIClient {
 						mockCtrl := gomock.NewController(t)
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
-						//mock.EXPECT().VolumeRemove(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 						return mock
 					}(),
 					config: &container.Config{
@@ -1182,26 +1131,20 @@ func Test_removeContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
-						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
-							State: &types.ContainerState{Status: "running"},
-						},
-						},
-							fmt.Errorf(""))
-						// TODO decide whether to call this function
-						//mock.EXPECT().ContainerRemove(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).
+							Return(types.ContainerJSON{
+								ContainerJSONBase: &types.ContainerJSONBase{
+									State: &types.ContainerState{Status: "running"},
+								},
+							},
+								fmt.Errorf(""),
+							)
 						return mock
 					}(),
 					volumeClient: func() client.VolumeAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
-						// TODO decide whether to call this function
-						//mock.EXPECT().ContainerRemove(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-						//mock.EXPECT().VolumeRemove(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 						return mock
 					}(),
 					config: &container.Config{
@@ -1224,8 +1167,6 @@ func Test_removeContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "exited"},
@@ -1237,11 +1178,7 @@ func Test_removeContainer(t *testing.T) {
 					}(),
 					volumeClient: func() client.VolumeAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
-						// TODO decide whether to call this function
-						//mock.EXPECT().VolumeRemove(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 						return mock
 					}(),
 					config: &container.Config{
@@ -1264,8 +1201,6 @@ func Test_removeContainer(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "exited"},
@@ -1277,8 +1212,6 @@ func Test_removeContainer(t *testing.T) {
 					}(),
 					volumeClient: func() client.VolumeAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().VolumeRemove(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("volume remove error test"))
 						return mock
@@ -1638,10 +1571,9 @@ func Test_setResultToOutputJob(t *testing.T) {
 				jsonStr = `{
 							"job_id": "10",
 							"status": "succeeded",
-							"message": "test message",
 							"shots": 1234,
 							"job_info": {
-								"program": "test qasm",
+								"program": ["test qasm"],
 								"transpile_result": {
 									"transpiled_program": "TEST QASM TRANSPILED",
 									"stats": "STATS",
@@ -1700,9 +1632,10 @@ func Test_setResultToOutputJob(t *testing.T) {
 			if err == nil {
 				assert.Equal(t, *tt.want, *tt.args.outputJob.Result)
 				assert.Equal(t, "TEST QASM TRANSPILED", tt.args.outputJob.TranspiledQASM)
+				assert.Equal(t, core.SUCCEEDED, tt.args.outputJob.Status)
+				assert.Equal(t, "Test Msg", tt.args.outputJob.Result.Message)
 			}
 			assert.Equal(t, "10", tt.args.outputJob.ID)
-			assert.Equal(t, core.RUNNING, tt.args.outputJob.Status)
 			assert.Equal(t, 1, tt.args.outputJob.Shots)
 		})
 	}
@@ -1776,8 +1709,6 @@ func Test_errAfterContainerMake(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "running"},
@@ -1813,8 +1744,6 @@ func Test_errAfterContainerMake(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "created"},
@@ -1850,8 +1779,6 @@ func Test_errAfterContainerMake(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "created"},
@@ -1887,8 +1814,6 @@ func Test_errAfterContainerMake(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "created"},
@@ -1924,8 +1849,6 @@ func Test_errAfterContainerMake(t *testing.T) {
 					containerName: "TestContainer",
 					client: func() client.ContainerAPIClient {
 						mockCtrl := gomock.NewController(t)
-						// TODO decide whether to defer mockCtrl.Finish()
-						//defer mockCtrl.Finish()
 						mock := NewMockCommonAPIClient(mockCtrl)
 						mock.EXPECT().ContainerInspect(gomock.Any(), gomock.Any()).Return(types.ContainerJSON{ContainerJSONBase: &types.ContainerJSONBase{
 							State: &types.ContainerState{Status: "created"},

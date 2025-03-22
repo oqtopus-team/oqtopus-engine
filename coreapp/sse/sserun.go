@@ -618,6 +618,7 @@ func setResultToOutputJob(outputJob *core.JobData, outPath string, fileName stri
 
 	if err := json.Unmarshal(bytes, contents); err != nil {
 		zap.L().Error(fmt.Sprintf("failed to unmarshal json, reason:%s", err))
+		return err
 	}
 
 	// Set the result to outputJob
@@ -631,6 +632,12 @@ func setResultToOutputJob(outputJob *core.JobData, outPath string, fileName stri
 	}
 	outputJob.TranspiledQASM = contents.JobInfo.TranspileResult.TranspiledProgram
 	outputJob.Transpiler = &contents.TranspilerInfo
+	status, err := core.ToStatus(contents.Status)
+	if err != nil {
+		err = makeErrMsg(msg, err)
+		return err
+	}
+	outputJob.Status = status
 
 	return nil
 }

@@ -42,6 +42,7 @@ func (m *GRPCRouter) TranspileAndExec(ctx context.Context, userReq *sse.Transpil
 		err := fmt.Errorf("Invalid request. Reason: JobDataJson is empty")
 		zap.L().Error(err.Error())
 		res.Message = "Invalid request. The request data for transpiling is empty."
+		zap.L().Debug(fmt.Sprintf("Response: %+v", res))
 		return res, nil
 	}
 	zap.L().Debug(fmt.Sprintf("Received JobDataJson: %s", JobDataJson))
@@ -51,6 +52,7 @@ func (m *GRPCRouter) TranspileAndExec(ctx context.Context, userReq *sse.Transpil
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("Failed to convert JSON to JobData. Reason:%s", err))
 		res.Message = "Invalid request data for transpiling."
+		zap.L().Debug(fmt.Sprintf("Response: %+v", res))
 		return res, nil
 	}
 	jd := j.JobData()
@@ -64,6 +66,7 @@ func (m *GRPCRouter) TranspileAndExec(ctx context.Context, userReq *sse.Transpil
 	if err != nil {
 		zap.L().Info(fmt.Sprintf("Invalid shots. Reason:%s", err))
 		res.Message = fmt.Sprintf("Invalid shots: %s", err)
+		zap.L().Debug(fmt.Sprintf("Response: %+v", res))
 		return res, nil
 	}
 
@@ -75,12 +78,22 @@ func (m *GRPCRouter) TranspileAndExec(ctx context.Context, userReq *sse.Transpil
 	if err != nil {
 		zap.L().Info(fmt.Sprintf("Invalid QASM. Reason:%s", err))
 		res.Message = fmt.Sprintf("Invalid QASM: %s", err)
+		zap.L().Debug(fmt.Sprintf("Response: %+v", res))
 		return res, nil
 	}
 
+	// TRANSPILE SECTION START
 	if jd.Transpiler == nil || useDefaultTranspiler(JobDataJson) {
 		jd.Transpiler = oas.DEFAULT_TRANSPILER_CONFIG()
 	}
+	// Set the transpiler info to response
+	transpilerJson, err := json.Marshal(jd.Transpiler)
+	if err != nil {
+		zap.L().Error(fmt.Sprintf("Failed to marshal transpiler info. Reason:%s", err))
+	} else {
+		res.TranspilerInfo = string(transpilerJson)
+	}
+
 	if jd.Transpiler.NeedTranspiling() {
 		zap.L().Info(fmt.Sprintf("Start transpiling for SSE, JobID:%s", jd.ID))
 		// Transpile the quantum circuit
@@ -91,17 +104,23 @@ func (m *GRPCRouter) TranspileAndExec(ctx context.Context, userReq *sse.Transpil
 		if err != nil {
 			zap.L().Error(fmt.Sprintf("Failed to transpile the quantum circuit. Reason:%s", err))
 			res.Message = fmt.Sprintf("Failed to transpile: %s", err)
+			zap.L().Debug(fmt.Sprintf("Response: %+v", res))
 			return res, nil
 		}
 		if j.JobData().Status == core.FAILED {
 			zap.L().Error("The result status of transpiler is FAILED")
-			res.Message = fmt.Sprintf("Failed to transpile: %s", err)
+			res.Message = fmt.Sprintf("Failed to transpile")
+			zap.L().Debug(fmt.Sprintf("Response: %+v", res))
 			return res, nil
 		}
 	} else {
 		zap.L().Info(fmt.Sprintf("Skip transpiling for SSE, JobID:%s", jd.ID))
 	}
 
+	// Set the transpiled QASM to response
+	res.TranspiledQasm = jd.TranspiledQASM
+
+	// QPU SECTION START
 	zap.L().Info(fmt.Sprintf("Start calling qmt for SSE, JobID:%s", jd.ID))
 	// Call qmt qpu
 	err = m.container.Invoke(
@@ -114,20 +133,17 @@ func (m *GRPCRouter) TranspileAndExec(ctx context.Context, userReq *sse.Transpil
 		res.Message = "Failed to execute qpu"
 		return res, nil
 	}
-
-	// Set the response
-	transpilerJson, err := json.Marshal(jd.Transpiler)
-	if err != nil {
-		zap.L().Error(fmt.Sprintf("Failed to marshal transpiler info. Reason:%s", err))
-	} else {
-		res.TranspilerInfo = string(transpilerJson)
+	if j.JobData().Status == core.FAILED {
+		zap.L().Error("The result status of QPU is FAILED")
+		res.Message = fmt.Sprintf("Failed to execute qpu")
+		return res, nil
 	}
-	res.TranspiledQasm = jd.TranspiledQASM
+
 	if jd.Result != nil {
 		res.Result = jd.Result.ToString()
+		res.Message = j.JobData().Result.Message
 	}
-	res.Status = core.SUCCEEDED.String()
-
+	res.Status = j.JobData().Status.String()
 	zap.L().Info(fmt.Sprintf("Succeeded to transpile and execute for SSE, JobID:%s", jd.ID))
 	zap.L().Debug(fmt.Sprintf("Response: %+v", res))
 	return res, nil
