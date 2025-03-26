@@ -3,11 +3,45 @@ package multiprog
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/core"
 	"go.uber.org/zap"
 )
+
+func fillMissingDigits(inputPhysicalBitString string, physicalQubitList []int) ([]string, error) {
+	// Fill in the missing digits of the physical qubit
+	// ex) When inputPhysicalBitString: "111" and virtualPhysicalMapping: {0: 0, 1: 2, 2: 4}, physical qubit 1 and 3 are missing.
+	//	   Then fill the missing physical qubit with 0, filledPhysicalBitString: "10101"
+
+	if len(physicalQubitList) != len(inputPhysicalBitString) {
+		return nil, fmt.Errorf("The length of the physical qubit list %d is not equal to the length of the input bit string %d",
+			len(physicalQubitList), len(inputPhysicalBitString))
+	}
+
+	// get the maximum physical qubit number
+	maxPhysical := 0
+	for _, physical := range physicalQubitList {
+		if physical > maxPhysical {
+			maxPhysical = physical
+		}
+	}
+
+	filledPhysicalBitMap := make([]string, maxPhysical+1)
+	cursor := len(inputPhysicalBitString) - 1
+	for i := 0; i <= maxPhysical; i++ {
+		if slices.Contains(physicalQubitList, i) {
+			// copy the bit string from the input
+			filledPhysicalBitMap[maxPhysical-i] = string(inputPhysicalBitString[cursor])
+			cursor--
+		} else {
+			// fill with 0 if the physical qubit is missing
+			filledPhysicalBitMap[maxPhysical-i] = "0"
+		}
+	}
+	return filledPhysicalBitMap, nil
+}
 
 func swapVirtualPhysical(counts core.Counts, virtualPhysicalMappingMap core.VirtualPhysicalMappingMap) (core.Counts, error) {
 	if len(virtualPhysicalMappingMap) == 0 {
@@ -17,21 +51,39 @@ func swapVirtualPhysical(counts core.Counts, virtualPhysicalMappingMap core.Virt
 	var result core.Counts = core.Counts{}
 	n_qubits := len(virtualPhysicalMappingMap)
 
+	physicalQubitList := []int{}
+	for _, physical := range virtualPhysicalMappingMap {
+		physicalQubitList = append(physicalQubitList, int(physical))
+	}
+
 	for inputPhysicalBitString, count := range counts {
-		length := len(inputPhysicalBitString)
-		if length != n_qubits {
+		virtualQubits := len(inputPhysicalBitString)
+		if virtualQubits != n_qubits {
 			return counts, errors.New("bit string length of the counts is not equal to the length of virtualPhysicalMapping")
 		}
+		// Fill in the missing digits of the physical qubit to make the next proccess easier
+		filledPhysicalBitMap, err := fillMissingDigits(inputPhysicalBitString, physicalQubitList)
+		if err != nil {
+			fmt.Errorf("failed to fill the missing digits of the physical qubit: %s", err)
+			return counts, err
+		}
+		physicalQubits := len(filledPhysicalBitMap)
+
 		// Swap the bits according to the virtualPhysicalMapping
-		swappedVirtualBitMap := make([]string, length)
+		swappedVirtualBitMap := make([]string, virtualQubits)
 		for virtual, physical := range virtualPhysicalMappingMap {
-			if int(physical) >= length || int(virtual) >= length {
+			if int(virtual) >= virtualQubits {
 				return counts,
-					fmt.Errorf("virtual or physical qubit number is out of range. virtual: %d, physical: %d, length: %d",
-						virtual, physical, length)
+					fmt.Errorf("virtual qubit number is out of range. virtual: %d, length: %d",
+						virtual, virtualQubits)
+			}
+			if int(physical) >= physicalQubits {
+				return counts,
+					fmt.Errorf("physical qubit number is out of range. physical: %d, length: %d",
+						physical, physicalQubits)
 			}
 			// relocate the physical qubit to the virtual qubit
-			swappedVirtualBitMap[length-int(virtual)-1] = inputPhysicalBitString[length-int(physical)-1 : length-int(physical)]
+			swappedVirtualBitMap[virtualQubits-int(virtual)-1] = filledPhysicalBitMap[physicalQubits-int(physical)-1]
 		}
 		result[strings.Join(swappedVirtualBitMap, "")] = count
 	}
