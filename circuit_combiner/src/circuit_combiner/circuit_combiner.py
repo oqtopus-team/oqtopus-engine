@@ -182,7 +182,7 @@ class CircuitCombiner(CircuitCombinerService):
                 # save combined_qubits_list
                 # the order of the combined_qubits_list is reversed for
                 # the convenience of the measurement and division
-                combined_qubits_list = [one_circuit.num_qubits, *combined_qubits_list]
+                combined_qubits_list = [one_circuit.num_clbits, *combined_qubits_list]
             combined_circuit_obj = qiskit.qasm3.dumps(combined_circuit.decompose())
         except Exception:
             self.logger.exception("Exception")
