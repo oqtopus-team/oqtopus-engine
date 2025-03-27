@@ -65,12 +65,58 @@ func Test_fillMissingDigits(t *testing.T) {
 				return assert.EqualError(t, err, "The length of the physical qubit list 2 is not equal to the length of the input bit string 3")
 			},
 		},
+		{
+			name: "invalid physical qubits (too much)",
+			args: args{
+				inputPhysicalBitString: "111",
+				physicalQubitList:      []int{0, 2, 3, 5},
+			},
+			want: nil,
+			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return assert.EqualError(t, err, "The length of the physical qubit list 4 is not equal to the length of the input bit string 3")
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := fillMissingDigits(tt.args.inputPhysicalBitString, tt.args.physicalQubitList)
 			assert.Equal(t, tt.want, got)
 			tt.assertion(t, err)
+		})
+	}
+}
+
+func Test_extractVirtualPhysicalMapping(t *testing.T) {
+	type args struct {
+		counts                 core.Counts
+		virtualPhysicalMapping core.VirtualPhysicalMapping
+	}
+	tests := []struct {
+		name string
+		args args
+		want core.VirtualPhysicalMapping
+	}{
+		{
+			name: "no need to extract",
+			args: args{
+				counts:                 core.Counts{"00": 10, "11": 30},
+				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1},
+			},
+			want: core.VirtualPhysicalMapping{0: 0, 1: 1},
+		},
+		{
+			name: "need to extract",
+			args: args{
+				counts:                 core.Counts{"00": 10, "11": 30},
+				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 2, 2: 3, 3: 1, 4: 4},
+			},
+			want: core.VirtualPhysicalMapping{0: 0, 1: 2},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractVirtualPhysicalMapping(tt.args.counts, tt.args.virtualPhysicalMapping)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -102,6 +148,17 @@ func Test_swapVirtualPhysical(t *testing.T) {
 			args: args{
 				counts:                 core.Counts{"00": 1, "01": 2, "10": 4, "11": 8},
 				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 1, 1: 0},
+			},
+			want: core.Counts{"00": 1, "01": 4, "10": 2, "11": 8},
+			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return assert.NoError(t, err)
+			},
+		},
+		{
+			name: "2 qubits, VirtualPhysicalMapping is longer than classical bits, swap",
+			args: args{
+				counts:                 core.Counts{"00": 1, "01": 2, "10": 4, "11": 8}, // 2 cbits
+				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 5, 1: 4, 2: 0},   // 3 elements
 			},
 			want: core.Counts{"00": 1, "01": 4, "10": 2, "11": 8},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
@@ -177,7 +234,7 @@ func Test_swapVirtualPhysical(t *testing.T) {
 			},
 			want: core.Counts{"010": 1, "111": 2},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
-				return assert.EqualError(t, err, "bit string length of the counts is not equal to the length of virtualPhysicalMapping")
+				return assert.EqualError(t, err, "The length of the physical qubit list 2 is not equal to the length of the input bit string 3")
 			},
 		},
 		{
@@ -198,6 +255,28 @@ func Test_swapVirtualPhysical(t *testing.T) {
 				virtualPhysicalMapping: nil,
 			},
 			want: core.Counts{"010": 1, "111": 2},
+			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return assert.NoError(t, err)
+			},
+		},
+		{
+			name: "n_cbits is less than virtualPhysicalMapping",
+			args: args{
+				counts:                 core.Counts{"010": 1, "111": 2},
+				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 3: 3, 1: 2, 2: 1},
+			},
+			want: core.Counts{"100": 1, "111": 2},
+			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return assert.NoError(t, err)
+			},
+		},
+		{
+			name: "n_cbits is less than virtualPhysicalMapping, non-sequential pysical qubits",
+			args: args{
+				counts:                 core.Counts{"010": 1, "111": 2},
+				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 3: 2, 2: 3, 1: 5},
+			},
+			want: core.Counts{"100": 1, "111": 2},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
 				return assert.NoError(t, err)
 			},
@@ -496,6 +575,42 @@ func TestDivideResult(t *testing.T) {
 			},
 		},
 		{
+			name: "Positive test - 2 circuits - swap virtual and physical qubits with larger VirtualPhysicalMapping ",
+			args: args{
+				jd: &core.JobData{Result: &core.Result{
+					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 1, 1: 2, 4: 4, 2: 3, 3: 0}}, // longer than the number of classical bits
+				}},
+				combinedQubitsList: []int32{3, 1},
+			},
+			wantCounts: core.Counts{
+				"0001": 16,
+				"0010": 2,
+				"0011": 32,
+				"0100": 4,
+				"1000": 1,
+				"1101": 64,
+				"1111": 8,
+			},
+			wantDividedCounts: core.DividedResult{
+				0: {
+					"0": 7,
+					"1": 120,
+				},
+				1: {
+					"000": 16,
+					"001": 34,
+					"010": 4,
+					"100": 1,
+					"110": 64,
+					"111": 8,
+				},
+			},
+			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return assert.NoError(t, err)
+			},
+		},
+		{
 			name: "Positive test - 2 circuits - swap virtual and physical qubits with non-sequential mapping",
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
@@ -524,6 +639,42 @@ func TestDivideResult(t *testing.T) {
 					"010": 4,
 					"100": 1,
 					"110": 64,
+					"111": 8,
+				},
+			},
+			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return assert.NoError(t, err)
+			},
+		},
+		{
+			name: "Positive test - 2 circuits - swap virtual and physical qubits with larger and non-sequential mapping ",
+			args: args{
+				jd: &core.JobData{Result: &core.Result{
+					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 1, 1: 4, 4: 2, 2: 3, 3: 0}}, // longer and non-sequential
+				}},
+				combinedQubitsList: []int32{3, 1},
+			},
+			wantCounts: core.Counts{
+				"1000": 1,
+				"0100": 2,
+				"0010": 4,
+				"1111": 8,
+				"0001": 16,
+				"0101": 32,
+				"1011": 64,
+			},
+			wantDividedCounts: core.DividedResult{
+				0: {
+					"0": 7,
+					"1": 120,
+				},
+				1: {
+					"000": 16,
+					"001": 4,
+					"010": 34,
+					"100": 1,
+					"101": 64,
 					"111": 8,
 				},
 			},
@@ -673,7 +824,7 @@ func TestDivideResult(t *testing.T) {
 			},
 			wantDividedCounts: nil,
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
-				return assert.EqualError(t, err, "bit string length of the counts is not equal to the length of virtualPhysicalMapping")
+				return assert.EqualError(t, err, "The length of the physical qubit list 3 is not equal to the length of the input bit string 4")
 			},
 		},
 		{
