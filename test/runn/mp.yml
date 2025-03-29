@@ -26,8 +26,8 @@ steps:
                status: submitted
     test: | 
       current.res.status == 200
-    #dump:
-      #expr: current.res.body.job_id + "(mp job) is posted"
+    dump:
+      expr: current.res.body.job_id + "(mp job) is posted"
   wait:
     desc: check job status
     loop:
@@ -42,6 +42,16 @@ steps:
             q-api-token: "{{ vars.token }}"
     dump:
       expr: steps.post.res.body.job_id + "(mp job) is in " + current.res.body.status
-  check:
+  check-status:
     test: |
       steps.wait.res.body.status == "succeeded"
+  check-combined-program:
+    test: |
+      steps.wait.res.body.job_info.combined_program != ""
+      && steps.wait.res.body.job_info.combined_program != null
+  check-counts:
+    test: |
+      len(steps.wait.res.body.job_info.result.sampling.counts) > 0
+      && len(steps.wait.res.body.job_info.result.sampling.divided_counts) == 2
+      && len(steps.wait.res.body.job_info.result.sampling.divided_counts["0"]) > 0
+      && len(steps.wait.res.body.job_info.result.sampling.divided_counts["1"]) > 0

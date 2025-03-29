@@ -877,9 +877,9 @@ func (s *JobsSamplingResultDividedCounts) init() JobsSamplingResultDividedCounts
 
 // Ref: #/components/schemas/jobs.TranspileResult
 type JobsTranspileResult struct {
-	TranspiledProgram      NilString `json:"transpiled_program"`
-	Stats                  NilString `json:"stats"`
-	VirtualPhysicalMapping NilString `json:"virtual_physical_mapping"`
+	TranspiledProgram      NilString                                    `json:"transpiled_program"`
+	Stats                  NilJobsTranspileResultStats                  `json:"stats"`
+	VirtualPhysicalMapping NilJobsTranspileResultVirtualPhysicalMapping `json:"virtual_physical_mapping"`
 }
 
 // GetTranspiledProgram returns the value of TranspiledProgram.
@@ -888,12 +888,12 @@ func (s *JobsTranspileResult) GetTranspiledProgram() NilString {
 }
 
 // GetStats returns the value of Stats.
-func (s *JobsTranspileResult) GetStats() NilString {
+func (s *JobsTranspileResult) GetStats() NilJobsTranspileResultStats {
 	return s.Stats
 }
 
 // GetVirtualPhysicalMapping returns the value of VirtualPhysicalMapping.
-func (s *JobsTranspileResult) GetVirtualPhysicalMapping() NilString {
+func (s *JobsTranspileResult) GetVirtualPhysicalMapping() NilJobsTranspileResultVirtualPhysicalMapping {
 	return s.VirtualPhysicalMapping
 }
 
@@ -903,13 +903,35 @@ func (s *JobsTranspileResult) SetTranspiledProgram(val NilString) {
 }
 
 // SetStats sets the value of Stats.
-func (s *JobsTranspileResult) SetStats(val NilString) {
+func (s *JobsTranspileResult) SetStats(val NilJobsTranspileResultStats) {
 	s.Stats = val
 }
 
 // SetVirtualPhysicalMapping sets the value of VirtualPhysicalMapping.
-func (s *JobsTranspileResult) SetVirtualPhysicalMapping(val NilString) {
+func (s *JobsTranspileResult) SetVirtualPhysicalMapping(val NilJobsTranspileResultVirtualPhysicalMapping) {
 	s.VirtualPhysicalMapping = val
+}
+
+type JobsTranspileResultStats map[string]jx.Raw
+
+func (s *JobsTranspileResultStats) init() JobsTranspileResultStats {
+	m := *s
+	if m == nil {
+		m = map[string]jx.Raw{}
+		*s = m
+	}
+	return m
+}
+
+type JobsTranspileResultVirtualPhysicalMapping map[string]jx.Raw
+
+func (s *JobsTranspileResultVirtualPhysicalMapping) init() JobsTranspileResultVirtualPhysicalMapping {
+	m := *s
+	if m == nil {
+		m = map[string]jx.Raw{}
+		*s = m
+	}
+	return m
 }
 
 // Ref: #/components/schemas/jobs.UpdateJobInfo
@@ -1076,6 +1098,96 @@ func (s *JobsUploadSselogResponse) SetMessage(val string) {
 }
 
 func (*JobsUploadSselogResponse) patchSselogRes() {}
+
+// NewNilJobsTranspileResultStats returns new NilJobsTranspileResultStats with value set to v.
+func NewNilJobsTranspileResultStats(v JobsTranspileResultStats) NilJobsTranspileResultStats {
+	return NilJobsTranspileResultStats{
+		Value: v,
+	}
+}
+
+// NilJobsTranspileResultStats is nullable JobsTranspileResultStats.
+type NilJobsTranspileResultStats struct {
+	Value JobsTranspileResultStats
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilJobsTranspileResultStats) SetTo(v JobsTranspileResultStats) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsSet returns true if value is Null.
+func (o NilJobsTranspileResultStats) IsNull() bool { return o.Null }
+
+// SetNull sets value to null.
+func (o *NilJobsTranspileResultStats) SetToNull() {
+	o.Null = true
+	var v JobsTranspileResultStats
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilJobsTranspileResultStats) Get() (v JobsTranspileResultStats, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilJobsTranspileResultStats) Or(d JobsTranspileResultStats) JobsTranspileResultStats {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewNilJobsTranspileResultVirtualPhysicalMapping returns new NilJobsTranspileResultVirtualPhysicalMapping with value set to v.
+func NewNilJobsTranspileResultVirtualPhysicalMapping(v JobsTranspileResultVirtualPhysicalMapping) NilJobsTranspileResultVirtualPhysicalMapping {
+	return NilJobsTranspileResultVirtualPhysicalMapping{
+		Value: v,
+	}
+}
+
+// NilJobsTranspileResultVirtualPhysicalMapping is nullable JobsTranspileResultVirtualPhysicalMapping.
+type NilJobsTranspileResultVirtualPhysicalMapping struct {
+	Value JobsTranspileResultVirtualPhysicalMapping
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilJobsTranspileResultVirtualPhysicalMapping) SetTo(v JobsTranspileResultVirtualPhysicalMapping) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsSet returns true if value is Null.
+func (o NilJobsTranspileResultVirtualPhysicalMapping) IsNull() bool { return o.Null }
+
+// SetNull sets value to null.
+func (o *NilJobsTranspileResultVirtualPhysicalMapping) SetToNull() {
+	o.Null = true
+	var v JobsTranspileResultVirtualPhysicalMapping
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilJobsTranspileResultVirtualPhysicalMapping) Get() (v JobsTranspileResultVirtualPhysicalMapping, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilJobsTranspileResultVirtualPhysicalMapping) Or(d JobsTranspileResultVirtualPhysicalMapping) JobsTranspileResultVirtualPhysicalMapping {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
 
 // NewNilString returns new NilString with value set to v.
 func NewNilString(v string) NilString {

@@ -12,8 +12,8 @@ import (
 
 func Test_swapVirtualPhysical(t *testing.T) {
 	type args struct {
-		counts                 core.Counts
-		virtualPhysicalMapping core.VirtualPhysicalMapping
+		counts                    core.Counts
+		virtualPhysicalMappingMap core.VirtualPhysicalMappingMap
 	}
 	tests := []struct {
 		name      string
@@ -24,8 +24,8 @@ func Test_swapVirtualPhysical(t *testing.T) {
 		{
 			name: "2 qubits, no swap",
 			args: args{
-				counts:                 core.Counts{"00": 1, "01": 2, "10": 4, "11": 8},
-				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1},
+				counts:                    core.Counts{"00": 1, "01": 2, "10": 4, "11": 8},
+				virtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1},
 			},
 			want: core.Counts{"00": 1, "01": 2, "10": 4, "11": 8},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
@@ -35,8 +35,8 @@ func Test_swapVirtualPhysical(t *testing.T) {
 		{
 			name: "2 qubits, swap",
 			args: args{
-				counts:                 core.Counts{"00": 1, "01": 2, "10": 4, "11": 8},
-				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 1, 1: 0},
+				counts:                    core.Counts{"00": 1, "01": 2, "10": 4, "11": 8},
+				virtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 1, 1: 0},
 			},
 			want: core.Counts{"00": 1, "01": 4, "10": 2, "11": 8},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
@@ -46,8 +46,8 @@ func Test_swapVirtualPhysical(t *testing.T) {
 		{
 			name: "3 qubits, no swap",
 			args: args{
-				counts:                 core.Counts{"010": 1, "111": 2},
-				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1, 2: 2},
+				counts:                    core.Counts{"010": 1, "111": 2},
+				virtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1, 2: 2},
 			},
 			want: core.Counts{"010": 1, "111": 2},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
@@ -57,8 +57,8 @@ func Test_swapVirtualPhysical(t *testing.T) {
 		{
 			name: "3 qubits, swap",
 			args: args{
-				counts:                 core.Counts{"010": 1, "111": 2},
-				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 2, 2: 1},
+				counts:                    core.Counts{"010": 1, "111": 2},
+				virtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 2, 2: 1},
 			},
 			want: core.Counts{"100": 1, "111": 2},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
@@ -70,7 +70,7 @@ func Test_swapVirtualPhysical(t *testing.T) {
 			args: args{
 				counts: core.Counts{"0000": 1, "0001": 2, "0010": 4, "0011": 8, "0100": 16, "0101": 32, "0110": 64, "0111": 128,
 					"1000": 256, "1001": 512, "1010": 1024, "1011": 2048, "1100": 4096, "1101": 8192, "1110": 16384, "1111": 32768},
-				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1, 2: 2, 3: 3},
+				virtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1, 2: 2, 3: 3},
 			},
 			want: core.Counts{"0000": 1, "0001": 2, "0010": 4, "0011": 8, "0100": 16, "0101": 32, "0110": 64, "0111": 128,
 				"1000": 256, "1001": 512, "1010": 1024, "1011": 2048, "1100": 4096, "1101": 8192, "1110": 16384, "1111": 32768},
@@ -83,7 +83,7 @@ func Test_swapVirtualPhysical(t *testing.T) {
 			args: args{
 				counts: core.Counts{"0000": 1, "0001": 2, "0010": 4, "0011": 8, "0100": 16, "0101": 32, "0110": 64, "0111": 128,
 					"1000": 256, "1001": 512, "1010": 1024, "1011": 2048, "1100": 4096, "1101": 8192, "1110": 16384, "1111": 32768},
-				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 3, 1: 0, 2: 2, 3: 1},
+				virtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 3, 1: 0, 2: 2, 3: 1},
 			},
 			want: core.Counts{"0000": 1, "0001": 256, "0010": 2, "0011": 512, "0100": 16, "0101": 4096, "0110": 32, "0111": 8192,
 				"1000": 4, "1001": 1024, "1010": 8, "1011": 2048, "1100": 64, "1101": 16384, "1110": 128, "1111": 32768},
@@ -94,8 +94,8 @@ func Test_swapVirtualPhysical(t *testing.T) {
 		{
 			name: "inconsistent qubits",
 			args: args{
-				counts:                 core.Counts{"010": 1, "111": 2},         // 3 qubits
-				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1}, // 2 qubits
+				counts:                    core.Counts{"010": 1, "111": 2},            // 3 qubits
+				virtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1}, // 2 qubits
 			},
 			want: core.Counts{"010": 1, "111": 2},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
@@ -105,8 +105,8 @@ func Test_swapVirtualPhysical(t *testing.T) {
 		{
 			name: "empty virtualPhysicalMapping",
 			args: args{
-				counts:                 core.Counts{"010": 1, "111": 2},
-				virtualPhysicalMapping: core.VirtualPhysicalMapping{},
+				counts:                    core.Counts{"010": 1, "111": 2},
+				virtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{},
 			},
 			want: core.Counts{"010": 1, "111": 2},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
@@ -116,8 +116,8 @@ func Test_swapVirtualPhysical(t *testing.T) {
 		{
 			name: "nil virtualPhysicalMapping",
 			args: args{
-				counts:                 core.Counts{"010": 1, "111": 2},
-				virtualPhysicalMapping: nil,
+				counts:                    core.Counts{"010": 1, "111": 2},
+				virtualPhysicalMappingMap: nil,
 			},
 			want: core.Counts{"010": 1, "111": 2},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
@@ -127,8 +127,8 @@ func Test_swapVirtualPhysical(t *testing.T) {
 		{
 			name: "invalid virtual qubit",
 			args: args{
-				counts:                 core.Counts{"010": 1, "111": 2},
-				virtualPhysicalMapping: core.VirtualPhysicalMapping{3: 0, 1: 1, 2: 2},
+				counts:                    core.Counts{"010": 1, "111": 2},
+				virtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{3: 0, 1: 1, 2: 2},
 			},
 			want: core.Counts{"010": 1, "111": 2},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
@@ -138,8 +138,8 @@ func Test_swapVirtualPhysical(t *testing.T) {
 		{
 			name: "invalid physical qubit",
 			args: args{
-				counts:                 core.Counts{"010": 1, "111": 2},
-				virtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1, 2: 3},
+				counts:                    core.Counts{"010": 1, "111": 2},
+				virtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1, 2: 3},
 			},
 			want: core.Counts{"010": 1, "111": 2},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
@@ -149,7 +149,7 @@ func Test_swapVirtualPhysical(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := swapVirtualPhysical(tt.args.counts, tt.args.virtualPhysicalMapping)
+			got, err := swapVirtualPhysical(tt.args.counts, tt.args.virtualPhysicalMappingMap)
 			tt.assertion(t, err)
 			assert.Equal(t, tt.want, got)
 		})
@@ -311,9 +311,9 @@ func Test_divideStringByLengths(t *testing.T) {
 
 func TestDivideResult(t *testing.T) {
 	type args struct {
-		jd                     *core.JobData
-		combinedQubitsList     []int32
-		virtualPhysicalMapping core.VirtualPhysicalMapping
+		jd                        *core.JobData
+		combinedQubitsList        []int32
+		virtualPhysicalMappingMap core.VirtualPhysicalMappingMap
 	}
 	tests := []struct {
 		name              string
@@ -327,7 +327,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1, 2: 2, 3: 3}},
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1, 2: 2, 3: 3}},
 				}},
 				combinedQubitsList: []int32{4},
 			},
@@ -360,7 +360,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1, 2: 2, 3: 3}},
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1, 2: 2, 3: 3}},
 				}},
 				combinedQubitsList: []int32{3, 1},
 			},
@@ -397,7 +397,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 1, 1: 2, 2: 3, 3: 0}}, // to be swapped
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 1, 1: 2, 2: 3, 3: 0}}, // to be swapped
 				}},
 				combinedQubitsList: []int32{3, 1},
 			},
@@ -433,7 +433,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1, 2: 2, 3: 3}},
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1, 2: 2, 3: 3}},
 				}},
 				combinedQubitsList: []int32{3, 1, 1},
 			},
@@ -456,7 +456,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{}},
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{}},
 				}},
 				combinedQubitsList: []int32{},
 			},
@@ -471,7 +471,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1, 2: 2, 3: 3}},
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1, 2: 2, 3: 3}},
 				}},
 				combinedQubitsList: []int32{3, 2},
 			},
@@ -494,7 +494,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1, 2: 2, 3: 3}},
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1, 2: 2, 3: 3}},
 				}},
 				combinedQubitsList: []int32{},
 			},
@@ -517,7 +517,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1, 2: 2, 3: 3}},
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1, 2: 2, 3: 3}},
 				}},
 				combinedQubitsList: []int32{0, 0, 0},
 			},
@@ -540,7 +540,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{}},
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{}},
 				}},
 				combinedQubitsList: []int32{1, 2, 3},
 			},
@@ -555,7 +555,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 1: 1, 2: 2}}, // short
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 1: 1, 2: 2}}, // short
 				}},
 				combinedQubitsList: []int32{3, 1},
 			},
@@ -578,7 +578,7 @@ func TestDivideResult(t *testing.T) {
 			args: args{
 				jd: &core.JobData{Result: &core.Result{
 					Counts:         core.Counts{"0001": 1, "0100": 2, "1000": 4, "1111": 8, "0010": 16, "0110": 32, "1011": 64},
-					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 0, 4: 1, 2: 2, 3: 3}}, // incorrect key
+					TranspilerInfo: &core.TranspilerInfo{VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 0, 4: 1, 2: 2, 3: 3}}, // incorrect key
 				}},
 				combinedQubitsList: []int32{3, 1},
 			},

@@ -1493,6 +1493,8 @@ func Test_checkFileSize(t *testing.T) {
 }
 
 func Test_setResultToOutputJob(t *testing.T) {
+	statsStringRaw, err := core.NewStatsRawFromString("STATS")
+	assert.Nil(t, err)
 	type args struct {
 		outputJob *core.JobData
 		outPath   string
@@ -1515,8 +1517,8 @@ func Test_setResultToOutputJob(t *testing.T) {
 			want: &core.Result{
 				Counts: core.Counts{"00": 500, "11": 500},
 				TranspilerInfo: &core.TranspilerInfo{
-					Stats:                  "STATS",
-					VirtualPhysicalMapping: core.VirtualPhysicalMapping{0: 1, 1: 2, 2: 3},
+					StatsRaw:                  statsStringRaw,
+					VirtualPhysicalMappingMap: core.VirtualPhysicalMappingMap{0: 1, 1: 2, 2: 3},
 				},
 				Message: "Test Msg",
 			},
@@ -1630,6 +1632,8 @@ func Test_setResultToOutputJob(t *testing.T) {
 			err = setResultToOutputJob(tt.args.outputJob, tt.args.outPath, tt.args.fileName)
 			tt.assertion(t, err)
 			if err == nil {
+				// To fill the VirtualPhysicalMappingRaw field
+				tt.want.TranspilerInfo.VirtualPhysicalMappingRaw = tt.args.outputJob.Result.TranspilerInfo.VirtualPhysicalMappingRaw
 				assert.Equal(t, *tt.want, *tt.args.outputJob.Result)
 				assert.Equal(t, "TEST QASM TRANSPILED", tt.args.outputJob.TranspiledQASM)
 				assert.Equal(t, core.SUCCEEDED, tt.args.outputJob.Status)

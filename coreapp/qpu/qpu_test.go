@@ -78,7 +78,7 @@ func TestQMTQPUSend(t *testing.T) {
 			jd.ID = tt.jobID
 			jd.QASM = tt.inputQASM
 			jd.TranspiledQASM = tt.transpiledInputQASM
-			jd.Transpiler = core.DefaultTranspilerConfig
+			jd.Transpiler = core.DEFAULT_TRANSPILER_CONFIG()
 			jd.JobType = core.NORMAL_JOB
 			jc, err := core.NewJobContext()
 			assert.Nil(t, err)

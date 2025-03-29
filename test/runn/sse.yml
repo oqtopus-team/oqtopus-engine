@@ -1,4 +1,4 @@
-desc: Run SSE job with default transpiler
+desc: SSE job with default transpiler
 runners:
   req: https://${USER_API_ENDPOINT}
 vars:
@@ -41,12 +41,25 @@ steps:
             q-api-token: "{{ vars.token }}"
     dump:
       expr: steps.post.res.body.job_id + "(SSE job with default transpiler) is in " + current.res.body.status
-  check:
+  check-status:
     test: |
       steps.wait.res.body.status == "succeeded"
-  check-transpiler-lib:
+  check-transpiler-info:
     test: |
       steps.wait.res.body.transpiler_info.transpiler_lib == "qiskit"
-  check-transpiler-options:
+      && steps.wait.res.body.transpiler_info.transpiler_options.optimization_level == 2
+  check-counts:
     test: |
-      steps.wait.res.body.transpiler_info.transpiler_options.optimization_level == 2
+      len(steps.wait.res.body.job_info.result.sampling.counts) > 0
+  check-transpile-result:
+    test: |
+      len(steps.wait.res.body.job_info.transpile_result.stats) > 0
+      && len(steps.wait.res.body.job_info.transpile_result.stats.after) > 0
+      && len(steps.wait.res.body.job_info.transpile_result.stats.before) > 0
+      && steps.wait.res.body.job_info.transpile_result.virtual_physical_mapping["0"] != null
+      && steps.wait.res.body.job_info.transpile_result.virtual_physical_mapping["1"] != null
+      && steps.wait.res.body.job_info.transpile_result.transpiled_program != ""
+      && steps.wait.res.body.job_info.transpile_result.transpiled_program != null
+  check-execution-time:
+    test: |
+      steps.wait.res.body.execution_time > 0

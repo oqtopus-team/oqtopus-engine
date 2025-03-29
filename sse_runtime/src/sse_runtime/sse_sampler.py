@@ -93,10 +93,9 @@ def _make_job_def(
 
     # transpile result related data
     transpiled_program = response.transpiled_qasm or ""
-    stats = result_dict.get("transpiler_info", {}).get("stats", "")
-    virtual_physical_mapping = json.dumps(
-        result_dict.get("transpiler_info", {}).get("virtual_physical_mapping", {})
-    )
+    stats = result_dict.get("transpiler_info", {}).get("stats", "{}") or "{}"
+    virtual_physical_mapping = result_dict.get("transpiler_info", {}) \
+                                            .get("virtual_physical_mapping", "{}") or "{}"
 
     # job_info related data
     program = [qasm]
@@ -139,10 +138,10 @@ def _make_job_def(
 
 def _make_resultjson(job: JobsJobDef) -> dict[str, Any]:
     # convert the job data in order to make it readable in engine
-
     output_contents = job.to_dict()
     transpile_result_dict = output_contents["job_info"]["transpile_result"]
     # convert the string to dictionary
+    transpile_result_dict["stats"] = json.loads(transpile_result_dict["stats"])
     transpile_result_dict["virtual_physical_mapping"] = json.loads(
         transpile_result_dict["virtual_physical_mapping"]
     )

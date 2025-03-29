@@ -40,9 +40,10 @@ type ResultFileContentsJobInfo struct {
 	Message         string                            `json:"message"`
 }
 type ResultFileContentsTranspileResult struct {
-	TranspiledProgram      string            `json:"transpiled_program"`
-	Stats                  string            `json:"stats"`
-	VirtualPhysicalMapping map[uint32]uint32 `json:"virtual_physical_mapping"`
+	TranspiledProgram         string            `json:"transpiled_program"`
+	StatsRaw                  json.RawMessage   `json:"stats"`
+	VirtualPhysicalMappingRaw json.RawMessage   `json:"virtual_physical_mapping"`
+	VirtualPhysicalMappingMap map[uint32]uint32 `json:"-"`
 }
 type ResultFileContentsResult struct {
 	Sampling ResultFileContentsResultSampling `json:"sampling"`
@@ -621,12 +622,22 @@ func setResultToOutputJob(outputJob *core.JobData, outPath string, fileName stri
 		return err
 	}
 
+	tr := contents.JobInfo.TranspileResult
+
+	vpmRaw := core.VirtualPhysicalMappingRaw(tr.VirtualPhysicalMappingRaw)
+	vpmMap, err := vpmRaw.ToMap()
+	if err != nil {
+		zap.L().Error(fmt.Sprintf("failed to convert vpm to map/raw:%v, reason:%s", vpmRaw, err))
+		return err
+	}
+
 	// Set the result to outputJob
 	outputJob.Result = &core.Result{
 		Counts: contents.JobInfo.Result.Sampling.Counts,
 		TranspilerInfo: &core.TranspilerInfo{
-			Stats:                  contents.JobInfo.TranspileResult.Stats,
-			VirtualPhysicalMapping: contents.JobInfo.TranspileResult.VirtualPhysicalMapping,
+			StatsRaw:                  core.StatsRaw(tr.StatsRaw),
+			VirtualPhysicalMappingRaw: vpmRaw,
+			VirtualPhysicalMappingMap: vpmMap,
 		},
 		Message: contents.JobInfo.Message,
 	}

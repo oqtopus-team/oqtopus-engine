@@ -94,6 +94,12 @@ func TestNewJob(t *testing.T) {
 	assert.NotNil(t, jm)
 	jm.RegisterJob(&NormalJob{})
 
+	param := JobParam{
+		JobID:      uuid.NewString(),
+		QASM:       testQASM,
+		Shots:      -1,
+		Transpiler: DEFAULT_TRANSPILER_CONFIG(),
+	}
 	tests := []struct {
 		name        string
 		param       *JobParam
@@ -106,18 +112,13 @@ func TestNewJob(t *testing.T) {
 				JobID:      uuid.NewString(),
 				QASM:       testQASM,
 				Shots:      0,
-				Transpiler: DefaultTranspilerConfig,
+				Transpiler: DEFAULT_TRANSPILER_CONFIG(),
 			},
 			wantError: "shots(0) must be greater than 0",
 		},
 		{
-			name: "negative shots",
-			param: &JobParam{
-				JobID:      uuid.NewString(),
-				QASM:       testQASM,
-				Shots:      -1,
-				Transpiler: DefaultTranspilerConfig,
-			},
+			name:      "negative shots",
+			param:     &param,
 			wantError: "shots(-1) must be greater than 0",
 		},
 		{
@@ -126,7 +127,7 @@ func TestNewJob(t *testing.T) {
 				JobID:      uuid.NewString(),
 				QASM:       testQASM,
 				Shots:      MockMaxShots + 1,
-				Transpiler: DefaultTranspilerConfig,
+				Transpiler: DEFAULT_TRANSPILER_CONFIG(),
 			},
 			wantError: fmt.Sprintf(
 				"shots(%d) is over the limit(%d)",
@@ -138,12 +139,12 @@ func TestNewJob(t *testing.T) {
 				JobID:      uuid.NewString(),
 				QASM:       testQASM,
 				Shots:      MockMaxShots,
-				Transpiler: DefaultTranspilerConfig,
+				Transpiler: DEFAULT_TRANSPILER_CONFIG(),
 			},
 			wantError: "",
 			wantJobData: &JobData{
 				JobType:    NORMAL_JOB,
-				Transpiler: DefaultTranspilerConfig,
+				Transpiler: DEFAULT_TRANSPILER_CONFIG(),
 				QASM:       testQASM,
 				Shots:      MockMaxShots,
 			},
@@ -154,12 +155,12 @@ func TestNewJob(t *testing.T) {
 				JobID:      uuid.NewString(),
 				QASM:       testQASM,
 				Shots:      1,
-				Transpiler: DefaultTranspilerConfig,
+				Transpiler: DEFAULT_TRANSPILER_CONFIG(),
 			},
 			wantError: "",
 			wantJobData: &JobData{
 				JobType:    NORMAL_JOB,
-				Transpiler: DefaultTranspilerConfig,
+				Transpiler: DEFAULT_TRANSPILER_CONFIG(),
 				QASM:       testQASM,
 				Shots:      1,
 			},

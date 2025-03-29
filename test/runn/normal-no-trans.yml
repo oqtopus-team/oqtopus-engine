@@ -46,6 +46,4 @@ steps:
   check-result:
     test: |
       steps.wait.res.body.status == "succeeded"
-  check-no-transpiler:
-    test: |
-      steps.wait.res.body.job_info.transpile_result.transpiled_program == ""
+      && steps.wait.res.body.job_info.transpile_result == null

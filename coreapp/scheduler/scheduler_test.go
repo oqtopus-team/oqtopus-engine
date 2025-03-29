@@ -135,7 +135,7 @@ func testJob(t *testing.T, jobType string, firstStatus core.Status) core.Job {
 	jd.Shots = 1000
 	jd.Status = firstStatus
 	jd.JobType = jobType
-	jd.Transpiler = core.DefaultTranspilerConfig
+	jd.Transpiler = core.DEFAULT_TRANSPILER_CONFIG()
 	jc, _ := core.NewJobContext()
 	j, err := jm.NewJobFromJobData(jd, jc)
 	assert.Nil(t, err)

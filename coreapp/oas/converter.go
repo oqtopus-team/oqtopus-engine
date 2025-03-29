@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/go-faster/jx"
 	"strconv"
 
 	"github.com/go-openapi/strfmt"
@@ -18,16 +19,6 @@ import (
 )
 
 const notSetMessage = "not set in cloud job"
-
-func DEFAULT_TRANSPILER_CONFIG() *core.TranspilerConfig {
-	str := "qiskit"
-	return &core.TranspilerConfig{
-		TranspilerLib: &str,
-		TranspilerOptions: core.TranspilerOptions{
-			OptimizationLevel: 2,
-		},
-	}
-}
 
 func ConvertToCloudJob(j *core.JobData) *api.JobsJobDef {
 	// TODO: too long function
@@ -93,12 +84,41 @@ func ConvertToCloudJob(j *core.JobData) *api.JobsJobDef {
 		jobType = api.JobsJobTypeSampling
 		jjr = api.JobsJobResult{}
 	}
+
+	// TODO functionize this part
+	tmpStatsMap := make(map[string]json.RawMessage)
+	statsMap := make(map[string]jx.Raw)
+	if j.Result.TranspilerInfo != nil &&
+		j.Result.TranspilerInfo.StatsRaw != nil &&
+		len(j.Result.TranspilerInfo.StatsRaw) != 0 {
+		if err := json.Unmarshal(j.Result.TranspilerInfo.StatsRaw, &tmpStatsMap); err != nil {
+			zap.L().Error(fmt.Sprintf("failed to unmarshal stats string:%s/reason:%s",
+				j.Result.TranspilerInfo.StatsRaw, err))
+		} else {
+			for k, v := range tmpStatsMap {
+				statsMap[k] = jx.Raw(v)
+			}
+		}
+	}
+	tmpVpMap := make(map[string]json.RawMessage)
+	vpMap := make(map[string]jx.Raw)
+	if j.Result.TranspilerInfo != nil &&
+		j.Result.TranspilerInfo.VirtualPhysicalMappingRaw != nil &&
+		len(j.Result.TranspilerInfo.VirtualPhysicalMappingRaw) != 0 {
+		if err := json.Unmarshal(j.Result.TranspilerInfo.VirtualPhysicalMappingRaw, &tmpVpMap); err != nil {
+			zap.L().Error(fmt.Sprintf("failed to unmarshal virtual physical mapping/reason:%s", err))
+		} else {
+			for k, v := range tmpVpMap {
+				vpMap[k] = jx.Raw(v)
+			}
+		}
+	}
 	var ontr api.OptNilJobsTranspileResult
 	if j.Result.TranspilerInfo != nil {
 		tr := api.JobsTranspileResult{
 			TranspiledProgram:      api.NewNilString(j.TranspiledQASM),
-			Stats:                  api.NewNilString(j.Result.TranspilerInfo.Stats),
-			VirtualPhysicalMapping: api.NewNilString(j.Result.TranspilerInfo.PhysicalVirtualMapping.String()),
+			Stats:                  api.NewNilJobsTranspileResultStats(statsMap),
+			VirtualPhysicalMapping: api.NewNilJobsTranspileResultVirtualPhysicalMapping(vpMap),
 		}
 		ontr = api.NewOptNilJobsTranspileResult(tr)
 	} else {
@@ -143,7 +163,8 @@ func ConvertFromCloudJob(j *api.JobsJobDef) *core.JobData {
 	if useTranspiler(j.TranspilerInfo) {
 		if useDefaultTranspiler(j.TranspilerInfo) {
 			zap.L().Debug("use default transpiler config")
-			jd.Transpiler = DEFAULT_TRANSPILER_CONFIG()
+			jd.Transpiler = core.DEFAULT_TRANSPILER_CONFIG()
+			jd.NeedsUpdateTranspilerInfo = true
 		} else {
 			zap.L().Debug("use specified transpiler config")
 			jd.Transpiler = convertToTranspilerInfoFromONTI(j.TranspilerInfo)
@@ -376,7 +397,7 @@ func useTranspiler(ti api.OptNilJobsJobDefTranspilerInfo) bool {
 func useDefaultTranspiler(ti api.OptNilJobsJobDefTranspilerInfo) bool {
 	t, ok := ti.Get()
 	if !ok {
-		zap.L().Error("failed to get transpiler info")
+		zap.L().Info("not find transpiler info")
 		return true
 	}
 	if _, ok := t["transpiler_lib"]; !ok {

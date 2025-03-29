@@ -127,7 +127,7 @@ func oneJobRequestImpl(st core.Status) ([]core.Job, error) {
 			ID:         uuid.NewString(),
 			QASM:       "OPENQASM 3;qubit[2] q;h q[1];cx q[1],q[0];",
 			Shots:      1,
-			Transpiler: core.DefaultTranspilerConfig,
+			Transpiler: core.DEFAULT_TRANSPILER_CONFIG(),
 			JobType:    "normal",
 			Status:     st,
 		}, jc)

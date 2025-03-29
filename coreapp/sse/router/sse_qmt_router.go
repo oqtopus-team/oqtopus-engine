@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/core"
-	"github.com/oqtopus-team/oqtopus-engine/coreapp/oas"
 	ssep "github.com/oqtopus-team/oqtopus-engine/coreapp/sse"
 	sseconf "github.com/oqtopus-team/oqtopus-engine/coreapp/sse/conf"
 	sse "github.com/oqtopus-team/oqtopus-engine/coreapp/sse/sse_interface/v1"
@@ -30,6 +30,21 @@ type UserReqData struct {
 	Transpiler *core.TranspilerConfig `json:"transpiler_info,omitempty"`
 }
 
+type Result struct {
+	Counts         core.Counts        `json:"counts"`
+	DividedResult  core.DividedResult `json:"divided_result"`
+	TranspilerInfo TranspilerInfo     `json:"transpiler_info"`
+	Estimation     core.Estimation    `json:"estimation"`
+	Message        string             `json:"message"`
+	ExecutionTime  time.Duration      `json:"execution_time"`
+}
+
+type TranspilerInfo struct {
+	Stats                  string `json:"stats"`
+	VirtualPhysicalMapping string `json:"virtual_physical_mapping"`
+}
+
+// TODO: too long, split this function
 func (m *GRPCRouter) TranspileAndExec(ctx context.Context, userReq *sse.TranspileAndExecRequest) (*sse.TranspileAndExecResponse, error) {
 	zap.L().Info("Received gRPC request of transpiling and executing QPU")
 	zap.L().Debug(fmt.Sprintf("Received request: %+v", userReq))
@@ -84,7 +99,7 @@ func (m *GRPCRouter) TranspileAndExec(ctx context.Context, userReq *sse.Transpil
 
 	// TRANSPILE SECTION START
 	if jd.Transpiler == nil || useDefaultTranspiler(JobDataJson) {
-		jd.Transpiler = oas.DEFAULT_TRANSPILER_CONFIG()
+		jd.Transpiler = core.DEFAULT_TRANSPILER_CONFIG()
 	}
 	// Set the transpiler info to response
 	transpilerJson, err := json.Marshal(jd.Transpiler)
@@ -140,7 +155,38 @@ func (m *GRPCRouter) TranspileAndExec(ctx context.Context, userReq *sse.Transpil
 	}
 
 	if jd.Result != nil {
-		res.Result = jd.Result.ToString()
+		// convert json.RawMessage to string
+		stats := json.RawMessage("{}")
+		if len(jd.Result.TranspilerInfo.StatsRaw) != 0 {
+			stats, err = json.RawMessage(jd.Result.TranspilerInfo.StatsRaw).MarshalJSON()
+			if err != nil {
+				zap.L().Error(fmt.Sprintf("Failed to marshal stats. Reason:%s", err))
+			}
+		}
+		vpMap := json.RawMessage("{}")
+		if len(jd.Result.TranspilerInfo.VirtualPhysicalMappingRaw) != 0 {
+			vpMap, err = json.RawMessage(jd.Result.TranspilerInfo.VirtualPhysicalMappingRaw).MarshalJSON()
+			if err != nil {
+				zap.L().Error(fmt.Sprintf("Failed to marshal virtual physical mapping. Reason:%s", err))
+			}
+		}
+
+		transpiler_info := TranspilerInfo{
+			Stats:                  string(stats),
+			VirtualPhysicalMapping: string(vpMap),
+		}
+		result := Result{
+			Counts:         jd.Result.Counts,
+			TranspilerInfo: transpiler_info,
+			Message:        jd.Result.Message,
+		}
+		resultStr, err := json.Marshal(result)
+		if err != nil {
+			zap.L().Error(fmt.Sprintf("Failed to marshal result. Reason:%s, message: %s", err, j.JobData().Result.Message))
+			res.Message = fmt.Sprintf("Failed to marshal result")
+			return res, nil
+		}
+		res.Result = string(resultStr)
 		res.Message = j.JobData().Result.Message
 	}
 	res.Status = j.JobData().Status.String()

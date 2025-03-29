@@ -1,4 +1,4 @@
-desc: Run SSE job without transpiler
+desc: SSE job without transpiler
 runners:
   req: https://${USER_API_ENDPOINT}
 vars:
@@ -41,9 +41,18 @@ steps:
             q-api-token: "{{ vars.token }}"
     dump:
       expr: steps.post.res.body.job_id + "(SSE job wo transpiler) is in " + current.res.body.status
-  check:
+  check-status:
     test: |
       steps.wait.res.body.status == "succeeded"
-  check-transpiler-lib:
+  check-transpiler-info:
     test: |
       steps.wait.res.body.transpiler_info.transpiler_lib == null
+  check-counts:
+    test: |
+      len(steps.wait.res.body.job_info.result.sampling.counts) > 0
+  check-transpile-result:
+    test: |
+      steps.wait.res.body.job_info.transpile_result == null
+  check-execution-time:
+    test: |
+      steps.wait.res.body.execution_time > 0

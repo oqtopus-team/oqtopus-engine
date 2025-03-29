@@ -51,3 +51,4 @@ steps:
   check:
     test: |
       steps.wait.res.body.status == "succeeded"
+      &&  steps.wait.res.body.job_info.transpile_result == null

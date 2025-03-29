@@ -1,12 +1,30 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/go-faster/jx"
+
 	"go.uber.org/dig"
 	"go.uber.org/zap"
 )
 
-var systemComponents *SystemComponents
+var (
+	systemComponents            *SystemComponents
+	defaultTranspilerConfigJson map[string]jx.Raw
+)
+
+func init() {
+	dtc := DEFAULT_TRANSPILER_CONFIG()
+	dtcj := make(map[string]jx.Raw)
+	dtcj["transpiler_lib"] = jx.Raw(*dtc.TranspilerLib)
+	dtcj["transpiler_options"] = jx.Raw(dtc.TranspilerOptions)
+	defaultTranspilerConfigJson = dtcj
+}
+
+func DefaultTranspilerConfigJson() map[string]jx.Raw {
+	return defaultTranspilerConfigJson
+}
 
 type DBChan chan Job
 
@@ -110,9 +128,24 @@ type QPUManager interface {
 	GetDeviceInfo() *DeviceInfo
 }
 
-var defaultTranspilerLibStr string = ""
-var DefaultTranspilerConfig *TranspilerConfig = &TranspilerConfig{
-	TranspilerLib: &defaultTranspilerLibStr,
+func DEFAULT_TRANSPILER_CONFIG() *TranspilerConfig {
+	type DefaultTranspilerOptions struct {
+		OptimizationLevel int `json:"optimization_level"`
+	}
+	dtp := DefaultTranspilerOptions{
+		OptimizationLevel: 2,
+	}
+	dtpByte, err := json.Marshal(dtp)
+	if err != nil {
+		panic(err)
+	}
+	str := "qiskit"
+
+	return &TranspilerConfig{
+		TranspilerLib:     &str,
+		TranspilerOptions: dtpByte,
+		UseDefault:        true,
+	}
 }
 
 type Transpiler interface {

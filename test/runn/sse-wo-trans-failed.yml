@@ -1,4 +1,4 @@
-desc: Run SSE job without transpiler failed
+desc: SSE job without transpiler failed
 runners:
   req: https://${USER_API_ENDPOINT}
 vars:

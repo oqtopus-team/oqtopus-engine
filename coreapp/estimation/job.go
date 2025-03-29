@@ -293,18 +293,30 @@ func estimationPreProcess(j *EstimationJob) (preprocessedQASMs []string, grouped
 	// create gRPC client
 	client := pb.NewEstimationJobServiceClient(conn)
 
+	mappingList := []uint32{}
+	mapping := map[uint32]uint32{}
+	if j.JobData().NeedTranspiling() {
+		mapping, err = j.JobData().Result.TranspilerInfo.VirtualPhysicalMappingRaw.ToMap()
+		if err != nil {
+			zap.L().Error(fmt.Sprintf("failed to convert VirtualPhysicalMappingRaw to map/reason:%s", err))
+			return nil, "", err
+		}
+	}
+
 	// Convert VirtualPhysicalMapping to sorted mapping list
 	keys := []uint32{}
-	for k := range j.JobData().Result.TranspilerInfo.VirtualPhysicalMapping {
+	for k := range mapping {
 		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool {
 		return keys[i] < keys[j]
 	})
-	mappingList := []uint32{}
+
 	for _, key := range keys {
-		mappingList = append(mappingList, j.JobData().Result.TranspilerInfo.VirtualPhysicalMapping[uint32(key)])
+		mappingList = append(mappingList, mapping[key])
 	}
+	zap.L().Debug(fmt.Sprintf("mappingList:%v", mappingList))
+	zap.L().Debug(fmt.Sprintf("VirtualPhysicalMapping:%s", j.JobData().Result.TranspilerInfo.VirtualPhysicalMappingRaw))
 	zap.L().Debug(fmt.Sprintf("default basis gates:%v", j.setting.BasisGates))
 	// prepare gRPC request
 	req := &pb.ReqEstimationPreProcessRequest{

@@ -24,6 +24,7 @@ func TestPreProcess(t *testing.T) {
 	jd.QASM = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0], q[1];\n"
 	jd.JobType = "estimation_job"
 	jd.Info = `[{"pauli":"X0 X1","coeff":1.5},{"pauli":"Y0 Z1","coeff":1.2}]`
+	jd.Transpiler = &core.TranspilerConfig{}
 	jc, err := core.NewJobContext()
 	assert.Nil(t, err)
 
@@ -33,7 +34,7 @@ func TestPreProcess(t *testing.T) {
 	ej := job.(*EstimationJob)
 
 	// expect these fields will be filled in transpile phase
-	ej.jobData.Result.TranspilerInfo.PhysicalVirtualMapping = map[uint32]uint32{0: 0, 1: 1}
+	ej.jobData.Result.TranspilerInfo.VirtualPhysicalMappingMap = map[uint32]uint32{0: 0, 1: 1}
 	ej.jobData.TranspiledQASM = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0], q[1];\n"
 	//ej.origOperators = "[[\"X 0 X 1\", 1.5], [\"Y 0 Z 1\", 1.2]]"
 
@@ -114,9 +115,9 @@ func TestEstimationPostProcess(t *testing.T) {
 	clone := core.Estimation{}
 	jd.Result.Estimation = &clone
 
-	jd.Result.Estimation.Exp_value[0] = actual_expval
+	jd.Result.Estimation.Exp_value = actual_expval
 	jd.Result.Estimation.Stds = actual_stds
-	assert.Equal(t, float32(2.22), jd.Result.Estimation.Exp_value[0])
+	assert.Equal(t, float32(2.22), jd.Result.Estimation.Exp_value)
 	assert.Equal(t, float32(0.034779303), jd.Result.Estimation.Stds)
 }
 
@@ -153,7 +154,7 @@ func TestEstimationPostProcessMitigation(t *testing.T) {
 
 	ej.PostProcess()
 
-	actual_expval := ej.JobData().Result.Estimation.Exp_value[0]
+	actual_expval := ej.JobData().Result.Estimation.Exp_value
 	actual_stds := ej.JobData().Result.Estimation.Stds
 
 	assert.Equal(t, float32(2.7), actual_expval)

@@ -9,13 +9,13 @@ import (
 	"go.uber.org/zap"
 )
 
-func swapVirtualPhysical(counts core.Counts, virtualPhysicalMapping core.VirtualPhysicalMapping) (core.Counts, error) {
-	if len(virtualPhysicalMapping) == 0 {
+func swapVirtualPhysical(counts core.Counts, virtualPhysicalMappingMap core.VirtualPhysicalMappingMap) (core.Counts, error) {
+	if len(virtualPhysicalMappingMap) == 0 {
 		zap.L().Info("No virtualPhysicalMapping is given, so the counts are not swapped")
 		return counts, nil
 	}
 	var result core.Counts = core.Counts{}
-	n_qubits := len(virtualPhysicalMapping)
+	n_qubits := len(virtualPhysicalMappingMap)
 
 	for inputPhysicalBitString, count := range counts {
 		length := len(inputPhysicalBitString)
@@ -24,7 +24,7 @@ func swapVirtualPhysical(counts core.Counts, virtualPhysicalMapping core.Virtual
 		}
 		// Swap the bits according to the virtualPhysicalMapping
 		swappedVirtualBitMap := make([]string, length)
-		for virtual, physical := range virtualPhysicalMapping {
+		for virtual, physical := range virtualPhysicalMappingMap {
 			if int(physical) >= length || int(virtual) >= length {
 				return counts,
 					fmt.Errorf("virtual or physical qubit number is out of range. virtual: %d, physical: %d, length: %d",
@@ -70,7 +70,7 @@ func DivideResult(jd *core.JobData, combinedQubitsList []int32) (err error) {
 	}
 	// Swap the bits according to the virtualPhysicalMapping
 	if jd.Result.TranspilerInfo != nil {
-		jd.Result.Counts, err = swapVirtualPhysical(jd.Result.Counts, jd.Result.TranspilerInfo.VirtualPhysicalMapping)
+		jd.Result.Counts, err = swapVirtualPhysical(jd.Result.Counts, jd.Result.TranspilerInfo.VirtualPhysicalMappingMap)
 		if err != nil {
 			return
 		}
