@@ -152,9 +152,17 @@ func DivideResult(jd *core.JobData, combinedQubitsList []int32) (err error) {
 		err = errors.New("inconsistent qubit property")
 		return
 	}
+
+	// convert raw data to map
+	vpmMap, err := jd.Result.TranspilerInfo.VirtualPhysicalMappingRaw.ToMap()
+	if err != nil {
+		zap.L().Error(fmt.Sprintf("failed to convert VirtualPhysicalMappingRaw to VirtualPhysicalMappingMap: %s", err))
+		return
+	}
+
 	// Swap the bits according to the virtualPhysicalMapping
 	if jd.Result.TranspilerInfo != nil {
-		jd.Result.Counts, err = swapVirtualPhysical(jd.Result.Counts, jd.Result.TranspilerInfo.VirtualPhysicalMappingMap)
+		jd.Result.Counts, err = swapVirtualPhysical(jd.Result.Counts, vpmMap)
 		if err != nil {
 			return
 		}
