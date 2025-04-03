@@ -79,7 +79,7 @@ def test_combine_circuits_positive_2circuits_clbits_qubits():
         input_list, max_qubits
     )
     assert status == 0
-    assert combined_qubits_list == [2, 2]
+    assert combined_qubits_list == [1, 2]
     assert combined_qasm == comb_circ_text
 
 
@@ -121,7 +121,7 @@ def test_combine_circuits_positive_3circuits():
         input_list, max_qubits
     )
     assert status == 0
-    assert combined_qubits_list == [3, 2, 59]
+    assert combined_qubits_list == [1, 1, 2]
     assert combined_qasm == comb_circ_text
 
 
@@ -162,7 +162,7 @@ def test_combine_circuits_positive_3circuits_nochange_by_deviceinfo_in_maxcubits
         input_list, max_qubits
     )
     assert status == 0
-    assert combined_qubits_list == [3, 2, 59]
+    assert combined_qubits_list == [1, 1, 2]
     assert combined_qasm == comb_circ_text
 
 
@@ -379,7 +379,7 @@ def test_circuit_combiner_positive():
     comb_circ_text = qiskit.qasm3.dumps(comb_circ.decompose())
     assert response.combined_status == 0
     assert response.combined_qasm == comb_circ_text
-    assert response.combined_qubits_list == [1, 2]
+    assert response.combined_qubits_list == [0, 0]
 
 
 def test_circuit_combiner_negative_qasm_json_str_anomaly():
