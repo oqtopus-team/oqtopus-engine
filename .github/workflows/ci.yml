@@ -2,6 +2,7 @@ on:
   push:
     branches: [ main, dev, feature/* ]
   pull_request:
+    types: [ opened, synchronize, reopened ]
     branches: [ main, dev, feature/* ]
   workflow_dispatch:
 
