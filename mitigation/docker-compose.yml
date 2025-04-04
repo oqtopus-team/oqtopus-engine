@@ -6,7 +6,7 @@ services:
     environment:
       TZ: ${TZ}
       MITIGATOR_PORT: ${MITIGATOR_PORT}
-      MITIGATOR_MAX_THREADS: ${MITIGATOR_MAX_THREADS}
+      MITIGATOR_WORKERS: ${MITIGATOR_WORKERS}
     ports:
       - ${MITIGATOR_PORT}:${MITIGATOR_PORT}
     volumes:
