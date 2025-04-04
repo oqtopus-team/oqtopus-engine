@@ -17,8 +17,8 @@ type Conf struct {
 	TranspilerPluginPath        string `long:"transpiler-plugin-path" description:"python transpiler plugin path" env:"QIQB_EDGE_TRANSPILER_PLUGIN_PATH"`
 	EnableDummyQPUTimeInsertion bool   `long:"enable-dummy-qpu-time-insertion" description:"enable dummy qpu time insertion" env:"QIQB_EDGE_ENABLE_DUMMY_QPU_TIME_INSERTION"`
 	DummyQPUTime                int    `long:"dummy-qpu-time" description:"dummy qpu time in seconds" default:"10" env:"QIQB_EDGE_DUMMY_QPU_TIME"`
-	ServiceDBEndpoint           string `long:"service-db-endpoint" description:"Service DB Endpoint" default:"localhost" env:"QIQB_EDGE_SERVICE_DB_ENDPOINT"`
-	ServiceDBAPIKey             string `long:"service-db-api-key" description:"Service DB API Key" default:"Default	apiKey" env:"QIQB_EDGE_SERVICE_DB_API_KEY"`
+	ServiceDBEndpoint           string `long:"service-db-endpoint" description:"Service DB Endpoint" default:"localhost" env:"PROVIDER_API_ENDPOINT"`
+	ServiceDBAPIKey             string `long:"service-db-api-key" description:"Service DB API Key" default:"Default	apiKey" env:"PROVIDER_API_KEY"`
 	DisableStartDevicePolling   bool   `long:"disable-start-device-polling" description:"disable start device polling" env:"QIQB_EDGE_DISABLE_START_DEVICE_POLLING"`
 	SettingPath                 string `long:"setting-path" description:"setting file path" default:"./setting/setting.toml" env:"QIQB_EDGE_SETTING_PATH"`
 }
