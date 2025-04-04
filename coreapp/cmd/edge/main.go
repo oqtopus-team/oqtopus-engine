@@ -52,7 +52,7 @@ type Edge struct {
 
 type DIContainerParameters struct {
 	DBManager  string `long:"db" description:"db" default:"memory" choice:"memory" choice:"service" env:"QIQB_EDGE_DB_MANAGER_TYPE"`
-	Transpiler string `long:"transpiler" description:"transpiler-type" default:"pass" choice:"pass" choice:"grpc" choice:"tranqu" env:"QIQB_EDGE_TRANSPILER_TYPE"`
+	Transpiler string `long:"transpiler" description:"transpiler-type" default:"tranqu" choice:"tranqu" env:"QIQB_EDGE_TRANSPILER_TYPE"`
 	QPU        string `long:"qpu" description:"qpu-type" default:"dummy" choice:"dummy" choice:"it" choice:"gateway" env:"QIQB_EDGE_QPU_TYPE"`
 	Scheduler  string `long:"scheduler" description:"scheduler-type" default:"normal" env:"QIQB_EDGE_SCHEDULER_TYPE"`
 }
