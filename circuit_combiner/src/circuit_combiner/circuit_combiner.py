@@ -17,8 +17,8 @@ from multiprog_interface.v1.multiprog_pb2_grpc import (
 from qiskit import QuantumCircuit
 
 # port number for gRPC server
-PORT_NUM = os.getenv("CIRCUIT_COMBINER_PORT", "5002")
-MAX_THREADS = os.getenv("CIRCUIT_COMBINER_MAX_THREADS", "0")
+PORT_NUM = os.getenv("COMBINER_PORT", "5002")
+MAX_THREADS = os.getenv("COMBINER_WORKERS", "0")
 
 
 # Exception class in case of invalid number of qubits
