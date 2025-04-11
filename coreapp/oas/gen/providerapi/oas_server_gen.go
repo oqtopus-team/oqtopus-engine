@@ -26,6 +26,12 @@ type Handler interface {
 	//
 	// GET /jobs/{job_id}/ssesrc
 	GetSsesrc(ctx context.Context, params GetSsesrcParams) (GetSsesrcRes, error)
+	// PatchDevice implements patchDevice operation.
+	//
+	// Update a part of selected device's properties.
+	//
+	// PATCH /devices/{device_id}
+	PatchDevice(ctx context.Context, req OptDevicesUpdateDeviceRequest, params PatchDeviceParams) (PatchDeviceRes, error)
 	// PatchDeviceInfo implements patchDeviceInfo operation.
 	//
 	// Update device_info(calibration data) of selected device.

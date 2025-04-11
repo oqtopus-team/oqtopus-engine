@@ -318,7 +318,14 @@ func estimationPreProcess(j *EstimationJob) (preprocessedQASMs []string, grouped
 		mappingList = append(mappingList, mapping[key])
 	}
 	zap.L().Debug(fmt.Sprintf("mappingList:%v", mappingList))
-	zap.L().Debug(fmt.Sprintf("VirtualPhysicalMapping:%s", j.JobData().Result.TranspilerInfo.VirtualPhysicalMappingRaw))
+	// Log VirtualPhysicalMapping as a map for better readability
+	vpMapping, vpErr := j.JobData().Result.TranspilerInfo.VirtualPhysicalMappingRaw.ToMap()
+	if vpErr != nil {
+		zap.L().Warn(fmt.Sprintf("Failed to convert VirtualPhysicalMappingRaw to map for logging: %v", vpErr))
+		zap.L().Debug(fmt.Sprintf("VirtualPhysicalMapping (raw):%s", j.JobData().Result.TranspilerInfo.VirtualPhysicalMappingRaw)) // fallback to raw output
+	} else {
+		zap.L().Debug(fmt.Sprintf("VirtualPhysicalMapping:%v", vpMapping))
+	}
 	zap.L().Debug(fmt.Sprintf("default basis gates:%v", j.setting.BasisGates))
 	req := &pb.ReqEstimationPreProcessRequest{
 		QasmCode:    j.usedQASM,

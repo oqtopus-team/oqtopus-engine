@@ -1,8 +1,11 @@
 package qpu
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/common"
@@ -85,11 +88,22 @@ func (q *DefaultGatewayAgent) Setup() (err error) {
 		return err
 	}
 	q.gatewayAddress = address
-	apiClient, err := common.NewAPIClient(q.setting.APIEndpoint, q.setting.APIKey)
-	if err != nil {
-		zap.L().Error(fmt.Sprintf("failed to create a new API client/reason:%s", err))
+
+	ss := common.NewSecuritySource(q.setting.APIKey)
+	loggingTransport := &loggingRoundTripper{
+		next: http.DefaultTransport,
 	}
+	httpClient := &http.Client{
+		Transport: loggingTransport,
+	}
+	apiClient, err := api.NewClient(q.setting.APIEndpoint, ss, api.WithClient(httpClient))
+	if err != nil {
+		zap.L().Error("Failed to create API client with logging transport", zap.String("endpoint", q.setting.APIEndpoint), zap.Error(err))
+		return fmt.Errorf("failed to create API client: %w", err)
+	}
+	zap.L().Info("API Client created with local logging transport", zap.String("endpoint", q.setting.APIEndpoint))
 	q.apiClient = apiClient
+
 	q.Reset()
 	return nil
 }
@@ -111,19 +125,7 @@ func (q *DefaultGatewayAgent) CallDeviceInfo() (*core.DeviceInfo, error) {
 		zap.L().Error(fmt.Sprintf("failed to get service status from %s/reason:%s", q.gatewayAddress, err))
 		return &core.DeviceInfo{}, err
 	}
-	// TODO functionize
-	var ds core.DeviceStatus
-	ss := resSS.GetServiceStatus()
-	switch ss {
-	case qint.ServiceStatus_SERVICE_STATUS_ACTIVE:
-		ds = core.Available
-	case qint.ServiceStatus_SERVICE_STATUS_INACTIVE:
-		ds = core.Unavailable
-	case qint.ServiceStatus_SERVICE_STATUS_MAINTENANCE:
-		ds = core.QueuePaused
-	default:
-		zap.L().Error(fmt.Sprintf("unknown service status %d", ss))
-	}
+	ds := mapServiceStatusToDeviceStatus(resSS.GetServiceStatus())
 
 	cd := &core.DeviceInfo{
 		DeviceName:         di.DeviceId,
@@ -135,8 +137,22 @@ func (q *DefaultGatewayAgent) CallDeviceInfo() (*core.DeviceInfo, error) {
 		DeviceInfoSpecJson: di.DeviceInfo,
 		CalibratedAt:       di.CalibratedAt,
 	}
-	q.uploadDIOnChange(cd)
+	q.callDeviceAPIOnChange(cd)
 	return cd, nil
+}
+
+func mapServiceStatusToDeviceStatus(ss qint.ServiceStatus) core.DeviceStatus {
+	switch ss {
+	case qint.ServiceStatus_SERVICE_STATUS_ACTIVE:
+		return core.Available
+	case qint.ServiceStatus_SERVICE_STATUS_INACTIVE:
+		return core.Unavailable
+	case qint.ServiceStatus_SERVICE_STATUS_MAINTENANCE:
+		return core.QueuePaused
+	default:
+		zap.L().Error(fmt.Sprintf("unknown service status %d, treating as Unavailable", ss))
+		return core.Unavailable // Default to Unavailable for unknown status
+	}
 }
 
 func (q *DefaultGatewayAgent) CallJob(j core.Job) error {
@@ -209,7 +225,7 @@ func (q *DefaultGatewayAgent) GetAddress() string {
 	return q.gatewayAddress
 }
 
-func (q *DefaultGatewayAgent) uploadDIOnChange(newDI *core.DeviceInfo) {
+func (q *DefaultGatewayAgent) callDeviceAPIOnChange(newDI *core.DeviceInfo) { // Renamed function definition
 	updated := false
 	if hasStatusChanged(q.lastDeviceInfo, newDI) {
 		if err := q.updateDeviceStatus(newDI.Status); err != nil {
@@ -221,6 +237,13 @@ func (q *DefaultGatewayAgent) uploadDIOnChange(newDI *core.DeviceInfo) {
 	if hasDeviceInfoChanged(q.lastDeviceInfo, newDI) {
 		if err := q.updateDeviceInfo(newDI); err != nil {
 			zap.L().Error(fmt.Sprintf("failed to update device info/reason:%s", err))
+		} else {
+			updated = true
+		}
+	}
+	if hasDeviceChanged(q.lastDeviceInfo, newDI) {
+		if err := q.updateDevice(newDI); err != nil {
+			zap.L().Error(fmt.Sprintf("failed to update device/reason:%s", err))
 		} else {
 			updated = true
 		}
@@ -239,14 +262,18 @@ func (q *DefaultGatewayAgent) updateDeviceStatus(st core.DeviceStatus) error {
 	params := api.PatchDeviceStatusParams{
 		DeviceID: q.setting.DeviceId,
 	}
-	zap.L().Debug(fmt.Sprintf("status update to %s", st))
-	res, err := q.apiClient.PatchDeviceStatus(context.TODO(), req, params)
-	if err != nil {
-		zap.L().Error(fmt.Sprintf("failed to update device status/reason:%s", err))
+	zap.L().Debug("Attempting to update device status", zap.String("deviceID", params.DeviceID), zap.String("status", string(apiSt)))
+	_, patchErr := q.apiClient.PatchDeviceStatus(context.TODO(), req, params)
+	if patchErr != nil {
+		zap.L().Error("API call to update device status failed",
+			zap.String("deviceID", params.DeviceID),
+			zap.String("status", string(apiSt)),
+			zap.Error(patchErr),
+		)
 	} else {
-		zap.L().Debug(fmt.Sprintf("updated device status %v", res))
+		zap.L().Info("Successfully initiated device status update", zap.String("deviceID", params.DeviceID))
 	}
-	return err
+	return patchErr
 }
 
 func (q *DefaultGatewayAgent) updateDeviceInfo(di *core.DeviceInfo) error {
@@ -264,14 +291,41 @@ func (q *DefaultGatewayAgent) updateDeviceInfo(di *core.DeviceInfo) error {
 	params := api.PatchDeviceInfoParams{
 		DeviceID: q.setting.DeviceId,
 	}
-	zap.L().Debug(fmt.Sprintf("calibrated at update to %s", caStr))
-	res, err := q.apiClient.PatchDeviceInfo(context.TODO(), req, params)
-	if err != nil {
-		zap.L().Error(fmt.Sprintf("failed to update device info/reason:%s", err))
+	zap.L().Debug("Attempting to update device info", zap.String("deviceID", params.DeviceID), zap.Time("calibratedAt", caStr), zap.String("deviceInfoSpec", di.DeviceInfoSpecJson))
+	_, patchErr := q.apiClient.PatchDeviceInfo(context.TODO(), req, params)
+	if patchErr != nil {
+		zap.L().Error("API call to update device info failed",
+			zap.String("deviceID", params.DeviceID),
+			zap.Time("calibratedAt", caStr),
+			zap.String("deviceInfoSpec", di.DeviceInfoSpecJson),
+			zap.Error(patchErr),
+		)
 	} else {
-		zap.L().Debug(fmt.Sprintf("updated device info %v", res))
+		zap.L().Info("Successfully initiated device info update", zap.String("deviceID", params.DeviceID))
 	}
-	return err
+	return patchErr
+}
+
+func (q *DefaultGatewayAgent) updateDevice(di *core.DeviceInfo) error {
+	req := api.NewOptDevicesUpdateDeviceRequest(
+		api.DevicesUpdateDeviceRequest{
+			NQubits: api.NewOptNilInt(int(di.MaxQubits)),
+		})
+	params := api.PatchDeviceParams{
+		DeviceID: q.setting.DeviceId,
+	}
+	zap.L().Debug("Attempting to update device", zap.String("deviceID", params.DeviceID), zap.Int("maxQubits", di.MaxQubits))
+	_, patchErr := q.apiClient.PatchDevice(context.TODO(), req, params)
+	if patchErr != nil {
+		zap.L().Error("API call to update device failed",
+			zap.String("deviceID", params.DeviceID),
+			zap.Int("maxQubits", di.MaxQubits),
+			zap.Error(patchErr),
+		)
+	} else {
+		zap.L().Info("Successfully initiated device update", zap.String("deviceID", params.DeviceID))
+	}
+	return patchErr
 }
 
 func toDeviceDeviceStatusUpdateStatus(ds core.DeviceStatus) api.DevicesDeviceStatusUpdateStatus {
@@ -330,10 +384,6 @@ func hasDeviceInfoChanged(oldDI, newDI *core.DeviceInfo) bool {
 		zap.L().Debug("DeviceInfoSpecJson is changed")
 		return true
 	}
-	if oldDI.MaxQubits != newDI.MaxQubits {
-		zap.L().Debug("MaxQubits is changed")
-		return true
-	}
 	if oldDI.MaxShots != newDI.MaxShots {
 		zap.L().Debug("MaxShots is changed")
 		return true
@@ -351,4 +401,50 @@ func hasDeviceInfoChanged(oldDI, newDI *core.DeviceInfo) bool {
 		return true
 	}
 	return false
+}
+
+func hasDeviceChanged(oldDI, newDI *core.DeviceInfo) bool {
+	// Support only MaxQubits for now
+	if oldDI == nil {
+		zap.L().Debug("old device info is nil")
+		return true
+	}
+	if newDI == nil {
+		zap.L().Error("new device info is nil")
+		return true
+	}
+	if oldDI.MaxQubits != newDI.MaxQubits {
+		zap.L().Debug("MaxQubits is changed")
+		return true
+	}
+	return false
+}
+
+type loggingRoundTripper struct {
+	next http.RoundTripper
+}
+
+func (lrt *loggingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := lrt.next.RoundTrip(req)
+	if err != nil {
+		zap.L().Error("API roundtrip failed", zap.String("url", req.URL.String()), zap.Error(err))
+		return nil, err
+	}
+
+	bodyBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		zap.L().Error("Failed to read API response body", zap.Error(readErr), zap.Int("statusCode", resp.StatusCode), zap.String("url", req.URL.String()))
+		resp.Body.Close()
+		return resp, nil
+	}
+	resp.Body.Close()
+
+	zap.L().Debug("Received API response",
+		zap.String("url", req.URL.String()),
+		zap.Int("statusCode", resp.StatusCode),
+		zap.ByteString("responseBody", bodyBytes),
+	)
+
+	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	return resp, nil
 }

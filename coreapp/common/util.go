@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	api "github.com/oqtopus-team/oqtopus-engine/coreapp/oas/gen/providerapi" // Added import for api package
+	api "github.com/oqtopus-team/oqtopus-engine/coreapp/oas/gen/providerapi"
 )
 
 func GetAssetAbsPath(fileName string) (string, error) {
@@ -66,10 +66,17 @@ func (p SecuritySource) ApiKeyAuth(ctx context.Context, name string) (api.ApiKey
 	return apiKeyAuth, nil
 }
 
+// NewSecuritySource creates a new SecuritySource instance.
+// This constructor is needed because the apiKey field is unexported.
+func NewSecuritySource(apiKey string) SecuritySource {
+	return SecuritySource{apiKey: apiKey}
+}
+
 // NewAPIClient creates a new OpenAPI client with the given endpoint and API key.
 // It uses the SecuritySource for authentication.
 func NewAPIClient(endpoint, apiKey string) (*api.Client, error) {
 	ss := SecuritySource{apiKey: apiKey}
+	// Use the default http.Client via ogen's default behavior
 	cli, err := api.NewClient(endpoint, ss)
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("failed to create a new API client/endpoint:%s/reason:%s", endpoint, err))

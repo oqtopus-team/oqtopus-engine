@@ -1,9 +1,13 @@
+//go:build unit
+// +build unit
+
 package qpu
 
 import (
 	"testing"
 	"time"
 
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/core"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -72,6 +76,47 @@ func TestParseRFC3339Time(t *testing.T) {
 				// Compare time values ensuring they are in the same location for accurate comparison
 				assert.True(t, tt.expected.Equal(actual), "Expected %v, but got %v", tt.expected, actual)
 			}
+		})
+	}
+}
+
+func Test_hasDeviceChanged(t *testing.T) {
+	tests := []struct {
+		name     string
+		oldDI    *core.DeviceInfo
+		newDI    *core.DeviceInfo
+		expected bool
+	}{
+		{
+			name:     "Old device info is nil",
+			oldDI:    nil,
+			newDI:    &core.DeviceInfo{MaxQubits: 5},
+			expected: true,
+		},
+		{
+			name:     "New device info is nil",
+			oldDI:    &core.DeviceInfo{MaxQubits: 5},
+			newDI:    nil,
+			expected: true,
+		},
+		{
+			name:     "MaxQubits is changed",
+			oldDI:    &core.DeviceInfo{MaxQubits: 5},
+			newDI:    &core.DeviceInfo{MaxQubits: 10},
+			expected: true,
+		},
+		{
+			name:     "MaxQubits is not changed",
+			oldDI:    &core.DeviceInfo{MaxQubits: 5},
+			newDI:    &core.DeviceInfo{MaxQubits: 5},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasDeviceChanged(tt.oldDI, tt.newDI)
+			assert.Equal(t, tt.expected, result)
 		})
 	}
 }

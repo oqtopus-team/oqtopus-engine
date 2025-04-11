@@ -9,6 +9,7 @@ const (
 	GetJobOperation                  OperationName = "GetJob"
 	GetJobsOperation                 OperationName = "GetJobs"
 	GetSsesrcOperation               OperationName = "GetSsesrc"
+	PatchDeviceOperation             OperationName = "PatchDevice"
 	PatchDeviceInfoOperation         OperationName = "PatchDeviceInfo"
 	PatchDeviceStatusOperation       OperationName = "PatchDeviceStatus"
 	PatchJobOperation                OperationName = "PatchJob"
