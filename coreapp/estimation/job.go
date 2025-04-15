@@ -15,28 +15,50 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	// Removed unused common import
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/config" // Added import
 )
 
 const (
 	ESTIMATION_JOB         = "estimation_job"
-	ESTIMATION_SETTING_KEY = "estimation"
+	ESTIMATION_SETTING_KEY = "estimation" // Keep key for potential future use or remove if unused
 
+	// Defaults might be moved to common or kept here if only used locally
 	DEFAULT_ESTIMATOR_HOST = "localhost"
 	DEFAULT_ESTIMATOR_PORT = "5012"
 )
 
+// DEFAULT_BASIS_GATES might be moved to common or kept here
 func DEFAULT_BASIS_GATES() []string {
 	return []string{"sx", "rz", "cx"}
 }
 
 var ErrorJobIDConflict = errors.New("jobID is already used")
 
+// EstimationSetting defines parameters for the estimation service.
 type EstimationSetting struct {
 	Host       string   `toml:"host"`
 	Port       string   `toml:"port"`
 	BasisGates []string `toml:"basis_gates"`
 }
 
+// GetHost returns the host for the estimation service.
+func (s EstimationSetting) GetHost() string {
+	return s.Host
+}
+
+// GetPort returns the port for the estimation service.
+func (s EstimationSetting) GetPort() string {
+	return s.Port
+}
+
+// GetBasisGates returns the basis gates for the estimation service.
+func (s EstimationSetting) GetBasisGates() []string {
+	return s.BasisGates
+}
+
+// NewEstimationSetting returns an EstimationSetting with default values.
 func NewEstimationSetting() EstimationSetting {
 	return EstimationSetting{
 		Host:       DEFAULT_ESTIMATOR_HOST,
@@ -46,7 +68,7 @@ func NewEstimationSetting() EstimationSetting {
 }
 
 type EstimationJob struct {
-	setting           EstimationSetting
+	setting           EstimationSetting // Use local type
 	jobData           *core.JobData
 	jobContext        *core.JobContext
 	preprocessedQASMs []string
@@ -60,40 +82,25 @@ type EstimationJob struct {
 }
 
 func (j *EstimationJob) New(jd *core.JobData, jc *core.JobContext) core.Job {
-	var setting EstimationSetting
-	s, ok := core.GetComponentSetting(ESTIMATION_SETTING_KEY)
+	// Get estimation settings from the global config
+	cfg := config.GetCurrentRunConfig()
+	setting := cfg.Estimation // Get the interface
+
+	// Log using getter methods
+	zap.L().Debug(fmt.Sprintf("Using estimation settings: Host=%s, Port=%s, BasisGates=%v",
+		setting.GetHost(), setting.GetPort(), setting.GetBasisGates()))
+
+	// Assign the concrete type obtained from the config to the struct field
+	// This requires a type assertion, assuming the config system guarantees the correct concrete type.
+	concreteSetting, ok := setting.(EstimationSetting)
 	if !ok {
-		zap.L().Error("estimation setting is not found")
-		setting = NewEstimationSetting()
-	} else {
-		mapped, ok := s.(map[string]interface{})
-		if !ok {
-			zap.L().Debug("estimation setting is not set")
-			setting = NewEstimationSetting()
-		} else {
-			setting = EstimationSetting{}
-			h, ok := mapped["host"].(string)
-			if ok {
-				setting.Host = h
-			} else {
-				setting.Host = DEFAULT_ESTIMATOR_HOST
-			}
-			p, ok := mapped["port"].(string)
-			if ok {
-				setting.Port = p
-			} else {
-				setting.Port = DEFAULT_ESTIMATOR_PORT
-			}
-			b, ok := mapped["basis_gates"].([]string)
-			if ok {
-				setting.BasisGates = b
-			} else {
-				setting.BasisGates = DEFAULT_BASIS_GATES()
-			}
-		}
+		// Handle the case where the type assertion fails, e.g., log an error and use defaults
+		zap.L().Error("Failed to assert EstimationConfig to concrete EstimationSetting type. Using defaults.")
+		concreteSetting = NewEstimationSetting()
 	}
+
 	return &EstimationJob{
-		setting:           setting,
+		setting:           concreteSetting, // Assign the asserted concrete setting
 		jobData:           jd,
 		jobContext:        jc,
 		preprocessedQASMs: make([]string, 0),
@@ -288,7 +295,10 @@ func estimationPreProcess(j *EstimationJob) (preprocessedQASMs []string, grouped
 	zap.L().Debug(fmt.Sprintf("start EstimationJob PreProcessing for %s", j.JobData().ID))
 
 	opts := grpc.WithTransportCredentials(insecure.NewCredentials())
-	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", j.setting.Host, j.setting.Port), opts)
+	// Use getter methods to access host and port
+	host := j.setting.GetHost()
+	port := j.setting.GetPort()
+	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", host, port), opts)
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("did not connect: %v", err))
 	}
@@ -326,11 +336,13 @@ func estimationPreProcess(j *EstimationJob) (preprocessedQASMs []string, grouped
 	} else {
 		zap.L().Debug(fmt.Sprintf("VirtualPhysicalMapping:%v", vpMapping))
 	}
-	zap.L().Debug(fmt.Sprintf("default basis gates:%v", j.setting.BasisGates))
+	// Use getter method for basis gates
+	basisGates := j.setting.GetBasisGates()
+	zap.L().Debug(fmt.Sprintf("default basis gates:%v", basisGates))
 	req := &pb.ReqEstimationPreProcessRequest{
 		QasmCode:    j.usedQASM,
 		Operators:   j.origOperators,
-		BasisGates:  j.setting.BasisGates,
+		BasisGates:  basisGates, // Use variable obtained via getter
 		MappingList: mappingList,
 	}
 
@@ -339,8 +351,9 @@ func estimationPreProcess(j *EstimationJob) (preprocessedQASMs []string, grouped
 
 	res, err := client.ReqEstimationPreProcess(ctx, req)
 	if err != nil {
+		// Use getter methods for logging host and port
 		zap.L().Error(fmt.Sprintf("could not request: %v/host:%s/port:%s",
-			err, j.setting.Host, j.setting.Port))
+			err, j.setting.GetHost(), j.setting.GetPort()))
 		j.JobData().Status = core.FAILED
 		return
 	}
@@ -351,13 +364,18 @@ func EstimationPostProcess(j *EstimationJob, countsList []*pb.Counts) (exp_value
 	zap.L().Debug(fmt.Sprintf("start EstimationJob PostProcessing for %s", j.JobData().ID))
 
 	opts := grpc.WithTransportCredentials(insecure.NewCredentials())
-	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", j.setting.Host, j.setting.Port), opts)
+	// Use getter methods to access host and port
+	host := j.setting.GetHost()                                         // Declare host variable
+	port := j.setting.GetPort()                                         // Declare port variable
+	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", host, port), opts) // Declare conn variable
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("did not connect: %v", err))
+		// Return error if connection fails
+		return 0, 0, fmt.Errorf("failed to connect to estimation service: %w", err)
 	}
 	defer conn.Close()
 
-	client := pb.NewEstimationJobServiceClient(conn)
+	client := pb.NewEstimationJobServiceClient(conn) // Use declared conn variable
 
 	req := &pb.ReqEstimationPostProcessRequest{
 		Counts:           countsList,

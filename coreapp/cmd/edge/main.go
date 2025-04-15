@@ -10,10 +10,12 @@ import (
 	"github.com/massn/envordot"
 	"github.com/oklog/run"
 
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/config" // Added import
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/core"
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/db"
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/estimation"
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/log"
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/mitig" // Ensure mitig is imported
 	multiprog "github.com/oqtopus-team/oqtopus-engine/coreapp/multiprog/manual"
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/poller"
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/qpu"
@@ -225,27 +227,34 @@ func (c *pollerCmd) Execute(args []string) error {
 	logger := setZap(edge.Conf)
 	defer logger.Sync()
 
-	// settings without RunGroups
-	// TODO : unify run-group settings
-	core.ResetSetting()
-	registerSetting()
-	zap.L().Debug(fmt.Sprintf("Registered setting"))
-	if err := core.ParseSettingFromPath(edge.Conf.SettingPath); err != nil {
-		zap.L().Error(fmt.Sprintf("failed to parse settings/reason:%s", err))
-		return err
+	// Create a new CurrentRunConfig instance with default settings from each component
+	defaultConfig := &config.CurrentRunConfig{
+		Gateway:    qpu.NewDefaultGatewayAgentSetting(),
+		Tranqu:     transpiler.NewTranquSetting(),
+		Estimation: estimation.NewEstimationSetting(),
+		Mitigator:  mitig.NewMitigatorSetting(),
+		// Initialize other settings here if added
 	}
+
+	// Set the initial default config globally
+	config.SetGlobalCurrentRunConfig(defaultConfig)
+
+	// Parse settings from TOML file, overwriting the defaults in the global instance
+	if err := config.ParseCurrentRunConfigFromPath(edge.Conf.SettingPath); err != nil {
+		// Log the error but continue, as ParseCurrentRunConfigFromPath handles logging and allows running with the defaults set above
+		zap.L().Warn(fmt.Sprintf("failed to parse settings file '%s', continuing with defaults: %s", edge.Conf.SettingPath, err))
+		// Depending on requirements, you might want to return err here to halt execution if settings are critical
+	}
+
+	// The registerSetting() function is no longer needed as defaults are handled by NewDefaultCurrentRunConfig
+	// registerSetting() // Removed call
 
 	s := setupSystemComponents(edge.Conf)
 	defer s.TearDown()
 
-	// test
-	// TODO: remove
-	v, ok := core.GetComponentSetting("gateway")
-	if !ok {
-		zap.L().Error("failed to get setting")
-		return fmt.Errorf("failed to get setting")
-	}
-	zap.L().Debug(fmt.Sprintf("Setting is %v", v))
+	// Test getting a specific setting (optional, for debugging)
+	// cfg := config.GetCurrentRunConfig()
+	// zap.L().Debug(fmt.Sprintf("Gateway setting from config: %+v", cfg.Gateway))
 
 	im := &core.ImplMaps{
 		PeriodicTaskImplMap: core.PeriodicTaskImplMap{
@@ -318,8 +327,12 @@ func setupSystemComponents(conf *core.Conf) *core.SystemComponents {
 	return s
 }
 
+// registerSetting is no longer needed as defaults are handled by config.NewDefaultCurrentRunConfig
+/*
 func registerSetting() {
-	core.RegisterSetting("gateway", qpu.NewDefaultGatewayAgentSetting())
-	core.RegisterSetting("tranqu", transpiler.NewTranquSetting())
-	core.RegisterSetting(estimation.ESTIMATION_SETTING_KEY, estimation.NewEstimationSetting())
+	// Defaults are now set in config.NewDefaultCurrentRunConfig
+	// core.RegisterSetting("gateway", qpu.NewDefaultGatewayAgentSetting())
+	// core.RegisterSetting("tranqu", transpiler.NewTranquSetting())
+	// core.RegisterSetting(estimation.ESTIMATION_SETTING_KEY, estimation.NewEstimationSetting())
 }
+*/

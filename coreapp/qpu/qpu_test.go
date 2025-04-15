@@ -11,7 +11,13 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/common"
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/config"
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/core"
+
+	// Ensure necessary component packages are imported for test setup
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/estimation"
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/mitig"
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/transpiler"
 )
 
 const testQASM = "OPENQASM 3;qubit[1] q;bit[1] c;x q[0];c[0] = measure q[0];"
@@ -51,8 +57,19 @@ func TestGatewayQPUSend(t *testing.T) {
 			wantErr:     regexp.MustCompile("failed to call job"),
 		},
 	}
-	core.ResetSetting()
-	core.RegisterSetting("gateway", NewDefaultGatewayAgentSetting())
+	// Set up a default config for testing using the new SetGlobalCurrentRunConfig
+	testConfig := &config.CurrentRunConfig{
+		Gateway:    NewDefaultGatewayAgentSetting(),   // Use local constructor
+		Tranqu:     transpiler.NewTranquSetting(),     // Need to import transpiler
+		Estimation: estimation.NewEstimationSetting(), // Need to import estimation
+		Mitigator:  mitig.NewMitigatorSetting(),       // Need to import mitig
+	}
+	config.SetGlobalCurrentRunConfig(testConfig)
+	// core.ResetSetting() // Removed old setting reset
+	// The old RegisterSetting call is removed. If a specific non-default setting is needed for a test,
+	// you might need to temporarily modify the global config after initialization via SetGlobalCurrentRunConfig,
+	// though ideally tests should mock dependencies or use DI instead of relying on global state.
+	// Example: cfg := config.GetCurrentRunConfig(); cfg.Gateway = common.NewDefaultGatewayAgentSetting() /* modify as needed */
 
 	s := core.SCWithUnimplementedContainer()
 	defer s.TearDown()

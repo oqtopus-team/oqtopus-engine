@@ -9,12 +9,37 @@ import (
 	"time"
 
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/common"
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/config" // Added import
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/core"
 	pb "github.com/oqtopus-team/oqtopus-engine/coreapp/mitig/mitigation_interface/v1"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// MitigatorSetting defines the connection parameters for the mitigator service.
+type MitigatorSetting struct {
+	Host string `toml:"host"`
+	Port string `toml:"port"`
+}
+
+// GetHost returns the host for the mitigator service.
+func (s MitigatorSetting) GetHost() string {
+	return s.Host
+}
+
+// GetPort returns the port for the mitigator service.
+func (s MitigatorSetting) GetPort() string {
+	return s.Port
+}
+
+// NewMitigatorSetting returns a MitigatorSetting with default values.
+func NewMitigatorSetting() MitigatorSetting {
+	return MitigatorSetting{
+		Host: "localhost", // Default host
+		Port: "5011",      // Default port
+	}
+}
 
 type PropertyRaw json.RawMessage
 
@@ -65,35 +90,18 @@ func PseudoInverseMitigation(jd *core.JobData) {
 		return
 	}
 
-	var mitigatorSetting core.MitigatorSetting
-	s, ok := core.GetComponentSetting("mitigator")
-	if !ok {
-		zap.L().Warn("mitigator setting not found, using default values")
-		mitigatorSetting = core.NewMitigatorSetting()
-	} else {
-		mapped, ok := s.(map[string]interface{})
-		if !ok {
-			zap.L().Warn("mitigator setting has incorrect type, using default values")
-			mitigatorSetting = core.NewMitigatorSetting()
-		} else {
-			hostVal, hostOk := mapped["host"].(string)
-			portVal, portOk := mapped["port"].(string)
-			if !hostOk || !portOk {
-				zap.L().Warn("mitigator setting fields have incorrect types or are missing, using default values")
-				mitigatorSetting = core.NewMitigatorSetting()
-			} else {
-				mitigatorSetting = core.MitigatorSetting{
-					Host: hostVal,
-					Port: portVal,
-				}
-			}
-		}
-	}
-	zap.L().Debug(fmt.Sprintf("Using mitigator settings: Host=%s, Port=%s", mitigatorSetting.Host, mitigatorSetting.Port))
+	// Get mitigator settings from the global config
+	cfg := config.GetCurrentRunConfig()
+	mitigatorSetting := cfg.Mitigator // Get the interface
 
-	target, err := common.ValidAddress(mitigatorSetting.Host, mitigatorSetting.Port)
+	host := mitigatorSetting.GetHost() // Use getter method
+	port := mitigatorSetting.GetPort() // Use getter method
+
+	zap.L().Debug(fmt.Sprintf("Using mitigator settings: Host=%s, Port=%s", host, port))
+
+	target, err := common.ValidAddress(host, port) // Use variables obtained via getters
 	if err != nil {
-		zap.L().Error(fmt.Sprintf("Invalid mitigator address: Host=%s, Port=%s, Error=%v", mitigatorSetting.Host, mitigatorSetting.Port, err))
+		zap.L().Error(fmt.Sprintf("Invalid mitigator address: Host=%s, Port=%s, Error=%v", host, port, err))
 		jd.Status = core.FAILED
 		return
 	}

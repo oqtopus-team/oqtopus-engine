@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/common"
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/config" // Added import
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/core"
 	tranqu "github.com/oqtopus-team/oqtopus-engine/coreapp/gen/tranqu/v1"
 	"go.uber.org/zap"
@@ -16,11 +17,23 @@ import (
 
 const grpcTimeout time.Duration = 5 * time.Second
 
+// TranquSetting defines parameters for the tranqu transpiler service.
 type TranquSetting struct {
 	Host string `toml:"host"`
 	Port string `toml:"port"`
 }
 
+// GetHost returns the host for the tranqu service.
+func (s TranquSetting) GetHost() string {
+	return s.Host
+}
+
+// GetPort returns the port for the tranqu service.
+func (s TranquSetting) GetPort() string {
+	return s.Port
+}
+
+// NewTranquSetting returns a TranquSetting with default values.
 func NewTranquSetting() TranquSetting {
 	return TranquSetting{
 		Host: "localhost",
@@ -29,7 +42,7 @@ func NewTranquSetting() TranquSetting {
 }
 
 type Tranqu struct {
-	setting TranquSetting
+	setting TranquSetting // Use local type
 	address string
 	conn    *grpc.ClientConn
 	client  tranqu.TranspilerServiceClient
@@ -41,28 +54,27 @@ func (t *Tranqu) IsAcceptableTranspilerLib(lib string) bool {
 }
 
 func (t *Tranqu) Setup(_ *core.Conf) error {
-	s, ok := core.GetComponentSetting("tranqu")
-	if !ok {
-		msg := "tranqu setting is not found"
-		return fmt.Errorf(msg)
-	}
-	zap.L().Debug(fmt.Sprintf("tranqu setting:%v", s))
+	// Get tranqu settings from the global config
+	cfg := config.GetCurrentRunConfig()
+	setting := cfg.Tranqu // Get the interface
 
-	// TODO: fix this adhoc
-	mapped, ok := s.(map[string]interface{})
+	// Assign the concrete type obtained from the config to the struct field
+	concreteSetting, ok := setting.(TranquSetting)
 	if !ok {
-		t.setting = NewTranquSetting()
-	} else {
-		t.setting = TranquSetting{
-			Host: mapped["host"].(string),
-			Port: mapped["port"].(string),
-		}
+		zap.L().Error("Failed to assert TranquConfig to concrete TranquSetting type. Using defaults.")
+		concreteSetting = NewTranquSetting()
 	}
+	t.setting = concreteSetting // Assign the asserted concrete setting
 
-	address, err := common.ValidAddress(t.setting.Host, t.setting.Port)
+	zap.L().Debug(fmt.Sprintf("Using tranqu settings: %+v", t.setting))
+
+	// Use getter methods to access host and port
+	host := t.setting.GetHost()
+	port := t.setting.GetPort()
+	address, err := common.ValidAddress(host, port)
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("failed to validate address/host:%s port:%s/reason:%s",
-			t.setting.Host, t.setting.Port, err))
+			host, port, err))
 	}
 	t.address = address
 	zap.L().Debug(fmt.Sprintf("Tranqu address is %s", t.address))

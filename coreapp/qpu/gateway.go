@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/common"
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/config" // Added import
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/core"
 	qint "github.com/oqtopus-team/oqtopus-engine/coreapp/gen/qpu/qpu_interface/v1"
 	api "github.com/oqtopus-team/oqtopus-engine/coreapp/oas/gen/providerapi"
@@ -27,6 +28,7 @@ type GatewayAgent interface {
 	GetAddress() string
 }
 
+// DefaultGatewayAgentSetting defines parameters for the QPU gateway agent.
 type DefaultGatewayAgentSetting struct {
 	GatewayHost string `toml:"gateway_host"`
 	GatewayPort string `toml:"gateway_port"`
@@ -35,6 +37,32 @@ type DefaultGatewayAgentSetting struct {
 	DeviceId    string `toml:"device_id"`
 }
 
+// GetGatewayHost returns the gateway host.
+func (s DefaultGatewayAgentSetting) GetGatewayHost() string {
+	return s.GatewayHost
+}
+
+// GetGatewayPort returns the gateway port.
+func (s DefaultGatewayAgentSetting) GetGatewayPort() string {
+	return s.GatewayPort
+}
+
+// GetAPIEndpoint returns the API endpoint.
+func (s DefaultGatewayAgentSetting) GetAPIEndpoint() string {
+	return s.APIEndpoint
+}
+
+// GetAPIKey returns the API key.
+func (s DefaultGatewayAgentSetting) GetAPIKey() string {
+	return s.APIKey
+}
+
+// GetDeviceID returns the device ID.
+func (s DefaultGatewayAgentSetting) GetDeviceID() string {
+	return s.DeviceId
+}
+
+// NewDefaultGatewayAgentSetting returns a DefaultGatewayAgentSetting with default values.
 func NewDefaultGatewayAgentSetting() DefaultGatewayAgentSetting {
 	return DefaultGatewayAgentSetting{
 		GatewayHost: "localhost",
@@ -46,7 +74,7 @@ func NewDefaultGatewayAgentSetting() DefaultGatewayAgentSetting {
 }
 
 type DefaultGatewayAgent struct {
-	setting        DefaultGatewayAgentSetting
+	setting        DefaultGatewayAgentSetting // Use local type
 	gatewayAddress string
 	gatewayConn    *grpc.ClientConn
 	apiConn        *grpc.ClientConn
@@ -62,43 +90,44 @@ func NewGatewayAgent() *DefaultGatewayAgent {
 }
 
 func (q *DefaultGatewayAgent) Setup() (err error) {
-	s, ok := core.GetComponentSetting("gateway")
+	// Get gateway settings from the global config
+	cfg := config.GetCurrentRunConfig()
+	setting := cfg.Gateway // Get the interface
+
+	// Assign the concrete type obtained from the config to the struct field
+	concreteSetting, ok := setting.(DefaultGatewayAgentSetting)
 	if !ok {
-		msg := "gateway setting is not found"
-		return fmt.Errorf(msg)
+		zap.L().Error("Failed to assert GatewayConfig to concrete DefaultGatewayAgentSetting type. Using defaults.")
+		concreteSetting = NewDefaultGatewayAgentSetting()
 	}
-	zap.L().Debug(fmt.Sprintf("gateway setting:%v", s))
-	// TODO: fix this adhoc
-	// partial setting is not allowed...
-	mapped, ok := s.(map[string]interface{})
-	if !ok {
-		q.setting = NewDefaultGatewayAgentSetting()
-	} else {
-		q.setting = DefaultGatewayAgentSetting{
-			GatewayHost: mapped["gateway_host"].(string),
-			GatewayPort: mapped["gateway_port"].(string),
-			APIEndpoint: mapped["api_endpoint"].(string),
-			APIKey:      mapped["api_key"].(string),
-			DeviceId:    mapped["device_id"].(string),
-		}
-	}
+	q.setting = concreteSetting // Assign the asserted concrete setting
+
+	zap.L().Debug(fmt.Sprintf("Using gateway settings: %+v", q.setting))
+
 	err = nil
-	address, err := common.ValidAddress(q.setting.GatewayHost, q.setting.GatewayPort)
+	// Use getter methods to access host and port
+	host := q.setting.GetGatewayHost()
+	port := q.setting.GetGatewayPort()
+	address, err := common.ValidAddress(host, port)
 	if err != nil {
 		return err
 	}
 	q.gatewayAddress = address
 
-	ss := common.NewSecuritySource(q.setting.APIKey)
+	// Use getter method for APIKey
+	apiKey := q.setting.GetAPIKey()
+	ss := common.NewSecuritySource(apiKey)
 	loggingTransport := &loggingRoundTripper{
 		next: http.DefaultTransport,
 	}
 	httpClient := &http.Client{
 		Transport: loggingTransport,
 	}
-	apiClient, err := api.NewClient(q.setting.APIEndpoint, ss, api.WithClient(httpClient))
+	// Use getter method for APIEndpoint
+	apiEndpoint := q.setting.GetAPIEndpoint()
+	apiClient, err := api.NewClient(apiEndpoint, ss, api.WithClient(httpClient))
 	if err != nil {
-		zap.L().Error("Failed to create API client with logging transport", zap.String("endpoint", q.setting.APIEndpoint), zap.Error(err))
+		zap.L().Error("Failed to create API client with logging transport", zap.String("endpoint", apiEndpoint), zap.Error(err))
 		return fmt.Errorf("failed to create API client: %w", err)
 	}
 	zap.L().Info("API Client created with local logging transport", zap.String("endpoint", q.setting.APIEndpoint))
@@ -259,8 +288,10 @@ func (q *DefaultGatewayAgent) updateDeviceStatus(st core.DeviceStatus) error {
 	apiSt := toDeviceDeviceStatusUpdateStatus(st)
 	req := api.NewOptDevicesDeviceStatusUpdate(
 		api.DevicesDeviceStatusUpdate{Status: apiSt})
+	// Use getter method for DeviceId
+	deviceID := q.setting.GetDeviceID()
 	params := api.PatchDeviceStatusParams{
-		DeviceID: q.setting.DeviceId,
+		DeviceID: deviceID,
 	}
 	zap.L().Debug("Attempting to update device status", zap.String("deviceID", params.DeviceID), zap.String("status", string(apiSt)))
 	_, patchErr := q.apiClient.PatchDeviceStatus(context.TODO(), req, params)
@@ -288,22 +319,24 @@ func (q *DefaultGatewayAgent) updateDeviceInfo(di *core.DeviceInfo) error {
 			DeviceInfo:   api.NewNilString(di.DeviceInfoSpecJson),
 			CalibratedAt: api.NewOptNilDateTime(caStr),
 		})
-	params := api.PatchDeviceInfoParams{
-		DeviceID: q.setting.DeviceId,
+	// Use getter method for DeviceId
+	deviceID := q.setting.GetDeviceID()  // Declare deviceID variable
+	params := api.PatchDeviceInfoParams{ // Declare params variable
+		DeviceID: deviceID,
 	}
 	zap.L().Debug("Attempting to update device info", zap.String("deviceID", params.DeviceID), zap.Time("calibratedAt", caStr), zap.String("deviceInfoSpec", di.DeviceInfoSpecJson))
-	_, patchErr := q.apiClient.PatchDeviceInfo(context.TODO(), req, params)
+	_, patchErr := q.apiClient.PatchDeviceInfo(context.TODO(), req, params) // Declare patchErr variable
 	if patchErr != nil {
 		zap.L().Error("API call to update device info failed",
-			zap.String("deviceID", params.DeviceID),
+			zap.String("deviceID", params.DeviceID), // Use declared params
 			zap.Time("calibratedAt", caStr),
 			zap.String("deviceInfoSpec", di.DeviceInfoSpecJson),
-			zap.Error(patchErr),
+			zap.Error(patchErr), // Use declared patchErr
 		)
 	} else {
-		zap.L().Info("Successfully initiated device info update", zap.String("deviceID", params.DeviceID))
+		zap.L().Info("Successfully initiated device info update", zap.String("deviceID", params.DeviceID)) // Use declared params
 	}
-	return patchErr
+	return patchErr // Use declared patchErr
 }
 
 func (q *DefaultGatewayAgent) updateDevice(di *core.DeviceInfo) error {
@@ -311,21 +344,23 @@ func (q *DefaultGatewayAgent) updateDevice(di *core.DeviceInfo) error {
 		api.DevicesUpdateDeviceRequest{
 			NQubits: api.NewOptNilInt(int(di.MaxQubits)),
 		})
-	params := api.PatchDeviceParams{
-		DeviceID: q.setting.DeviceId,
+	// Use getter method for DeviceId
+	deviceID := q.setting.GetDeviceID() // Declare deviceID variable
+	params := api.PatchDeviceParams{    // Declare params variable
+		DeviceID: deviceID,
 	}
 	zap.L().Debug("Attempting to update device", zap.String("deviceID", params.DeviceID), zap.Int("maxQubits", di.MaxQubits))
-	_, patchErr := q.apiClient.PatchDevice(context.TODO(), req, params)
+	_, patchErr := q.apiClient.PatchDevice(context.TODO(), req, params) // Declare patchErr variable
 	if patchErr != nil {
 		zap.L().Error("API call to update device failed",
-			zap.String("deviceID", params.DeviceID),
+			zap.String("deviceID", params.DeviceID), // Use declared params
 			zap.Int("maxQubits", di.MaxQubits),
-			zap.Error(patchErr),
+			zap.Error(patchErr), // Use declared patchErr
 		)
 	} else {
-		zap.L().Info("Successfully initiated device update", zap.String("deviceID", params.DeviceID))
+		zap.L().Info("Successfully initiated device update", zap.String("deviceID", params.DeviceID)) // Use declared params
 	}
-	return patchErr
+	return patchErr // Use declared patchErr
 }
 
 func toDeviceDeviceStatusUpdateStatus(ds core.DeviceStatus) api.DevicesDeviceStatusUpdateStatus {

@@ -8,7 +8,7 @@ import (
 	"net/textproto"
 
 	ht "github.com/ogen-go/ogen/http"
-	"github.com/oqtopus-team/oqtopus-engine/coreapp/core"
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/config" // Added import
 	api "github.com/oqtopus-team/oqtopus-engine/coreapp/oas/gen/providerapi"
 
 	"go.uber.org/zap"
@@ -30,44 +30,36 @@ type SseApiClient struct {
 }
 
 func getParamsFromSetting() (apiKey string, endpoint string, err error) {
-	apiKey = ""
-	endpoint = ""
-	err = nil
-	setting := core.GetGlobalSetting()
-	if setting == nil {
-		err = fmt.Errorf("failed to get setting: group setting is nil.")
-		return
+	cfg := config.GetCurrentRunConfig()
+	if cfg == nil {
+		err = fmt.Errorf("failed to get current run config: config is nil")
+		zap.L().Error(err.Error())
+		return "", "", err
 	}
 
-	periodic_task, ok := setting.RunGroupSetting["periodic_tasks"].(map[string]interface{})
-	if !ok {
-		err = fmt.Errorf("failed to get setting: periodic_tasks is nil.")
-		return
+	// Assuming SSE API client uses the same endpoint and key as the Gateway QPU agent
+	gatewaySetting := cfg.Gateway              // Get the interface
+	apiKey = gatewaySetting.GetAPIKey()        // Use getter method
+	endpoint = gatewaySetting.GetAPIEndpoint() // Use getter method
+
+	if apiKey == "" {
+		err = fmt.Errorf("API key is empty in gateway settings")
+		zap.L().Error(err.Error())
+		// Decide if returning error or default is appropriate
 	}
-	poller, ok := periodic_task["poller"].(map[string]interface{})
-	if !ok {
-		err = fmt.Errorf("failed to get setting: periodic_tasks.poller is nil.")
-		return
-	}
-	params, ok := poller["params"].(map[string]interface{})
-	if !ok {
-		err = fmt.Errorf("failed to get setting: periodic_tasks.poller.params is nil.")
-		return
+	if endpoint == "" {
+		err = fmt.Errorf("API endpoint is empty in gateway settings")
+		zap.L().Error(err.Error())
+		// Decide if returning error or default is appropriate
 	}
 
-	apiKey, ok = params["api_key"].(string)
-	if !ok {
-		err = fmt.Errorf("failed to get setting: periodic_tasks.poller.params.api_key is nil.")
-		return
+	// If either key or endpoint is missing, return the collected error (if any)
+	if err != nil {
+		return "", "", err // Return empty strings and the error
 	}
 
-	endpoint, ok = params["endpoint"].(string)
-	if !ok {
-		err = fmt.Errorf("failed to get setting: periodic_tasks.poller.params.endpoint is nil.")
-		return
-	}
-
-	return
+	zap.L().Debug("Retrieved API params from Gateway settings", zap.String("endpoint", endpoint))
+	return apiKey, endpoint, nil
 }
 
 func NewSseApiClient() (sseApiClient *SseApiClient, err error) {
