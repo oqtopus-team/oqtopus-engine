@@ -781,12 +781,13 @@ func Test_copyResultFromContainer(t *testing.T) {
 	}
 }
 
-func Test_getContainerLog(t *testing.T) {
+func Test_saveContainerLog(t *testing.T) {
 	type args struct {
-		conDef    *ContainerDefinition
-		outputJob *core.JobData
-		sseconf   *sseconf.SSEConf
-		outPath   string
+		conDef           *ContainerDefinition
+		outputJob        *core.JobData
+		sseconf          *sseconf.SSEConf
+		outPath          string
+		printToEngineLog bool
 	}
 	tests := []struct {
 		name      string
@@ -816,7 +817,38 @@ func Test_getContainerLog(t *testing.T) {
 				sseconf: &sseconf.SSEConf{
 					SSELogFileName: "sse_unittest.log",
 				},
-				outPath: "./",
+				outPath:          "./",
+				printToEngineLog: false,
+			},
+			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
+				return assert.NoError(t, err)
+			},
+		},
+		{
+			name: "Success and write engine log",
+			args: args{
+				conDef: &ContainerDefinition{
+					containerName: "TestContainer",
+					client: func() client.ContainerAPIClient {
+						mockCtrl := gomock.NewController(t)
+						mock := NewMockCommonAPIClient(mockCtrl)
+						mock.EXPECT().ContainerLogs(gomock.Any(), gomock.Any(), gomock.Any()).Return(io.NopCloser(strings.NewReader("test")), nil)
+						return mock
+					}(),
+					config: &container.Config{
+						Image:        "testImage",
+						Tty:          true,
+						Env:          []string{""},
+						AttachStdout: true,
+						AttachStderr: true,
+					},
+				},
+				outputJob: nil,
+				sseconf: &sseconf.SSEConf{
+					SSELogFileName: "sse_unittest.log",
+				},
+				outPath:          "./",
+				printToEngineLog: true,
 			},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
 				return assert.NoError(t, err)
@@ -845,7 +877,8 @@ func Test_getContainerLog(t *testing.T) {
 				sseconf: &sseconf.SSEConf{
 					SSELogFileName: "sse_unittest.log",
 				},
-				outPath: "./",
+				outPath:          "./",
+				printToEngineLog: false,
 			},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
 				return assert.EqualError(t, err, "failed to get container log")
@@ -874,7 +907,8 @@ func Test_getContainerLog(t *testing.T) {
 				sseconf: &sseconf.SSEConf{
 					SSELogFileName: "sse_unittest.log",
 				},
-				outPath: "./",
+				outPath:          "./",
+				printToEngineLog: false,
 			},
 			assertion: func(t assert.TestingT, err error, i ...interface{}) bool {
 				return assert.EqualError(t, err, "failed to get container log")
@@ -883,7 +917,7 @@ func Test_getContainerLog(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := getContainerLog(tt.args.conDef, tt.args.outputJob, tt.args.sseconf, tt.args.outPath)
+			err := saveContainerLog(tt.args.conDef, tt.args.outputJob, tt.args.sseconf, tt.args.outPath, tt.args.printToEngineLog)
 			tt.assertion(t, err)
 			if err == nil {
 				// check if the file is created
