@@ -41,6 +41,7 @@ dependencies = [
     "cirq==1.3.0",
     "pennylane==0.40.0",
     "openfermion==1.6.1",
+    "mypy>=1.15.0",
 ]
 
 [tool.uv]
@@ -79,9 +80,15 @@ lint.ignore = [
   "ANN401",
   "CPY001",
   "D",
-  "ERA001",
   "PLC1901",
   "PLR2004",
   "PLR6301",
   "S101",
 ]
+
+[tool.mypy]
+files = ["src"]
+exclude = [
+  "src/.*/v1/", # Generated codes
+]
+ignore_missing_imports = true

@@ -3,12 +3,7 @@ from pathlib import Path
 
 # add python path to import circuit_combiner.py
 sys.path.insert(
-    0,
-    str(Path(__file__)
-        .resolve()
-        .parent
-        .parent
-        .joinpath("src", "circuit_combiner"))
+    0, str(Path(__file__).resolve().parent.parent.joinpath("src", "circuit_combiner"))
 )
 
 import logging
@@ -19,7 +14,7 @@ import qiskit.qasm3
 from multiprog_interface.v1 import multiprog_pb2
 from qiskit import QuantumCircuit
 
-from circuit_combiner import (
+from circuit_combiner import (  # type: ignore[attr-defined]
     CircuitCombiner,
     get_allowed_threads,
     get_cgroup_cpu_count,
@@ -263,14 +258,14 @@ def test_deal_with_request_qasm_positive_qasm_str_conversion():
     logger = logging.getLogger(__name__)
     cc = CircuitCombiner(logger)
 
-    qasm_array_str = '[\\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\", \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\"]'  # noqa: E501, Q004
+    qasm_array_str = '[\\"OPENQASM 3;\\ninclude \\\\"stdgates.inc\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\", \\"OPENQASM 3;\\ninclude \\\\"stdgates.inc\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\"]'  # noqa: E501
     request = multiprog_pb2.CombineRequest(
         qasm_array=qasm_array_str,
         max_qubits=10,
     )
     json_array = [
-        'OPENQASM 3;\ninclude "stdgates.inc";\nqubit[2] q;\n\nh q[0];\nx q[0];\ncx q[0], q[1];',    # noqa: E501
-        'OPENQASM 3;\ninclude "stdgates.inc";\nqubit[2] q;\n\nh q[0];\nx q[0];\ncx q[0], q[1];',    # noqa: E501
+        'OPENQASM 3;\ninclude "stdgates.inc";\nqubit[2] q;\n\nh q[0];\nx q[0];\ncx q[0], q[1];',  # noqa: E501
+        'OPENQASM 3;\ninclude "stdgates.inc";\nqubit[2] q;\n\nh q[0];\nx q[0];\ncx q[0], q[1];',  # noqa: E501
     ]
     assert cc.deal_with_request_qasm(request) == json_array
 
@@ -291,7 +286,7 @@ def test_deal_with_request_qasm_negative_qasm_str_anomaly():
 def test_get_cgroup_cpu_count_quota_set_positive_cpu_num_obtainable_1st():
     with (
         patch("pathlib.Path.read_text", side_effect=["200000", "100000"]),
-        patch("os.cpu_count", return_value=4)
+        patch("os.cpu_count", return_value=4),
     ):
         assert get_cgroup_cpu_count() == 2
 
@@ -299,7 +294,7 @@ def test_get_cgroup_cpu_count_quota_set_positive_cpu_num_obtainable_1st():
 def test_get_cgroup_cpu_count_quota_set_positive_cpu_num_obtainable_2nd():
     with (
         patch("pathlib.Path.read_text", side_effect=["400000", "100000"]),
-        patch("os.cpu_count", return_value=4)
+        patch("os.cpu_count", return_value=4),
     ):
         assert get_cgroup_cpu_count() == 4
 
@@ -307,7 +302,7 @@ def test_get_cgroup_cpu_count_quota_set_positive_cpu_num_obtainable_2nd():
 def test_get_cgroup_cpu_count_quota_set_positive_cpu_num_obtainable_host_os():
     with (
         patch("pathlib.Path.read_text", side_effect=["500000", "100000"]),
-        patch("os.cpu_count", return_value=4)
+        patch("os.cpu_count", return_value=4),
     ):
         assert get_cgroup_cpu_count() == 4
 
@@ -315,7 +310,7 @@ def test_get_cgroup_cpu_count_quota_set_positive_cpu_num_obtainable_host_os():
 def test_get_cgroup_cpu_count_quota_unlimited_positive_no_cpu_limit():
     with (
         patch("pathlib.Path.read_text", return_value="-1"),
-        patch("os.cpu_count", return_value=7)
+        patch("os.cpu_count", return_value=7),
     ):
         assert get_cgroup_cpu_count() == 7
 
@@ -323,12 +318,12 @@ def test_get_cgroup_cpu_count_quota_unlimited_positive_no_cpu_limit():
 def test_get_cgroup_cpu_count_file_not_found():
     with (
         patch("builtins.open", side_effect=FileNotFoundError),
-        patch("os.cpu_count", return_value=7)
+        patch("os.cpu_count", return_value=7),
     ):
         assert get_cgroup_cpu_count() == 7
 
 
-@patch("circuit_combiner.MAX_THREADS", 3)
+@patch("circuit_combiner.MAX_WORKERS", 3)
 def test_get_allowed_threads_positive_set_max_threads():
     with patch("circuit_combiner.get_cgroup_cpu_count", return_value=7):
         assert get_allowed_threads() == 3
@@ -339,19 +334,19 @@ def test_get_allowed_threads_positive_max_threads_unset():
         assert get_allowed_threads() == 7
 
 
-@patch("circuit_combiner.MAX_THREADS", 0)
+@patch("circuit_combiner.MAX_WORKERS", 0)
 def test_get_allowed_threads_positive_max_threads_zero():
     with patch("circuit_combiner.get_cgroup_cpu_count", return_value=7):
         assert get_allowed_threads() == 7
 
 
-@patch("circuit_combiner.MAX_THREADS", -6)
+@patch("circuit_combiner.MAX_WORKERS", -6)
 def test_get_allowed_threads_positive_negative_max_threads():
     with patch("circuit_combiner.get_cgroup_cpu_count", return_value=7):
         assert get_allowed_threads() == 7
 
 
-@patch("circuit_combiner.MAX_THREADS", 8)
+@patch("circuit_combiner.MAX_WORKERS", 8)
 def test_get_allowed_threads_positive_exceeded_max_threads():
     with patch("circuit_combiner.get_cgroup_cpu_count", return_value=7):
         assert get_allowed_threads() == 7
@@ -360,7 +355,7 @@ def test_get_allowed_threads_positive_exceeded_max_threads():
 def test_circuit_combiner_positive():
     logger = logging.getLogger(__name__)
 
-    qasm_array_str = '[\\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\", \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[1] q;\\n\\nh q[0];\\nx q[0];\\\"]'  # noqa: E501, Q004
+    qasm_array_str = '[\\"OPENQASM 3;\\ninclude \\\\"stdgates.inc\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\", \\"OPENQASM 3;\\ninclude \\\\"stdgates.inc\\\\";\\nqubit[1] q;\\n\\nh q[0];\\nx q[0];\\"]'  # noqa: E501
     request = multiprog_pb2.CombineRequest(
         qasm_array=qasm_array_str,
         max_qubits=10,
@@ -385,7 +380,7 @@ def test_circuit_combiner_positive():
 def test_circuit_combiner_negative_qasm_json_str_anomaly():
     logger = logging.getLogger(__name__)
 
-    qasm_array_str = '"{\\\"qasm\\\": \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\", \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[1] q;\\n\\nh q[0];\\nx q[0];\\\"]}"'  # noqa: E501, Q004
+    qasm_array_str = '"{\\"qasm\\": \\"OPENQASM 3;\\ninclude \\\\"stdgates.inc\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\", \\"OPENQASM 3;\\ninclude \\\\"stdgates.inc\\\\";\\nqubit[1] q;\\n\\nh q[0];\\nx q[0];\\"]}"'  # noqa: E501
     request = multiprog_pb2.CombineRequest(
         qasm_array=qasm_array_str,
         max_qubits=10,
@@ -399,7 +394,7 @@ def test_circuit_combiner_negative_qasm_json_str_anomaly():
 def test_circuit_combiner_negative_qasm_circuit_str_anomaly():
     logger = logging.getLogger(__name__)
 
-    qasm_array_str = '[\\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqbit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\", \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[1] q;\\n\\nh q[0];\\nx q[0];\\\"]'  # noqa: E501, Q004
+    qasm_array_str = '[\\"OPENQASM 3;\\ninclude \\\\"stdgates.inc\\\\";\\nqbit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\", \\"OPENQASM 3;\\ninclude \\\\"stdgates.inc\\\\";\\nqubit[1] q;\\n\\nh q[0];\\nx q[0];\\"]'  # noqa: E501
     request = multiprog_pb2.CombineRequest(
         qasm_array=qasm_array_str,
         max_qubits=10,
