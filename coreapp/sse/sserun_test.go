@@ -464,7 +464,7 @@ func Test_execCommandInContainer(t *testing.T) {
 				},
 				outputJob: nil,
 				sseconf: &sseconf.SSEConf{
-					TimeoutSSE: 15,
+					SSETimeout: 15,
 				},
 				user: "sseuser",
 				cmd:  "",
@@ -502,7 +502,7 @@ func Test_execCommandInContainer(t *testing.T) {
 				},
 				outputJob: nil,
 				sseconf: &sseconf.SSEConf{
-					TimeoutSSE: 15,
+					SSETimeout: 15,
 				},
 				user: "sseuser",
 				cmd:  "",
@@ -540,7 +540,7 @@ func Test_execCommandInContainer(t *testing.T) {
 				},
 				outputJob: nil,
 				sseconf: &sseconf.SSEConf{
-					TimeoutSSE: 15,
+					SSETimeout: 15,
 				},
 				user: "sseuser",
 				cmd:  "",
@@ -578,7 +578,7 @@ func Test_execCommandInContainer(t *testing.T) {
 				},
 				outputJob: nil,
 				sseconf: &sseconf.SSEConf{
-					TimeoutSSE: 15,
+					SSETimeout: 15,
 				},
 				user: "sseuser",
 				cmd:  "",
@@ -616,7 +616,7 @@ func Test_execCommandInContainer(t *testing.T) {
 				},
 				outputJob: nil,
 				sseconf: &sseconf.SSEConf{
-					TimeoutSSE: 15,
+					SSETimeout: 15,
 				},
 				user: "sseuser",
 				cmd:  "",
@@ -654,7 +654,7 @@ func Test_execCommandInContainer(t *testing.T) {
 				},
 				outputJob: nil,
 				sseconf: &sseconf.SSEConf{
-					TimeoutSSE: 1,
+					SSETimeout: 1,
 				},
 				user: "sseuser",
 				cmd:  "",
