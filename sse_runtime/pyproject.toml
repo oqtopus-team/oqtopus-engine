@@ -32,7 +32,7 @@ dependencies = [
     "scipy>=1.10.1",
     "scikit-learn==1.6.1",
     "quri-parts==0.20.3",
-    "quri-parts-oqtopus==1.0.0",
+    "quri-parts-oqtopus==1.0.1",
     "qiskit==1.4.1",
     "qulacs==0.5.6",
     "skqulacs==0.5.2",
