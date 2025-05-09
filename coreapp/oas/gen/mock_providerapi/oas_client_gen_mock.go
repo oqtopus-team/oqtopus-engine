@@ -80,6 +80,21 @@ func (mr *MockInvokerMockRecorder) GetSsesrc(ctx, params interface{}) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSsesrc", reflect.TypeOf((*MockInvoker)(nil).GetSsesrc), ctx, params)
 }
 
+// PatchDevice mocks base method.
+func (m *MockInvoker) PatchDevice(ctx context.Context, request providerapi.OptDevicesUpdateDeviceRequest, params providerapi.PatchDeviceParams) (providerapi.PatchDeviceRes, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PatchDevice", ctx, request, params)
+	ret0, _ := ret[0].(providerapi.PatchDeviceRes)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PatchDevice indicates an expected call of PatchDevice.
+func (mr *MockInvokerMockRecorder) PatchDevice(ctx, request, params interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchDevice", reflect.TypeOf((*MockInvoker)(nil).PatchDevice), ctx, request, params)
+}
+
 // PatchDeviceInfo mocks base method.
 func (m *MockInvoker) PatchDeviceInfo(ctx context.Context, request providerapi.OptDevicesDeviceInfoUpdate, params providerapi.PatchDeviceInfoParams) (providerapi.PatchDeviceInfoRes, error) {
 	m.ctrl.T.Helper()

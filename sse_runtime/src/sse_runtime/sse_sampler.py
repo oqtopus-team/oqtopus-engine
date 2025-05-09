@@ -95,7 +95,7 @@ def _make_job_def(
     transpiled_program = response.transpiled_qasm or ""
     stats = result_dict.get("transpiler_info", {}).get("stats", "{}") or "{}"
     virtual_physical_mapping = result_dict.get("transpiler_info", {}) \
-                                            .get("virtual_physical_mapping", "{}") or "{}"
+                                        .get("virtual_physical_mapping", "{}") or "{}"
 
     # job_info related data
     program = [qasm]
@@ -153,7 +153,7 @@ def _make_request(
         qasm: str,
         shots: int,
         transpiler_info: dict[str, Any]
-) -> str:
+) -> dict[str, Any]:
     job_dict = json.loads(job_json)
     return {
         "id": job_dict["ID"],
@@ -167,7 +167,7 @@ def _log_result(contents_dict: dict[str, Any], filename: str) -> None:
     # write the result to a file
     dir_path = os.environ.get("OUT_PATH", "")
     p = Path(dir_path)
-    if not p.exists:
+    if not p.exists():
         msg = f"The path to output does not exist {dir_path}"
         raise BackendError(msg)
 

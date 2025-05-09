@@ -40,6 +40,15 @@ func (UnimplementedHandler) GetSsesrc(ctx context.Context, params GetSsesrcParam
 	return r, ht.ErrNotImplemented
 }
 
+// PatchDevice implements patchDevice operation.
+//
+// Update a part of selected device's properties.
+//
+// PATCH /devices/{device_id}
+func (UnimplementedHandler) PatchDevice(ctx context.Context, req OptDevicesUpdateDeviceRequest, params PatchDeviceParams) (r PatchDeviceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // PatchDeviceInfo implements patchDeviceInfo operation.
 //
 // Update device_info(calibration data) of selected device.

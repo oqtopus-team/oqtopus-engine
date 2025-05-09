@@ -52,7 +52,7 @@ def init_error_mitigator_instance():
     em = None
 
 
-def test_readout_error_mitigation():
+def test_ro_error_mitigation():
     qubits = [
         Qubit(
             id=i,
@@ -67,7 +67,7 @@ def test_readout_error_mitigation():
     counts = {k: v for k, v in [["00", 425], ["01", 75], ["10", 85], ["11", 415]]}
     shots = 1000
     measured_qubit = [0, 1]
-    mitigated_counts = em.readout_error_mitigation(
+    mitigated_counts = em.ro_error_mitigation(
         device_topology, counts, shots, measured_qubit
     )
     print(mitigated_counts)
@@ -77,7 +77,7 @@ def test_readout_error_mitigation():
     assert mitigated_counts["11"] == 454
 
 
-def test_readout_error_mitigation_random():
+def test_ro_error_mitigation_random():
     # set test parameters
     num_qubits = 10
     shots = 10000
@@ -110,7 +110,7 @@ def test_readout_error_mitigation_random():
     measured_qubits = np.random.choice(np.arange(64), size=num_qubits, replace=False)
 
     # call Error Mitigation function
-    mitigated_counts = em.readout_error_mitigation(
+    mitigated_counts = em.ro_error_mitigation(
         device_topology, counts, sum(counts.values()), measured_qubits
     )
 

@@ -163,7 +163,7 @@ func toVirtualPhysicalMappingFromString(virtualPhysicalMapping string) (core.Vir
 			virtualPhysicalMapping, err))
 		return core.VirtualPhysicalMappingRaw{}, err
 	}
-	zap.L().Debug(fmt.Sprintf("unmarshaled virtualPhysicalMapping:%v", m))
+	zap.L().Debug("Successfully unmarshaled virtualPhysicalMapping", zap.Any("qubit_mapping", m.QubitMapping), zap.Any("bit_mapping", m.BitMapping))
 	d, err := json.Marshal(m.QubitMapping)
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("failed to marshal qubit mapping:%v/reason:%s",
@@ -171,7 +171,8 @@ func toVirtualPhysicalMappingFromString(virtualPhysicalMapping string) (core.Vir
 		return core.VirtualPhysicalMappingRaw{}, err
 	}
 	vpm := core.VirtualPhysicalMappingRaw(d)
-	zap.L().Debug(fmt.Sprintf("converted virtual physical mapping:%v", vpm))
+	// Log the mapping as a string instead of potentially base64 encoded bytes
+	zap.L().Debug(fmt.Sprintf("converted virtual physical mapping:%s", string(vpm)))
 	return vpm, nil
 }
 
@@ -183,7 +184,7 @@ func toPhysicalVirtualMappingFromString(virtualPhysicalMapping string) (core.Phy
 			virtualPhysicalMapping, err))
 		return core.PhysicalVirtualMapping{}, err
 	}
-	zap.L().Debug(fmt.Sprintf("unmarshaled virtualPhysicalMapping:%v", m))
+	zap.L().Debug("Successfully unmarshaled virtualPhysicalMapping", zap.Any("qubit_mapping", m.QubitMapping), zap.Any("bit_mapping", m.BitMapping))
 	pvm := core.PhysicalVirtualMapping{}
 	for k, v := range m.QubitMapping {
 		num, err := strconv.ParseUint(k, 10, 32)

@@ -128,6 +128,38 @@ func (s *DevicesDeviceStatusUpdateStatus) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/devices.UpdateDeviceRequest
+type DevicesUpdateDeviceRequest struct {
+	NQubits OptNilInt `json:"n_qubits"`
+}
+
+// GetNQubits returns the value of NQubits.
+func (s *DevicesUpdateDeviceRequest) GetNQubits() OptNilInt {
+	return s.NQubits
+}
+
+// SetNQubits sets the value of NQubits.
+func (s *DevicesUpdateDeviceRequest) SetNQubits(val OptNilInt) {
+	s.NQubits = val
+}
+
+// Ref: #/components/schemas/devices.UpdateDeviceResponse
+type DevicesUpdateDeviceResponse struct {
+	Message string `json:"message"`
+}
+
+// GetMessage returns the value of Message.
+func (s *DevicesUpdateDeviceResponse) GetMessage() string {
+	return s.Message
+}
+
+// SetMessage sets the value of Message.
+func (s *DevicesUpdateDeviceResponse) SetMessage(val string) {
+	s.Message = val
+}
+
+func (*DevicesUpdateDeviceResponse) patchDeviceRes() {}
+
 // Ref: #/components/schemas/error.BadRequest
 type ErrorBadRequest struct {
 	Message string `json:"message"`
@@ -147,6 +179,7 @@ func (*ErrorBadRequest) getJobRes()                  {}
 func (*ErrorBadRequest) getJobsRes()                 {}
 func (*ErrorBadRequest) getSsesrcRes()               {}
 func (*ErrorBadRequest) patchDeviceInfoRes()         {}
+func (*ErrorBadRequest) patchDeviceRes()             {}
 func (*ErrorBadRequest) patchDeviceStatusRes()       {}
 func (*ErrorBadRequest) patchJobInfoRes()            {}
 func (*ErrorBadRequest) patchSselogRes()             {}
@@ -187,6 +220,7 @@ func (s *ErrorInternalServerError) SetMessage(val string) {
 func (*ErrorInternalServerError) getJobsRes()           {}
 func (*ErrorInternalServerError) getSsesrcRes()         {}
 func (*ErrorInternalServerError) patchDeviceInfoRes()   {}
+func (*ErrorInternalServerError) patchDeviceRes()       {}
 func (*ErrorInternalServerError) patchDeviceStatusRes() {}
 func (*ErrorInternalServerError) patchSselogRes()       {}
 
@@ -208,6 +242,7 @@ func (s *ErrorNotFoundError) SetMessage(val string) {
 func (*ErrorNotFoundError) getJobRes()                  {}
 func (*ErrorNotFoundError) getSsesrcRes()               {}
 func (*ErrorNotFoundError) patchDeviceInfoRes()         {}
+func (*ErrorNotFoundError) patchDeviceRes()             {}
 func (*ErrorNotFoundError) patchDeviceStatusRes()       {}
 func (*ErrorNotFoundError) patchJobInfoRes()            {}
 func (*ErrorNotFoundError) patchJobRes()                {}
@@ -1326,6 +1361,52 @@ func (o OptDevicesDeviceStatusUpdate) Or(d DevicesDeviceStatusUpdate) DevicesDev
 	return d
 }
 
+// NewOptDevicesUpdateDeviceRequest returns new OptDevicesUpdateDeviceRequest with value set to v.
+func NewOptDevicesUpdateDeviceRequest(v DevicesUpdateDeviceRequest) OptDevicesUpdateDeviceRequest {
+	return OptDevicesUpdateDeviceRequest{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptDevicesUpdateDeviceRequest is optional DevicesUpdateDeviceRequest.
+type OptDevicesUpdateDeviceRequest struct {
+	Value DevicesUpdateDeviceRequest
+	Set   bool
+}
+
+// IsSet returns true if OptDevicesUpdateDeviceRequest was set.
+func (o OptDevicesUpdateDeviceRequest) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptDevicesUpdateDeviceRequest) Reset() {
+	var v DevicesUpdateDeviceRequest
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptDevicesUpdateDeviceRequest) SetTo(v DevicesUpdateDeviceRequest) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptDevicesUpdateDeviceRequest) Get() (v DevicesUpdateDeviceRequest, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptDevicesUpdateDeviceRequest) Or(d DevicesUpdateDeviceRequest) DevicesUpdateDeviceRequest {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptFloat64 returns new OptFloat64 with value set to v.
 func NewOptFloat64(v float64) OptFloat64 {
 	return OptFloat64{
@@ -1814,6 +1895,69 @@ func (o OptNilFloat64) Get() (v float64, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptNilFloat64) Or(d float64) float64 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptNilInt returns new OptNilInt with value set to v.
+func NewOptNilInt(v int) OptNilInt {
+	return OptNilInt{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilInt is optional nullable int.
+type OptNilInt struct {
+	Value int
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilInt was set.
+func (o OptNilInt) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilInt) Reset() {
+	var v int
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilInt) SetTo(v int) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsSet returns true if value is Null.
+func (o OptNilInt) IsNull() bool { return o.Null }
+
+// SetNull sets value to null.
+func (o *OptNilInt) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v int
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilInt) Get() (v int, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilInt) Or(d int) int {
 	if v, ok := o.Get(); ok {
 		return v
 	}

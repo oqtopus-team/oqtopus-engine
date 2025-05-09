@@ -20,7 +20,7 @@ func init() {
 
 type MPGMConf struct {
 	CircuitCombinerPort string `long:"circuit-combiner-port" description:"port number for gRPC server of the circuit combiner" env:"COMBINER_PORT"`
-	CircuitCombinerHost string `long:"circuit-combiner-host" description:"host name for gRPC server of the circuit combiner" env:"CIRCUIT_COMBINER_HOST"`
+	CircuitCombinerHost string `long:"circuit-combiner-host" description:"host name for gRPC server of the circuit combiner" env:"COMBINER_HOST"`
 }
 
 func loadParams() (code int, err error) {

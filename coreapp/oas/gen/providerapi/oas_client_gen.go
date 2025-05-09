@@ -42,6 +42,12 @@ type Invoker interface {
 	//
 	// GET /jobs/{job_id}/ssesrc
 	GetSsesrc(ctx context.Context, params GetSsesrcParams) (GetSsesrcRes, error)
+	// PatchDevice invokes patchDevice operation.
+	//
+	// Update a part of selected device's properties.
+	//
+	// PATCH /devices/{device_id}
+	PatchDevice(ctx context.Context, request OptDevicesUpdateDeviceRequest, params PatchDeviceParams) (PatchDeviceRes, error)
 	// PatchDeviceInfo invokes patchDeviceInfo operation.
 	//
 	// Update device_info(calibration data) of selected device.
@@ -547,6 +553,132 @@ func (c *Client) sendGetSsesrc(ctx context.Context, params GetSsesrcParams) (res
 
 	stage = "DecodeResponse"
 	result, err := decodeGetSsesrcResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PatchDevice invokes patchDevice operation.
+//
+// Update a part of selected device's properties.
+//
+// PATCH /devices/{device_id}
+func (c *Client) PatchDevice(ctx context.Context, request OptDevicesUpdateDeviceRequest, params PatchDeviceParams) (PatchDeviceRes, error) {
+	res, err := c.sendPatchDevice(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPatchDevice(ctx context.Context, request OptDevicesUpdateDeviceRequest, params PatchDeviceParams) (res PatchDeviceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("patchDevice"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.HTTPRouteKey.String("/devices/{device_id}"),
+	}
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PatchDeviceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/devices/"
+	{
+		// Encode "device_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "device_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.DeviceID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePatchDeviceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:ApiKeyAuth"
+			switch err := c.securityApiKeyAuth(ctx, PatchDeviceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"ApiKeyAuth\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	defer resp.Body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodePatchDeviceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -1,6 +1,6 @@
 [estimation]
 estimator_port = 502
-estimator_host = "hoge.com"
+estimator_host = "example.com"
 [run_group]
   [run_group.periodic_tasks]
     [run_group.periodic_tasks.poller]
@@ -9,7 +9,7 @@ estimator_host = "hoge.com"
       enable_test_mode = true
       edge = "polling_test_edge"
       device = "polling_test_device"
-      endpoint = "localhost:3001"
+      endpoint = "https://example.com/v1"
       normal_period = "500ms"
       idle_period = "500ms"
     [run_group.periodic_tasks.version_log]
@@ -18,13 +18,7 @@ estimator_host = "hoge.com"
     period = "10s"
       [run_group.periodic_tasks.metrics_log.params]
       file_dir = "/shares/metrics"
-  [run_group.internal_job_servers]
-    [run_group.internal_job_servers.multi_auto_server]
-  [run_group.api_servers]
-    [run_group.api_servers.cloud_mock]
-      [run_group.api_servers.cloud_mock.params]
-      host = "0.0.0.0"
-      port = 3000
+
 [com]
   [com.tranqu]
   host = "localhost"
@@ -38,6 +32,6 @@ estimator_host = "hoge.com"
   [com.gateway]
   gateway_host = "localhost"
   gateway_port = "50051"
-  api_endpoint = "hoge.com/v1"
+  api_endpoint = "https://example.com/v1"
   api_key = "secret_api_key"
   device_id = "your_device_id"

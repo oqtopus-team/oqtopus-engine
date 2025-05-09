@@ -52,7 +52,7 @@ func (p pollerSecuritySource) ApiKeyAuth(ctx context.Context, name api.Operation
 
 func newAWSPollClient(p *awsPollClientParams) (*awsPollClient, error) {
 	pss := pollerSecuritySource{apiKey: p.apiKey}
-	cli, err := api.NewClient("https://"+p.endPoint, pss)
+	cli, err := api.NewClient(p.endPoint, pss)
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("failed to create a client/reason:%s", err))
 		return nil, err
@@ -147,7 +147,7 @@ func toJobSlice(jobDefs []api.JobsJobDef) (jobs []core.Job, err error) {
 func (c *awsPollClient) downloadUserProgram(jobID string) (string, error) {
 	zap.L().Debug(fmt.Sprintf("requesting download userprogram to %s. EdgeName: %s, DeviceName: %s",
 		c.endpoint, c.edgeName, c.deviceName))
-	uri := fmt.Sprintf("https://%s/ssejobs/%s/download-src",
+	uri := fmt.Sprintf("%s/ssejobs/%s/download-src",
 		c.endpoint, jobID)
 
 	// FIXME

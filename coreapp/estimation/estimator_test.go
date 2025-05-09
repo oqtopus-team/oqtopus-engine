@@ -133,7 +133,7 @@ func TestEstimationPostProcessMitigation(t *testing.T) {
 	jd.ID = "test_estimation_job"
 	jd.QASM = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0], q[1];\n"
 	jd.JobType = ESTIMATION_JOB
-	jd.MitigationInfo = "{ \"readout\": \"pseudo_inverse\"}"
+	jd.MitigationInfo = "{ \"ro_error_mitigation\": \"pseudo_inverse\"}" // Changed key
 	jd.Result.TranspilerInfo.PhysicalVirtualMapping = map[uint32]uint32{0: 0, 1: 1}
 	jc, err := core.NewJobContext()
 	assert.Nil(t, err)

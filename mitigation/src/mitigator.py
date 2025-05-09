@@ -21,9 +21,9 @@ class ErrorMitigator(mitigator_pb2_grpc.ErrorMitigatorService):
         self.logger = logger
 
     def ReqMitigation(self, request, context):
-        """Handle gRPC request for processing readout error mitigation.
+        """Handle gRPC request for processing ro_error_mitigation error mitigation.
 
-           This method returns mitigated counts calculated from readout
+           This method returns mitigated counts calculated from ro_error_mitigation
            error of each qubits, measured counts, number of shots and
            index of measured qubitds.
 
@@ -36,7 +36,7 @@ class ErrorMitigator(mitigator_pb2_grpc.ErrorMitigatorService):
                 mitigated counts.
         """
         try:
-            self.logger.info("start readout-error mitigation process")
+            self.logger.info("start ro_error_mitigation-error mitigation process")
             self.logger.debug(
                 "device_topology:%s, counts:%s, shots:%s, measured_qubits:%s",
                 request.device_topology,
@@ -48,7 +48,7 @@ class ErrorMitigator(mitigator_pb2_grpc.ErrorMitigatorService):
             counts = request.counts
             shots = request.shots
             measured_qubits = request.measured_qubits
-            mitigated_counts = self.readout_error_mitigation(
+            mitigated_counts = self.ro_error_mitigation(
                 device_topology, counts, shots, measured_qubits
             )
             self.logger.debug(
@@ -59,9 +59,9 @@ class ErrorMitigator(mitigator_pb2_grpc.ErrorMitigatorService):
         except Exception as e:
             self.logger.exception(f"mitigation process failed. Exception occurred:{e}")
         finally:
-            self.logger.info("finish readout-error mitigation process")
+            self.logger.info("finish ro_error_mitigation-error mitigation process")
 
-    def readout_error_mitigation(
+    def ro_error_mitigation(
         self,
         device_topology,
         counts,

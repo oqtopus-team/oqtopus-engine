@@ -20,28 +20,29 @@ steps:
                 program:
                 - OPENQASM 3; include "stdgates.inc"; qubit[2] q; bit[2] c; x q[1]; c = measure q;
               job_type: sampling
-              name: estim
+              name: mitigation
               shots: 1000
               mitigation_info:
-                readout: pseudo_inverse
+                ro_error_mitigation: pseudo_inverse
               status: submitted
     test: |
       current.res.status == 200
     dump:
       expr: current.res.body.job_id + "(mitigation job) is posted"
-  check:
+  wait:
     desc: check job status
     loop:
       count: 20
       until: 'current.res.body.status  == "succeeded" || current.res.body.status  == "failed"'
       minInterval: 5
       maxInterval: 10
-      test: |
-        current.res.body.status == "succeeded"
     req:
       /v1/jobs/{{steps.post.res.body.job_id}}:
         get:
           headers:
             q-api-token: "{{ vars.token }}"
     dump:
-      expr: steps.post.res.body.job_id + "(mitigation job) is in " + current.res.body.status
+        expr: steps.post.res.body.job_id + "(mitigation job) is in " + current.res.body.status
+  check:
+      test: |
+        steps.wait.res.body.status == "succeeded"

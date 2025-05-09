@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
+	"github.com/oqtopus-team/oqtopus-engine/coreapp/common"
 	"github.com/oqtopus-team/oqtopus-engine/coreapp/core"
 	pb "github.com/oqtopus-team/oqtopus-engine/coreapp/mitig/mitigation_interface/v1"
 	"go.uber.org/zap"
@@ -14,11 +16,45 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// TODO: use setting
-var mitigator_port = "5011"
+type PropertyRaw json.RawMessage
 
 type MitigationInfo struct {
-	Readout string
+	NeedToBeMitigated bool
+	Mitigated         bool
+
+	PropertyRaw PropertyRaw
+}
+
+func NewMitigationInfoFromJobData(jd *core.JobData) *MitigationInfo {
+	m := MitigationInfo{
+		Mitigated: false,
+	}
+	m.NeedToBeMitigated = false
+	inputBytes := []byte(jd.MitigationInfo)
+
+	if len(inputBytes) > 0 && json.Valid(inputBytes) {
+		m.PropertyRaw = PropertyRaw(inputBytes)
+		var props map[string]string
+		if err := json.Unmarshal(m.PropertyRaw, &props); err != nil {
+			zap.L().Warn(fmt.Sprintf("failed to unmarshal PropertyRaw into map for JobID:%s, assuming not mitigated: %s", jd.ID, err))
+		} else {
+			roErrorMitigationValue, ok := props["ro_error_mitigation"]
+			// TrimSpace を行い、比較対象をダブルクォート付きに変更
+			if ok && strings.TrimSpace(roErrorMitigationValue) == "\"pseudo_inverse\"" {
+				zap.L().Debug(fmt.Sprintf("JobID:%s Need to be mitigated based on PropertyRaw.ro_error_mitigation", jd.ID))
+				m.NeedToBeMitigated = true
+			} else {
+				// 不要になった詳細ログは削除
+				zap.L().Debug(fmt.Sprintf("JobID:%s does not need to be mitigated based on PropertyRaw.ro_error_mitigation (value: %s, found: %t)", jd.ID, roErrorMitigationValue, ok))
+			}
+		}
+	} else if len(inputBytes) == 0 {
+		zap.L().Debug(fmt.Sprintf("JobID:%s MitigationInfo string is empty, assuming not mitigated", jd.ID))
+	} else {
+		zap.L().Warn(fmt.Sprintf("JobID:%s MitigationInfo string is not valid JSON, assuming not mitigated: %s", jd.ID, jd.MitigationInfo))
+	}
+	zap.L().Debug(fmt.Sprintf("set MitigationInfo PropertyRaw: %s, NeedToBeMitigated: %t", string(m.PropertyRaw), m.NeedToBeMitigated))
+	return &m
 }
 
 func PseudoInverseMitigation(jd *core.JobData) {
@@ -29,15 +65,46 @@ func PseudoInverseMitigation(jd *core.JobData) {
 		return
 	}
 
-	// TODO: Allow to be set by parameters
-	host := "localhost"
-	opts := grpc.WithTransportCredentials(insecure.NewCredentials())
-
-	// connect server
-	conn, err := grpc.Dial(fmt.Sprintf("%s:%s", host, mitigator_port), opts)
-	if err != nil {
-		zap.L().Error(fmt.Sprintf("did not connect: %v", err))
+	var mitigatorSetting core.MitigatorSetting
+	s, ok := core.GetComponentSetting("mitigator")
+	if !ok {
+		zap.L().Warn("mitigator setting not found, using default values")
+		mitigatorSetting = core.NewMitigatorSetting()
+	} else {
+		mapped, ok := s.(map[string]interface{})
+		if !ok {
+			zap.L().Warn("mitigator setting has incorrect type, using default values")
+			mitigatorSetting = core.NewMitigatorSetting()
+		} else {
+			hostVal, hostOk := mapped["host"].(string)
+			portVal, portOk := mapped["port"].(string)
+			if !hostOk || !portOk {
+				zap.L().Warn("mitigator setting fields have incorrect types or are missing, using default values")
+				mitigatorSetting = core.NewMitigatorSetting()
+			} else {
+				mitigatorSetting = core.MitigatorSetting{
+					Host: hostVal,
+					Port: portVal,
+				}
+			}
+		}
 	}
+	zap.L().Debug(fmt.Sprintf("Using mitigator settings: Host=%s, Port=%s", mitigatorSetting.Host, mitigatorSetting.Port))
+
+	target, err := common.ValidAddress(mitigatorSetting.Host, mitigatorSetting.Port)
+	if err != nil {
+		zap.L().Error(fmt.Sprintf("Invalid mitigator address: Host=%s, Port=%s, Error=%v", mitigatorSetting.Host, mitigatorSetting.Port, err))
+		jd.Status = core.FAILED
+		return
+	}
+
+	opts := grpc.WithTransportCredentials(insecure.NewCredentials())
+	conn, err := grpc.Dial(target, opts)
+	if err != nil {
+		zap.L().Error(fmt.Sprintf("Failed to connect to mitigator service at %s: %v", target, err))
+		return
+	}
+	zap.L().Debug(fmt.Sprintf("Successfully connected to mitigator service at %s", target))
 	defer conn.Close()
 	client := pb.NewErrorMitigatorServiceClient(conn)
 
@@ -57,7 +124,6 @@ func PseudoInverseMitigation(jd *core.JobData) {
 		return
 	}
 
-	// Convert PhysicalVirtualMapping to sorted MeasuredQubits
 	var pvm core.PhysicalVirtualMapping
 	if len(jd.Result.TranspilerInfo.PhysicalVirtualMapping) == 0 {
 		zap.L().Debug("PhysicalVirtualMapping is nil/use default")
@@ -85,12 +151,11 @@ func PseudoInverseMitigation(jd *core.JobData) {
 	mreq := &pb.ReqMitigationRequest{
 		DeviceTopology: dt,
 		Counts:         cts,
-		Shots:          shots, // it is redundant...
+		Shots:          shots,
 		MeasuredQubits: mq,
 	}
 	zap.L().Debug(fmt.Sprintf("MitigationJob Request: %v", mreq))
 
-	// send request to gRPC server
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
@@ -103,7 +168,6 @@ func PseudoInverseMitigation(jd *core.JobData) {
 
 	zap.L().Debug(fmt.Sprintf("MitigationJob Response: %v", res))
 	zap.L().Debug(fmt.Sprintf("MitigationJob Result Counts: %v", res.Counts))
-	// get lower bits from counts
 	lbcts := make(map[string]uint32)
 	for k, v := range res.Counts {
 		lbcts[getLowerBits(k, numOfQubits)] = uint32(v)

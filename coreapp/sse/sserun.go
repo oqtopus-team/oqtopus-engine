@@ -167,8 +167,8 @@ func RunSSE(j core.Job) error {
 	// continue to get the log for userprogram even if an error occurs
 	copyErr := copyResultFromContainer(&conDef, jd, sseconf, outPath)
 
-	// Get log from container
-	err = getContainerLog(&conDef, jd, sseconf, outPath)
+	// Get and save container log
+	err = saveContainerLog(&conDef, jd, sseconf, outPath, (execErr != nil))
 	if err != nil {
 		errAfterContainerMake(jd.ID, err, &conDef, sseconf.HostPath)
 		return err
@@ -336,7 +336,7 @@ func copyUserProgramIntoContainer(conDef *ContainerDefinition, outputJob *core.J
 func execCommandInContainer(conDef *ContainerDefinition, outputJob *core.JobData, sseconf *conf.SSEConf, user string, privileged bool, cmd string) (error, string) {
 	// Define error message
 	msg := "failed to exec command in container"
-	msgTimeout := "The SSE execution has timed out after " + strconv.Itoa(sseconf.TimeoutSSE) + " seconds."
+	msgTimeout := "The SSE execution has timed out after " + strconv.Itoa(sseconf.SSETimeout) + " seconds."
 	msgExitCode := "exit code is not 0"
 
 	// Generate exec command
@@ -385,7 +385,7 @@ func execCommandInContainer(conDef *ContainerDefinition, outputJob *core.JobData
 
 	// Wait Timeout or output result
 	select {
-	case <-time.After(time.Duration(sseconf.TimeoutSSE) * time.Second):
+	case <-time.After(time.Duration(sseconf.SSETimeout) * time.Second):
 		err = makeErrMsg(msgTimeout, nil)
 		return err, msgTimeout
 	case err := <-resultChan:
@@ -452,7 +452,7 @@ func copyResultFromContainer(conDef *ContainerDefinition, outputJob *core.JobDat
 	return nil
 }
 
-func getContainerLog(conDef *ContainerDefinition, outputJob *core.JobData, sseconf *conf.SSEConf, outPath string) error {
+func saveContainerLog(conDef *ContainerDefinition, outputJob *core.JobData, sseconf *conf.SSEConf, outPath string, printToEngineLog bool) error {
 	// Define error message
 	msg := "failed to get container log"
 
@@ -461,6 +461,16 @@ func getContainerLog(conDef *ContainerDefinition, outputJob *core.JobData, sseco
 	if err != nil {
 		err = makeErrMsg(msg, err)
 		return err
+	}
+
+	// Write to engine log as neccessary
+	if printToEngineLog {
+		logContent, err := io.ReadAll(readlog)
+		if err != nil {
+			makeErrMsg(msg, err)
+		} else {
+			zap.L().Info(fmt.Sprintf("Container log: %s", string(logContent)))
+		}
 	}
 
 	// Write log to file

@@ -66,7 +66,6 @@ func (j *EstimationJob) New(jd *core.JobData, jc *core.JobContext) core.Job {
 		zap.L().Error("estimation setting is not found")
 		setting = NewEstimationSetting()
 	} else {
-		// TODO: fix this long adhoc
 		mapped, ok := s.(map[string]interface{})
 		if !ok {
 			zap.L().Debug("estimation setting is not set")
@@ -122,8 +121,6 @@ func (j *EstimationJob) preProcessImpl() (err error) {
 	err = nil
 	jd := j.JobData()
 	container := core.GetSystemComponents().Container
-	// TODO refactor this part
-	// make jobID pool in syscomponent
 	err = container.Invoke(
 		func(d core.DBManager) error {
 			if d.ExistInInnerJobIDSet(jd.ID) {
@@ -212,22 +209,33 @@ func (j *EstimationJob) Process() {
 func (j *EstimationJob) PostProcess() {
 	j.finished = true
 	countsList := []*pb.Counts{}
-	m := mitig.MitigationInfo{}
-
-	// TODO: Mitigation???
-	err := json.Unmarshal([]byte(j.JobData().MitigationInfo), &m)
-	if err != nil {
-		zap.L().Error(fmt.Sprintf("failed to unmarshal MitigationInfo from :%s/reason:%s",
-			j.JobData().MitigationInfo, err))
-	}
+	m := mitig.NewMitigationInfoFromJobData(j.JobData())
 
 	for i := range j.countsList {
 		var counts pb.Counts
-		if m.Readout == "pseudo_inverse" {
-			j.JobData().Result.Counts = j.countsList[i]
-			mitig.PseudoInverseMitigation(j.jobData)
-			counts = pb.Counts{Counts: j.jobData.Result.Counts}
+		shouldMitigate := false
+		if m.PropertyRaw != nil && json.Valid(m.PropertyRaw) {
+			var props map[string]string
+			if err := json.Unmarshal(m.PropertyRaw, &props); err == nil {
+				roErrorMitigationValue, ok := props["ro_error_mitigation"] // Changed key and variable name
+				if ok && roErrorMitigationValue == "pseudo_inverse" {      // Changed variable name
+					shouldMitigate = true
+				}
+			} else {
+				zap.L().Warn(fmt.Sprintf("JobID:%s - Failed to unmarshal PropertyRaw in Estimation PostProcess: %v", j.JobData().ID, err))
+			}
 		} else {
+			zap.L().Debug(fmt.Sprintf("JobID:%s - PropertyRaw is nil or invalid JSON in Estimation PostProcess", j.JobData().ID))
+		}
+
+		if shouldMitigate {
+			zap.L().Debug(fmt.Sprintf("JobID:%s - Applying pseudo inverse mitigation in Estimation PostProcess for counts index %d", j.JobData().ID, i))
+			tempJobData := j.jobData.Clone()
+			tempJobData.Result.Counts = j.countsList[i]
+			mitig.PseudoInverseMitigation(tempJobData)
+			counts = pb.Counts{Counts: tempJobData.Result.Counts}
+		} else {
+			zap.L().Debug(fmt.Sprintf("JobID:%s - Skipping pseudo inverse mitigation in Estimation PostProcess for counts index %d", j.JobData().ID, i))
 			counts = pb.Counts{Counts: j.countsList[i]}
 		}
 		countsList = append(countsList, &counts)
@@ -269,7 +277,6 @@ func (j *EstimationJob) UpdateJobData(jd *core.JobData) {
 }
 
 func (j *EstimationJob) Clone() core.Job {
-	//err := copier.Copy(cloned, j)
 	cloned := &EstimationJob{
 		jobData:    j.jobData.Clone(),
 		jobContext: j.jobContext,
@@ -278,19 +285,15 @@ func (j *EstimationJob) Clone() core.Job {
 }
 
 func estimationPreProcess(j *EstimationJob) (preprocessedQASMs []string, groupedOperators string, err error) {
-	// Send Job information to python-hosted-gRPC server
 	zap.L().Debug(fmt.Sprintf("start EstimationJob PreProcessing for %s", j.JobData().ID))
 
-	// create new insecure credential
 	opts := grpc.WithTransportCredentials(insecure.NewCredentials())
-	// connect server
 	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", j.setting.Host, j.setting.Port), opts)
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("did not connect: %v", err))
 	}
 	defer conn.Close()
 
-	// create gRPC client
 	client := pb.NewEstimationJobServiceClient(conn)
 
 	mappingList := []uint32{}
@@ -303,7 +306,6 @@ func estimationPreProcess(j *EstimationJob) (preprocessedQASMs []string, grouped
 		}
 	}
 
-	// Convert VirtualPhysicalMapping to sorted mapping list
 	keys := []uint32{}
 	for k := range mapping {
 		keys = append(keys, k)
@@ -316,9 +318,15 @@ func estimationPreProcess(j *EstimationJob) (preprocessedQASMs []string, grouped
 		mappingList = append(mappingList, mapping[key])
 	}
 	zap.L().Debug(fmt.Sprintf("mappingList:%v", mappingList))
-	zap.L().Debug(fmt.Sprintf("VirtualPhysicalMapping:%s", j.JobData().Result.TranspilerInfo.VirtualPhysicalMappingRaw))
+	// Log VirtualPhysicalMapping as a map for better readability
+	vpMapping, vpErr := j.JobData().Result.TranspilerInfo.VirtualPhysicalMappingRaw.ToMap()
+	if vpErr != nil {
+		zap.L().Warn(fmt.Sprintf("Failed to convert VirtualPhysicalMappingRaw to map for logging: %v", vpErr))
+		zap.L().Debug(fmt.Sprintf("VirtualPhysicalMapping (raw):%s", j.JobData().Result.TranspilerInfo.VirtualPhysicalMappingRaw)) // fallback to raw output
+	} else {
+		zap.L().Debug(fmt.Sprintf("VirtualPhysicalMapping:%v", vpMapping))
+	}
 	zap.L().Debug(fmt.Sprintf("default basis gates:%v", j.setting.BasisGates))
-	// prepare gRPC request
 	req := &pb.ReqEstimationPreProcessRequest{
 		QasmCode:    j.usedQASM,
 		Operators:   j.origOperators,
@@ -326,7 +334,6 @@ func estimationPreProcess(j *EstimationJob) (preprocessedQASMs []string, grouped
 		MappingList: mappingList,
 	}
 
-	// send request to gRPC server
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
@@ -341,28 +348,22 @@ func estimationPreProcess(j *EstimationJob) (preprocessedQASMs []string, grouped
 }
 
 func EstimationPostProcess(j *EstimationJob, countsList []*pb.Counts) (exp_value float32, stds float32, err error) {
-	// Send Job information to python-hosted-gRPC server
 	zap.L().Debug(fmt.Sprintf("start EstimationJob PostProcessing for %s", j.JobData().ID))
 
-	// create new insecure credential
 	opts := grpc.WithTransportCredentials(insecure.NewCredentials())
-	// connect server
 	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", j.setting.Host, j.setting.Port), opts)
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("did not connect: %v", err))
 	}
 	defer conn.Close()
 
-	// create gRPC client
 	client := pb.NewEstimationJobServiceClient(conn)
 
-	// prepare gRPC request
 	req := &pb.ReqEstimationPostProcessRequest{
 		Counts:           countsList,
 		GroupedOperators: j.groupedOperators,
 	}
 
-	// send request to gRPC server
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 

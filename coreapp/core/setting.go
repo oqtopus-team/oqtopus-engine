@@ -8,6 +8,18 @@ import (
 	"go.uber.org/zap"
 )
 
+type MitigatorSetting struct {
+	Host string `toml:"host"`
+	Port string `toml:"port"`
+}
+
+func NewMitigatorSetting() MitigatorSetting {
+	return MitigatorSetting{
+		Host: "localhost",
+		Port: "5011",
+	}
+}
+
 var globalSetting *Setting
 
 // TODO: Do not use interface{} for setting value. Use specific struct type for each setting.

@@ -17,6 +17,10 @@ type PatchDeviceInfoRes interface {
 	patchDeviceInfoRes()
 }
 
+type PatchDeviceRes interface {
+	patchDeviceRes()
+}
+
 type PatchDeviceStatusRes interface {
 	patchDeviceStatusRes()
 }

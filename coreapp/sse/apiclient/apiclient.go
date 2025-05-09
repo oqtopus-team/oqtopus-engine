@@ -78,7 +78,7 @@ func NewSseApiClient() (sseApiClient *SseApiClient, err error) {
 	}
 
 	ss := SecuritySource{apiKey: apiKey}
-	client, err := api.NewClient("https://"+endpoint, ss)
+	client, err := api.NewClient(endpoint, ss)
 	if err != nil {
 		zap.L().Error(fmt.Sprintf("failed to make a client: %s", err))
 		return nil, err

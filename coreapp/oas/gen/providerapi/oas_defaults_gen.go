@@ -11,6 +11,14 @@ func (s *DevicesDeviceDataUpdateResponse) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *DevicesUpdateDeviceResponse) setDefaults() {
+	{
+		val := string("Device is successfully updated.")
+		s.Message = val
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *JobsJobDef) setDefaults() {
 	{
 		s.ExecutionTime.Null = true

@@ -83,11 +83,11 @@ func TestUseMitigationInfo(t *testing.T) {
 		{
 			name: "mitigation_info is valid",
 			mitigation_info: api.OptNilJobsJobDefMitigationInfo{
-				Value: map[string]jx.Raw{"readout": []byte("pseudo_inverse")},
+				Value: map[string]jx.Raw{"ro_error_mitigation": []byte("pseudo_inverse")},
 				Set:   true,
 				Null:  false,
 			},
-			want: `{"readout":"pseudo_inverse"}`,
+			want: `{"ro_error_mitigation":"pseudo_inverse"}`, // Changed key
 		},
 		{
 			name: "mitigation_info is invalid",
