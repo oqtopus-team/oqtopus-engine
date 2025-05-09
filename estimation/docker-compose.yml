@@ -6,7 +6,7 @@ services:
     environment:
       TZ: ${TZ}
       ESTIMATOR_PORT: ${ESTIMATOR_PORT}
-      ESTIMATOR_MAX_THREADS: ${ESTIMATOR_MAX_THREADS}
+      ESTIMATOR_WORKERS: ${ESTIMATOR_WORKERS}
     ports:
       - ${ESTIMATOR_PORT}:${ESTIMATOR_PORT}
     volumes:
