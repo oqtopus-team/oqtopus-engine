@@ -8,6 +8,9 @@
 - sample_circuit_wo_trans_fail.py:  
    Sample circuit with no transpiler. This circuit should end in failure due to H and RY gates.
 
+- sample_circuit_nonzero_exit.py:
+   Sample with non-zero exit code.
+
 ### Encoding and Decoding tools
 To encode a python file with base64, execute following command. The encoded base64 string will be written to a file as named *.encoded.
 ```

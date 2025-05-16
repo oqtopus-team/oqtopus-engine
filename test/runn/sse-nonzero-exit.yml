@@ -1,0 +1,46 @@
+desc: SSE job with non-zero exit code
+runners:
+  req: https://${USER_API_ENDPOINT}
+vars:
+  token: ${Q_API_TOKEN}
+  device_id: ${DEVICE_ID}
+steps:
+  post:
+    desc: post SSE job returns non-zero exit code to fail.
+    req:
+      /v1/jobs:
+        post:
+          headers:
+            q-api-token: "{{ vars.token }}"
+          body:
+            application/json:
+              description: runn test/SSE job returns non-zero exit code to fail.
+              device_id: "{{ vars.device_id }}"
+              job_info:
+                program:
+                - aW1wb3J0IG1hdHBsb3RsaWIKaW1wb3J0IG51bXB5CmltcG9ydCB5YW1sCmltcG9ydCBuZXR3b3JreAppbXBvcnQgcGFuZGFzCmltcG9ydCB0cWRtCmltcG9ydCBzY2lweQppbXBvcnQgc2tsZWFybgppbXBvcnQgcXVyaV9wYXJ0cwppbXBvcnQgcWlza2l0CmltcG9ydCBxdWxhY3MKaW1wb3J0IHNrcXVsYWNzCmltcG9ydCBweXF1Ym8KaW1wb3J0IG9wZW5qaWoKaW1wb3J0IGNpcnEKaW1wb3J0IHBlbm55bGFuZQppbXBvcnQgb3BlbmZlcm1pb24KaW1wb3J0IHRpbWUKCiMgcmFpc2UgZXhjZXB0aW9uCmltcG9ydCB1bmtub3duX21vZHVsZQoKZnJvbSBxdXJpX3BhcnRzX29xdG9wdXMuYmFja2VuZC5zYW1wbGluZyBpbXBvcnQgT3F0b3B1c1NhbXBsaW5nQmFja2VuZCwgT3F0b3B1c0NvbmZpZwpmcm9tIHF1cmlfcGFydHMuY2lyY3VpdCBpbXBvcnQgUXVhbnR1bUNpcmN1aXQKCmZvciBpIGluIHJhbmdlKDMpOgogIHRpbWUuc2xlZXAoMSkKICBwcmludChmIiMjIFN0YXJ0IGl0ZXJhdGlvbiB7aX0gIyMiKQogIHRyeToKICAgIGNpcmN1aXQgPSBRdWFudHVtQ2lyY3VpdCgyKQogICAgY2lyY3VpdC5hZGRfSF9nYXRlKDApCiAgICBjaXJjdWl0LmFkZF9YX2dhdGUoMSkKICAgIGNpcmN1aXQuYWRkX0NOT1RfZ2F0ZSgwLCAxKQogICAgY2lyY3VpdC5hZGRfUllfZ2F0ZSgxLCAwLjEqaSkKICAgIHRyYW5zcGlsZXJfaW5mbyA9IHt9CiAgICBqb2IgPSBPcXRvcHVzU2FtcGxpbmdCYWNrZW5kKCkuc2FtcGxlKGNpcmN1aXQsIHNob3RzPTEwKmkrMTAwLCBuYW1lPSJ0ZXN0IGNpcmN1aXQiLCBkZXZpY2VfaWQ9IiIsIHRyYW5zcGlsZXJfaW5mbz10cmFuc3BpbGVyX2luZm8pCiAgICBwcmludChqb2IpCiAgICByZXN1bHQgPSBqb2IucmVzdWx0KCkKICAgIHByaW50KCIjIyMjIFJlc3VsdDoiKQogICAgcHJpbnQocmVzdWx0LmNvdW50cykKCiAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOgogICAgaW1wb3J0IHRyYWNlYmFjawogICAgcHJpbnQodHJhY2ViYWNrLmZvcm1hdF9leGMoKSkKICAgIHByaW50KCIjIyMjIEZBSUxFRCIpCgpwcmludCgiIyMgRmluaXNoICMjIikK
+              job_type: sse
+              name: SSE test
+              shots: 1
+              status: submitted
+    test: |
+      current.res.status == 200
+    dump:
+      expr: current.res.body.job_id + "(SSE job with non-zero exit code) is posted"
+  wait:
+    desc: check job status
+    loop:
+      count: 20
+      until: 'current.res.body.status  == "succeeded" || current.res.body.status  == "failed"'
+      minInterval: 5
+      maxInterval: 20
+    req:
+      /v1/jobs/{{steps.post.res.body.job_id}}:
+        get:
+          headers:
+            q-api-token: "{{ vars.token }}"
+    dump:
+      expr: steps.post.res.body.job_id + "(SSE job with non-zero exit code) is in " + current.res.body.status
+  check:
+    test: |
+      steps.wait.res.body.status == "failed"
