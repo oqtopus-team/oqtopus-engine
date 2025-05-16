@@ -336,7 +336,7 @@ func copyUserProgramIntoContainer(conDef *ContainerDefinition, outputJob *core.J
 func execCommandInContainer(conDef *ContainerDefinition, outputJob *core.JobData, sseconf *conf.SSEConf, user string, privileged bool, cmd string) (error, string) {
 	// Define error message
 	msg := "failed to exec command in container"
-	msgTimeout := "The SSE execution has timed out after " + strconv.Itoa(sseconf.TimeoutSSE) + " seconds."
+	msgTimeout := "The SSE execution has timed out after " + strconv.Itoa(sseconf.SSETimeout) + " seconds."
 	msgExitCode := "exit code is not 0"
 
 	// Generate exec command
@@ -385,7 +385,7 @@ func execCommandInContainer(conDef *ContainerDefinition, outputJob *core.JobData
 
 	// Wait Timeout or output result
 	select {
-	case <-time.After(time.Duration(sseconf.TimeoutSSE) * time.Second):
+	case <-time.After(time.Duration(sseconf.SSETimeout) * time.Second):
 		err = makeErrMsg(msgTimeout, nil)
 		return err, msgTimeout
 	case err := <-resultChan:

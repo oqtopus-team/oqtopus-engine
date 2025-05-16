@@ -3,13 +3,20 @@ import datetime
 import logging
 import os
 from concurrent import futures
+from io import TextIOWrapper
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 import grpc
 import numpy as np
 import qiskit.qasm3
-from multiprog_interface.v1.multiprog_pb2 import CombineRequest, CombineResponse, Status
+from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
+from multiprog_interface.v1.multiprog_pb2 import (
+    DESCRIPTOR,
+    CombineRequest,
+    CombineResponse,
+    Status,
+)
 from multiprog_interface.v1.multiprog_pb2_grpc import (
     CircuitCombinerService,
     add_CircuitCombinerServiceServicer_to_server,
@@ -17,8 +24,8 @@ from multiprog_interface.v1.multiprog_pb2_grpc import (
 from qiskit import QuantumCircuit
 
 # port number for gRPC server
-PORT_NUM = os.getenv("CIRCUIT_COMBINER_PORT", "5002")
-MAX_THREADS = os.getenv("CIRCUIT_COMBINER_MAX_THREADS", "0")
+PORT_NUM = os.getenv("COMBINER_PORT", "5002")
+MAX_WORKERS = os.getenv("COMBINER_WORKERS", "0")
 
 
 # Exception class in case of invalid number of qubits
@@ -50,9 +57,10 @@ class CircuitCombiner(CircuitCombinerService):
     def __init__(self, logger: logging.Logger) -> None:
         self.logger = logger
 
-    def Combine(self,   # noqa: N802
-                request: CombineRequest,
-                context: grpc.ServicerContext   # noqa: ARG002
+    def Combine(  # noqa: N802
+        self,
+        request: CombineRequest,
+        context: grpc.ServicerContext,  # noqa: ARG002
     ) -> CombineResponse:
         """Combine quantum circuits.
 
@@ -102,7 +110,7 @@ class CircuitCombiner(CircuitCombinerService):
                 combined_qubits_list=[],
             )
 
-    def deal_with_request_qasm(self, request: str) -> list[str]:
+    def deal_with_request_qasm(self, request: CombineRequest) -> list[str]:
         """Convert the input string of qasm array to list of qasm strings.
 
         Args:
@@ -166,7 +174,7 @@ class CircuitCombiner(CircuitCombinerService):
                 return Status.STATUS_INVALID_QUBIT_SIZE, None, []
             # combine circuits
             combined_circuit = QuantumCircuit(total_qbits, total_clbits)
-            combined_qubits_list = []
+            combined_qubits_list: list = []
             quantum_bit_index = 0
             classical_bit_index = 0
             # combine circuits to construct combined_circuit
@@ -203,16 +211,17 @@ def get_cgroup_cpu_count() -> int:
         int: the number of CPUs in the docker container.
 
     """
+    cpu_count = os.cpu_count() or 1
     try:
         quota = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text("utf-8"))
         period = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text("utf-8"))
         if quota == -1:
             # cpu quota is not set
-            return os.cpu_count()
+            return cpu_count
         # not to exceed the number of CPUs of the host
-        return min(quota // period, os.cpu_count())
+        return min(quota // period, cpu_count)
     except FileNotFoundError:
-        return os.cpu_count()
+        return cpu_count
 
 
 def get_allowed_threads() -> int:
@@ -226,7 +235,7 @@ def get_allowed_threads() -> int:
     num_workers = 0
     max_allowed_threads = get_cgroup_cpu_count()
     try:
-        num_workers = int(MAX_THREADS)
+        num_workers = int(MAX_WORKERS)
         if num_workers > max_allowed_threads or num_workers < 1:
             num_workers = max_allowed_threads
     except ValueError:
@@ -241,9 +250,9 @@ class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
 
     """
 
-    def __init__(   # noqa: PLR0913,PLR0917
+    def __init__(  # noqa: PLR0913,PLR0917
         self,
-        filename: str,
+        log_dir: str,
         when: str = "midnight",
         interval: int = 1,
         backup_count: int = 0,
@@ -253,10 +262,9 @@ class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
         at_time: datetime.time | None = None,
     ) -> None:
         # log file directory
-        self.log_dir = filename
+        self.log_dir = log_dir
         # set initial log file name
-        current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
-        self.baseFilename = f"{self.log_dir}/circuit_combiner-{current_time}.log"
+        self.baseFilename = self.log_path()
 
         super().__init__(
             self.baseFilename,
@@ -266,13 +274,31 @@ class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
             encoding,
             delay,
             utc,
-            at_time
+            at_time,
         )
         # set custom namer
         self.namer = self.custom_namer
 
-    def custom_namer(self) -> str:
+    def custom_namer(self, default_name: str) -> str:  # noqa: ARG002
         """Customize log file name in the form of circuit_combiner-YYYY-MM-DD.log.
+
+        Args:
+            default_name: Not used in this override.
+
+        Returns:
+            str: log file path.
+
+        """
+        return self.log_path()
+
+    def _open(self) -> TextIOWrapper:
+        # set initial log file name again when the file is opened
+        self.baseFilename = self.log_path()
+
+        return super()._open()
+
+    def log_path(self) -> str:
+        """Get the log file path.
 
         Returns:
             str: log file path.
@@ -280,13 +306,6 @@ class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
         """
         current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
         return f"{self.log_dir}/circuit_combiner-{current_time}.log"
-
-    def _open(self) -> None:
-        # set initial log file name again when the file is opened
-        current_time = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
-        self.baseFilename = f"{self.log_dir}/circuit_combiner-{current_time}.log"
-
-        return super()._open()
 
 
 def _init_logger() -> logging.Logger:
@@ -313,9 +332,14 @@ def _serve() -> None:
     num_workers = get_allowed_threads()
     # create a gRPC server
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=num_workers))
-    add_CircuitCombinerServiceServicer_to_server(
-        CircuitCombiner(logger), server
+    add_CircuitCombinerServiceServicer_to_server(CircuitCombiner(logger), server)
+
+    service_names = (
+        DESCRIPTOR.services_by_name["CircuitCombinerService"].full_name,
+        reflection.SERVICE_NAME,
     )
+    reflection.enable_server_reflection(service_names, server)
+
     # listen on port PORT_NUM
     server.add_insecure_port(f"0.0.0.0:{PORT_NUM}")
     # start the server
@@ -323,7 +347,7 @@ def _serve() -> None:
     # write to logger
     logger.info("server started")
     logger.info("port: %s", PORT_NUM)
-    logger.info("max_num_threads: %s", num_workers)
+    logger.info("max_workers: %s", num_workers)
     # keep the server running
     server.wait_for_termination()
 

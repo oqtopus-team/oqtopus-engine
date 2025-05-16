@@ -30,10 +30,10 @@ type SSEConf struct {
 	HostPathIn              string `long:"sse-host-path-input" description:"The path to the folder that contains the data to be placed in the SSE container" default:"/in" env:"SSE_HOST_PATH_INPUT"`
 	HostPathOut             string `long:"sse-host-path-output" description:"The path to the folder that contains the data to be retrieved from the SSE container" default:"/out" env:"SSE_HOST_PATH_OUTPUT"`
 	SSELambdaEndpoint       string `long:"sse-lambda-endpoint" description:"Lambda endpoint" default:"http://localhost" env:"SSE_LAMBDA_ENDPOINT"`
-	SSEResultFileName       string `long:"sse-result-file-name" description:"The name of the SSE result file to be uploaded to S3" default:"result.json" env:"SSE_RESULT_NAME"`
-	SSELogFileName          string `long:"sse-log-file-name" description:"The name of the SSE log file to be uploaded to S3" default:"ssecontainer.log" env:"SSE_LOG_NAME"`
-	TimeoutSSE              int    `long:"timeout-sse" description:"SSE container timeout period in seconds" default:"300" env:"SSE_TIMEOUT"`
-	MaxFileSize             int64  `long:"sse-max-file-size" description:"Max file size for API Gateway" default:"10485760" env:"SSE_APIGATEWAY_MAX_SIZE_IN_BYTE"`
+	SSEResultFileName       string `long:"sse-result-name" description:"The name of the SSE result file to be uploaded to S3" default:"result.json" env:"SSE_RESULT_NAME"`
+	SSELogFileName          string `long:"sse-log-name" description:"The name of the SSE log file to be uploaded to S3" default:"ssecontainer.log" env:"SSE_LOG_NAME"`
+	SSETimeout              int    `long:"sse-timeout" description:"SSE container timeout period in seconds" default:"300" env:"SSE_TIMEOUT"`
+	MaxFileSize             int64  `long:"sse-provider-api-max-size" description:"Max file size for API Gateway" default:"10485760" env:"SSE_PROVIDER_API_MAX_SIZE_IN_BYTE"`
 	UserProgramName         string `long:"sse-user-program-name" description:"The name of the file that runs inside the SSE container" default:"userprogram.py" env:"SSE_USER_PROGRAM_NAME"`
 	GatewayRouterListenHost string `long:"sse-gateway-router-listen-host" description:"listening host address or name of gRPC server" default:"0.0.0.0" env:"SSE_GATEWAY_ROUTER_LISTEN_HOST"`
 	GatewayRouterListenPort int32  `long:"sse-gateway-router-listen-port" description:"listening port number of gRPC server" default:"5001" env:"SSE_GATEWAY_ROUTER_LISTEN_PORT"`
