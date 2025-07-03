@@ -22,7 +22,7 @@ from qiskit.result import Counts
 
 # port number for gRPC server
 PORT_NUM = os.getenv("ESTIMATOR_PORT", 5003)
-MAX_THREADS = os.getenv("ESTIMATOR_MAX_THREADS", 0)
+MAX_THREADS = os.getenv("ESTIMATOR_WORKERS", 0)
 
 
 class ParameterValueError(ValueError):

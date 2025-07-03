@@ -15,7 +15,7 @@ from qiskit.result import Counts, LocalReadoutMitigator, ProbDistribution
 
 # port number for gRPC server
 PORT_NUM = os.getenv("MITIGATOR_PORT", 5010)
-MAX_THREADS = os.getenv("MITIGATOR_MAX_THREADS", 0)
+MAX_THREADS = os.getenv("MITIGATOR_WORKERS", 0)
 
 
 # response
