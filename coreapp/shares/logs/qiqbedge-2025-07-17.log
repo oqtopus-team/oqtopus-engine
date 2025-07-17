@@ -1,0 +1,26 @@
+2025-07-17T14:30:42.867+0900	INFO	edge/main.go:297	Starting logger
+2025-07-17T14:30:42.868+0900	INFO	edge/main.go:298	DevMode is true
+2025-07-17T14:30:42.868+0900	INFO	edge/main.go:299	Log rotation max days is 7
+2025-07-17T14:30:42.868+0900	DEBUG	edge/main.go:232	Registered setting
+2025-07-17T14:30:42.870+0900	DEBUG	core/setting.go:82	Setting is map[estimation:{localhost 5012 [sx rz cx]} gateway:{localhost 50051 https://localhost your_api_key your_device_id} tranqu:{localhost 50052}]
+2025-07-17T14:30:42.870+0900	INFO	core/version.go:21	Version is v1.0.4-23-g4f1eefe
+2025-07-17T14:30:42.871+0900	DEBUG	edge/main.go:305	Providing DI Container with parameters &{DBManager:service Transpiler:tranqu QPU:gateway Scheduler:normal}
+2025-07-17T14:30:42.871+0900	DEBUG	edge/main.go:312	Setting up System Components
+2025-07-17T14:30:42.871+0900	DEBUG	core/syscomponent.go:206	Setting up transpiler
+2025-07-17T14:30:42.871+0900	DEBUG	transpiler/tranqu.go:49	tranqu setting:{localhost 50052}
+2025-07-17T14:30:42.871+0900	DEBUG	transpiler/tranqu.go:68	Tranqu address is localhost:50052
+2025-07-17T14:30:47.872+0900	ERROR	transpiler/tranqu.go:73	failed to make connection to localhost:50052/reason:context deadline exceeded
+2025-07-17T14:30:47.873+0900	ERROR	edge/main.go:315	Failed to setting up Container. Reason:context deadline exceeded
+2025-07-17T14:58:12.340+0900	INFO	edge/main.go:297	Starting logger
+2025-07-17T14:58:12.341+0900	INFO	edge/main.go:298	DevMode is true
+2025-07-17T14:58:12.341+0900	INFO	edge/main.go:299	Log rotation max days is 7
+2025-07-17T14:58:12.341+0900	DEBUG	edge/main.go:232	Registered setting
+2025-07-17T14:58:12.342+0900	DEBUG	core/setting.go:82	Setting is map[estimation:{localhost 5012 [sx rz cx]} gateway:{localhost 50051 https://localhost your_api_key your_device_id} tranqu:{localhost 50052}]
+2025-07-17T14:58:12.342+0900	INFO	core/version.go:21	Version is v1.0.4-23-g4f1eefe-dirty
+2025-07-17T14:58:12.342+0900	DEBUG	edge/main.go:305	Providing DI Container with parameters &{DBManager:service Transpiler:tranqu QPU:gateway Scheduler:normal}
+2025-07-17T14:58:12.342+0900	DEBUG	edge/main.go:312	Setting up System Components
+2025-07-17T14:58:12.342+0900	DEBUG	core/syscomponent.go:206	Setting up transpiler
+2025-07-17T14:58:12.342+0900	DEBUG	transpiler/tranqu.go:49	tranqu setting:{localhost 50052}
+2025-07-17T14:58:12.342+0900	DEBUG	transpiler/tranqu.go:68	Tranqu address is localhost:50052
+2025-07-17T14:58:17.343+0900	ERROR	transpiler/tranqu.go:73	failed to make connection to localhost:50052/reason:context deadline exceeded
+2025-07-17T14:58:17.344+0900	ERROR	edge/main.go:315	Failed to setting up Container. Reason:context deadline exceeded

@@ -1,0 +1,12 @@
+openapi: 3.0.0
+info:
+  title: OQTOPUS Cloud MOCK API
+  version: 1.0.0
+  description: OQTOPUS Cloud MOCK API for Cloud Mock.
+paths:
+  /jobs:
+    $ref: './provider/openapi.yaml#/paths/~1jobs'
+  /controller/jobs:
+    $ref: './controller/openapi.yaml#/paths/~1controller~1jobs'
+  /controller/jobs/{job_id}:
+    $ref: './controller/openapi.yaml#/paths/~1controller~1jobs~1{job_id}'

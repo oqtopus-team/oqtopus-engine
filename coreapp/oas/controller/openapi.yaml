@@ -1,0 +1,94 @@
+openapi: 3.0.1
+info:
+  title: OQTOPUS Cloud Mock Controller API
+  version: '1.0'
+  contact:
+    name: oqtopus-team
+    email: oqtopus-team[at]googlegroups.com
+  description: OQTOPUS Cloud Mock Controller API for Cloud Mock.
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+servers:
+  - url: http://localhost:8889
+    description: Local server url
+paths:
+   /controller/jobs:
+     post:
+      tags:
+        - jobs
+      summary: Post jobs for a device
+      description: Post jobs for a device
+      operationId: controllerpostjobs
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '../provider/openapi.yaml#/components/schemas/jobs.JobDef'
+      parameters:
+        - in: query
+          name: device_id
+          required: true
+          description: Device identifier
+          schema:
+            type: string
+            example: Kawasaki
+      responses:
+        '201':
+          description: Created quantum jobs
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../provider/openapi.yaml#/components/schemas/error.BadRequest'
+   /controller/jobs/{job_id}:
+     get:
+      tags:
+        - jobs
+      summary: Get a job for a device
+      description: Get a job for a device
+      operationId: controllergetjob
+      security: [] 
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          description: JobID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Return quantum job
+          content:
+            application/json:
+              schema:
+                $ref: '../provider/openapi.yaml#/components/schemas/jobs.JobDef'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '../provider/openapi.yaml#/components/schemas/error.BadRequest'
+        '404':
+          description: Not Found
+        default:
+         description: Internal Server Error
+         content:
+           application/json:
+             schema:
+               $ref: "#/components/schemas/Error"
+
+components:
+  schemas:
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message

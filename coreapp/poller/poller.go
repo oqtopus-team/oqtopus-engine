@@ -64,6 +64,7 @@ type Poller struct {
 	APIKey       string `toml:"api_key"`
 
 	EnableTestMode bool `toml:"enable_test_mode"`
+	SelfStressTest bool `toml:"self_stress_test"`
 
 	pollClient
 
@@ -104,6 +105,7 @@ func (p *Poller) SetParams(params interface{}) error {
 	setField[string]("api_key", &p.APIKey, pp, DEFAULT_API_KEY)
 	setField[string]("session_token", &p.SessionToken, pp, "")
 	setField[bool]("enable_test_mode", &p.EnableTestMode, pp, false)
+	setField[bool]("self_stress_test", &p.SelfStressTest, pp, true)
 
 	setDurationField("normal_period", &p.NormalPeriod, pp, DEFAULT_NORMAL_PERIOD)
 	setDurationField("idle_period", &p.IdlePeriod, pp, DEFAULT_IDLE_PERIOD)
@@ -154,19 +156,25 @@ func (p *Poller) Setup() error {
 		err        error
 	)
 
-	zap.L().Info("Set aws poll client")
-	pollClient, err = newAWSPollClient(
-		&awsPollClientParams{
-			cred:       cred,
-			region:     p.Region,
-			count:      p.Count,
-			endPoint:   p.Endpoint,
-			edgeName:   p.Edge,
-			deviceName: p.Device,
-			apiKey:     p.APIKey,
-		})
+	if p.SelfStressTest {
+		zap.L().Info("Set self stress poll client")
+		pollClient, err = newSelfStressPollClient(p.Count)
+	} else {
+		zap.L().Info("Set aws poll client")
+		pollClient, err = newAWSPollClient(
+			&awsPollClientParams{
+				cred:       cred,
+				region:     p.Region,
+				count:      p.Count,
+				endPoint:   p.Endpoint,
+				edgeName:   p.Edge,
+				deviceName: p.Device,
+				apiKey:     p.APIKey,
+			})
+	}
+
 	if err != nil {
-		zap.L().Error(fmt.Sprintf("failed to set aws poll client/reason:%s", err))
+		zap.L().Error(fmt.Sprintf("failed to set a poll client/reason:%s", err))
 		return err
 	}
 	zap.L().Info(fmt.Sprintf("EdgeName:%s, DeviceName:%s", p.Edge, p.Device))

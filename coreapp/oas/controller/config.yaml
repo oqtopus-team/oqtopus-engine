@@ -1,0 +1,9 @@
+package: controller
+output: ./gen/controller/controller.gen.go
+generate:
+  echo-server: true
+  models: true
+output-options:
+  skip-prune: true
+import-mapping:
+  ../provider/openapi.yaml: "-"
