@@ -2,23 +2,20 @@ package core
 
 import (
 	"fmt"
+	"sync"
 
 	"go.uber.org/zap"
 )
 
-var dbMap map[string]Job
-
-// TODO to dependent container
-var innerJobIDSet map[string]struct{}
-
 type MemoryDB struct {
+	dbMap  map[string]Job
 	dbChan <-chan Job
+	mu     sync.RWMutex
 }
 
 func (d *MemoryDB) Setup(dbc DBChan, c *Conf) error {
-	dbMap = make(map[string]Job)
+	d.dbMap = make(map[string]Job)
 	d.dbChan = dbc
-	innerJobIDSet = make(map[string]struct{})
 	go func() {
 		for {
 			job := <-d.dbChan
@@ -36,12 +33,16 @@ func (d *MemoryDB) Setup(dbc DBChan, c *Conf) error {
 }
 
 func (d *MemoryDB) Insert(j Job) error {
-	dbMap[j.JobData().ID] = j
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.dbMap[j.JobData().ID] = j
 	return nil
 }
 
 func (d *MemoryDB) Get(jobID string) (Job, error) {
-	if val, ok := dbMap[jobID]; ok {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if val, ok := d.dbMap[jobID]; ok {
 		return val, nil
 	}
 	err := fmt.Errorf("not found %s", jobID)
@@ -50,18 +51,17 @@ func (d *MemoryDB) Get(jobID string) (Job, error) {
 }
 
 func (d *MemoryDB) Update(j Job) error {
-	dbMap[j.JobData().ID] = j
-	switch j.JobData().Status {
-	case SUCCEEDED, FAILED, CANCELLED:
-		d.RemoveFromInnerJobIDSet(j.JobData().ID)
-	default:
-	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.dbMap[j.JobData().ID] = j
 	return nil
 }
 
 func (d *MemoryDB) Delete(jobID string) error {
-	if _, ok := dbMap[jobID]; ok {
-		delete(dbMap, jobID)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, ok := d.dbMap[jobID]; ok {
+		delete(d.dbMap, jobID)
 		zap.L().Info(fmt.Sprintf("[MemoryDB] deleted %s from DB", jobID))
 		return nil
 	}
@@ -70,21 +70,10 @@ func (d *MemoryDB) Delete(jobID string) error {
 	return err
 }
 
-func (d *MemoryDB) AddToInnerJobIDSet(jobID string) {
-	innerJobIDSet[jobID] = struct{}{}
-}
-
 func (d *MemoryDB) UpdateQASM(jobID string, qasm_str string) {
-	job := dbMap[jobID]
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	job := d.dbMap[jobID]
 	job.JobData().QASM = qasm_str
-	dbMap[jobID] = job
-}
-
-func (d *MemoryDB) RemoveFromInnerJobIDSet(jobID string) {
-	delete(innerJobIDSet, jobID)
-}
-
-func (d *MemoryDB) ExistInInnerJobIDSet(jobID string) bool {
-	_, ok := innerJobIDSet[jobID]
-	return ok
+	d.dbMap[jobID] = job
 }

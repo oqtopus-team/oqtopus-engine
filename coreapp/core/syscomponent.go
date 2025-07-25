@@ -173,10 +173,6 @@ type DBManager interface {
 	Get(string) (Job, error)
 	Update(Job) error
 	Delete(string) error
-
-	AddToInnerJobIDSet(string)
-	RemoveFromInnerJobIDSet(string)
-	ExistInInnerJobIDSet(string) bool
 }
 
 type SSEGatewayRouter interface {

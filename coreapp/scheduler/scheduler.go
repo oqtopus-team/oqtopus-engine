@@ -8,12 +8,26 @@ import (
 	"go.uber.org/zap"
 )
 
-type statusHistory map[string][]core.Status
+type statusManager interface {
+	Update(job core.Job, status core.Status)
+	Delete(jobID string)
+	Get(jobID string) []core.Status
+}
+
+// for production
+type prodStatusManager struct{}
+
+func (p *prodStatusManager) Update(job core.Job, status core.Status) {
+	job.JobData().Status = status
+}
+func (p *prodStatusManager) Delete(jobID string) {}
+func (p *prodStatusManager) Get(jobID string) []core.Status {
+	return nil
+}
 
 type NormalScheduler struct {
 	queue         *NormalQueue
-	statusHistory statusHistory
-	mu            sync.RWMutex
+	statusManager statusManager
 }
 
 type jobInScheduler struct {
@@ -24,8 +38,7 @@ type jobInScheduler struct {
 func (n *NormalScheduler) Setup(conf *core.Conf) error {
 	n.queue = &NormalQueue{}
 	n.queue.Setup(conf)
-	n.statusHistory = make(statusHistory)
-	n.mu = sync.RWMutex{}
+	n.statusManager = &prodStatusManager{}
 	return nil
 }
 
@@ -55,10 +68,7 @@ func (n *NormalScheduler) Start() error {
 
 				// TODO: not update status in scheduler
 				st := core.RUNNING
-				n.mu.Lock()
-				n.statusHistory[jid] = append(n.statusHistory[jid], st)
-				n.mu.Unlock()
-				jis.job.JobData().Status = st
+				n.statusManager.Update(jis.job, st)
 				jis.job.JobContext().DBChan <- jis.job.Clone()
 				jis.job.Process()
 				zap.L().Debug(fmt.Sprintf("finished to process job(%s), status:%s", jid, jis.job.JobData().Status))
@@ -78,12 +88,8 @@ func (n *NormalScheduler) HandleJob(j core.Job) {
 			}
 		}()
 		defer func() {
-			n.mu.RLock()
-			zap.L().Debug(fmt.Sprintf("status history job(%s): %v", j.JobData().ID, n.statusHistory[j.JobData().ID]))
-			n.mu.RUnlock()
-			n.mu.Lock()
-			delete(n.statusHistory, j.JobData().ID)
-			n.mu.Unlock()
+			zap.L().Debug(fmt.Sprintf("status history job(%s): %v", j.JobData().ID, n.statusManager.Get(j.JobData().ID)))
+			n.statusManager.Delete(j.JobData().ID)
 		}()
 		n.handleImpl(j)
 	}()
@@ -100,10 +106,7 @@ func (n *NormalScheduler) handleImpl(j core.Job) {
 	defer func() {
 		if r := recover(); r != nil {
 			zap.L().Error("recovered from panic in handle impl", zap.String("jobID", j.JobData().ID), zap.Any("panic", r))
-			j.JobData().Status = core.FAILED
-			n.mu.Lock()
-			n.statusHistory[j.JobData().ID] = append(n.statusHistory[j.JobData().ID], core.FAILED)
-			n.mu.Unlock()
+			n.statusManager.Update(j, core.FAILED)
 			j.JobContext().DBChan <- j.Clone()
 		}
 	}()
@@ -112,9 +115,7 @@ func (n *NormalScheduler) handleImpl(j core.Job) {
 		jid := j.JobData().ID
 		j.JobData().UseJobInfoUpdate = false //very adhoc
 		st := j.JobData().Status             // must be ready
-		n.mu.Lock()
-		n.statusHistory[jid] = append(n.statusHistory[jid], st)
-		n.mu.Unlock()
+		n.statusManager.Update(j, st)
 		zap.L().Debug(fmt.Sprintf("handling job(%s)in %s starting", jid, st))
 		if j.JobData().Status != core.READY {
 			zap.L().Error(
@@ -130,9 +131,7 @@ func (n *NormalScheduler) handleImpl(j core.Job) {
 		j.JobContext().DBChan <- j.Clone()
 		if j.IsFinished() {
 			zap.L().Debug(fmt.Sprintf("finished to handle job(%s) after pre-processing", jid))
-			n.mu.Lock()
-			n.statusHistory[jid] = append(n.statusHistory[jid], j.JobData().Status)
-			n.mu.Unlock()
+			n.statusManager.Update(j, j.JobData().Status)
 			return
 		}
 		var wg sync.WaitGroup
@@ -149,9 +148,7 @@ func (n *NormalScheduler) handleImpl(j core.Job) {
 			j.JobContext().DBChan <- j.Clone()
 			zap.L().Debug(fmt.Sprintf("finished to handle job(%s) after processing with status:%s",
 				jid, j.JobData().Status.String()))
-			n.mu.Lock()
-			n.statusHistory[jid] = append(n.statusHistory[jid], j.JobData().Status)
-			n.mu.Unlock()
+			n.statusManager.Update(j, j.JobData().Status)
 			j.JobContext().DBChan <- j.Clone()
 			return
 		}
@@ -160,9 +157,7 @@ func (n *NormalScheduler) handleImpl(j core.Job) {
 		if j.IsFinished() {
 			zap.L().Debug(fmt.Sprintf("finished to handle job(%s) after post-processing with status:%s",
 				jid, j.JobData().Status.String()))
-			n.mu.Lock()
-			n.statusHistory[jid] = append(n.statusHistory[jid], j.JobData().Status)
-			n.mu.Unlock()
+			n.statusManager.Update(j, j.JobData().Status)
 			j.JobContext().DBChan <- j.Clone()
 			return
 		}

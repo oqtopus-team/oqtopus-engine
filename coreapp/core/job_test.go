@@ -66,21 +66,8 @@ func TestNewJobFailedForParseError(t *testing.T) {
 	job, err := jm.NewJobWithValidation(p, jc)
 	assert.Nil(t, job)
 	assert.Equal(t, err, fmt.Errorf(validateErrorMessage))
-	assert.False(t, jobExist(t, jobID))
 }
 */
-
-func jobExist(t *testing.T, jobID string) bool {
-	jobExist := false
-	s := GetSystemComponents()
-	err := s.Container.Invoke(
-		func(d DBManager) error {
-			jobExist = d.ExistInInnerJobIDSet(jobID)
-			return nil
-		})
-	assert.Nil(t, err)
-	return jobExist
-}
 
 func TestNewJob(t *testing.T) {
 	s := SCWithDBContainer()

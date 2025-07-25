@@ -11,9 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// TODO to dependent container
-var innerJobIDSet map[string]struct{}
-
 // enum requestType
 type requestType int
 
@@ -35,7 +32,6 @@ func (s dbSecuritySource) ApiKeyAuth(ctx context.Context, name api.OperationName
 }
 
 func (s *ServiceDB) Setup(dbc core.DBChan, c *core.Conf) error {
-	innerJobIDSet = make(map[string]struct{})
 	zap.L().Debug("Setting up Service DB")
 	s.endpoint = c.ServiceDBEndpoint
 	s.apiKey = c.ServiceDBAPIKey
@@ -205,19 +201,6 @@ func (s *ServiceDB) Delete(jobID string) error {
 	// ad hoc impl
 	zap.L().Debug("[ServiceDB] Do not delete " + jobID)
 	return nil
-}
-
-func (s *ServiceDB) AddToInnerJobIDSet(jobID string) {
-	innerJobIDSet[jobID] = struct{}{}
-}
-
-func (s *ServiceDB) RemoveFromInnerJobIDSet(jobID string) {
-	delete(innerJobIDSet, jobID)
-}
-
-func (s *ServiceDB) ExistInInnerJobIDSet(jobID string) bool {
-	_, ok := innerJobIDSet[jobID]
-	return ok
 }
 
 func (s *ServiceDB) putTranspilerInfo(cJob *api.JobsJobDef) error {

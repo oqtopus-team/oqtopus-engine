@@ -40,18 +40,6 @@ func (j *SamplingJob) preProcessImpl() (err error) {
 	err = nil
 	jd := j.JobData()
 	container := core.GetSystemComponents().Container
-	err = container.Invoke(
-		func(d core.DBManager) error {
-			if d.ExistInInnerJobIDSet(jd.ID) {
-				return core.ErrorJobIDConflict
-			}
-			return nil
-		})
-	if err != nil {
-		zap.L().Error(fmt.Sprintf("failed to check the existence of a job(%s). Reason:%s",
-			jd.ID, err.Error()))
-		return
-	}
 
 	if jd.NeedTranspiling() {
 		err = container.Invoke(
@@ -66,11 +54,6 @@ func (j *SamplingJob) preProcessImpl() (err error) {
 		zap.L().Debug(fmt.Sprintf("skip transpiling a job(%s)/Transpiler:%v",
 			jd.ID, jd.Transpiler))
 	}
-	_ = container.Invoke(
-		func(d core.DBManager) error {
-			d.AddToInnerJobIDSet(jd.ID)
-			return nil
-		})
 	return
 }
 

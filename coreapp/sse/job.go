@@ -45,17 +45,6 @@ func (j *SSEJob) preProcessImpl() (err error) {
 	jd := j.JobData()
 	err = container.Invoke(
 		func(d core.DBManager) error {
-			if d.ExistInInnerJobIDSet(jd.ID) {
-				return core.ErrorJobIDConflict
-			}
-			return nil
-		})
-	if err != nil {
-		zap.L().Error(fmt.Sprintf("failed to submit a job(%s). Reason:%s", jd.ID, err.Error()))
-		return
-	}
-	err = container.Invoke(
-		func(d core.DBManager) error {
 			return d.Insert(j)
 		})
 	if err != nil {
@@ -88,11 +77,6 @@ func (j *SSEJob) preProcessImpl() (err error) {
 		return
 	}
 
-	_ = container.Invoke(
-		func(d core.DBManager) error {
-			d.AddToInnerJobIDSet(jd.ID)
-			return nil
-		})
 	return
 }
 
