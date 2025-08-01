@@ -25,10 +25,10 @@ var (
 )
 
 const (
-	MULTIPROG_MANUAL_JOB      = "multi_manual"
-	MPG_MANUAL_ENV_FILE_NAME  = "multiprog/manual/.mpgmenv"
-	CIRCUIT_COMBINER_PORT_KEY = "COMBINER_PORT"
-	CIRCUIT_COMBINER_HOST_KEY = "COMBINER_HOST"
+	MULTIPROG_MANUAL_JOB     = "multi_manual"
+	MPG_MANUAL_ENV_FILE_NAME = "multiprog/manual/.mpgmenv"
+	COMBINER_PORT_KEY        = "COMBINER_PORT"
+	COMBINER_HOST_KEY        = "COMBINER_HOST"
 )
 
 type ManualJob struct {
@@ -261,7 +261,7 @@ func sendJobdata(inputJob core.Job, mpgmconf *mpgmconf.MPGMConf) (combinedQASM s
 	port := mpgmconf.CircuitCombinerPort
 	if port == "" {
 		port = "5002"
-		zap.L().Warn(fmt.Sprintf("%s is not set. Use default port: %s", CIRCUIT_COMBINER_PORT_KEY, port))
+		zap.L().Warn(fmt.Sprintf("%s is not set. Use default port: %s", COMBINER_PORT_KEY, port))
 	}
 	// extract host from environment variable
 	host := mpgmconf.CircuitCombinerHost
@@ -269,7 +269,7 @@ func sendJobdata(inputJob core.Job, mpgmconf *mpgmconf.MPGMConf) (combinedQASM s
 
 	if host == "" {
 		host = "localhost"
-		zap.L().Warn(fmt.Sprintf("%s is not set. Use default host: %s", CIRCUIT_COMBINER_HOST_KEY, host))
+		zap.L().Warn(fmt.Sprintf("%s is not set. Use default host: %s", COMBINER_HOST_KEY, host))
 	}
 
 	// create new insecure credential
