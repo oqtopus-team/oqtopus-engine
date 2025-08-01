@@ -121,12 +121,9 @@ func (successQPUForTest) Send(j Job) error {
 	return nil
 }
 
-type unimplementedDB struct {
-	innerJobIDSet map[string]struct{}
-}
+type unimplementedDB struct{}
 
 func (u *unimplementedDB) Setup(DBChan, *Conf) error {
-	u.innerJobIDSet = make(map[string]struct{})
 	return nil
 }
 func (u *unimplementedDB) Insert(Job) error { return nil }
@@ -135,16 +132,6 @@ func (u *unimplementedDB) Get(JobID string) (Job, error) {
 }
 func (u *unimplementedDB) Update(Job) error    { return nil }
 func (u *unimplementedDB) Delete(string) error { return nil }
-func (u *unimplementedDB) AddToInnerJobIDSet(jobID string) {
-	u.innerJobIDSet[jobID] = struct{}{}
-}
-func (u *unimplementedDB) RemoveFromInnerJobIDSet(jobID string) {
-	delete(u.innerJobIDSet, jobID)
-}
-func (u *unimplementedDB) ExistInInnerJobIDSet(jobID string) bool {
-	_, ok := u.innerJobIDSet[jobID]
-	return ok
-}
 
 type successDBForTest struct {
 	unimplementedDB

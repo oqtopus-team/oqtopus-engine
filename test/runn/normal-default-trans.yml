@@ -50,4 +50,4 @@ steps:
       steps.wait.res.body.transpiler_info.transpiler_lib == "qiskit"
   check-transpiler-options:
     test: |
-      steps.wait.res.body.transpiler_info.transpiler_options.optimization_level == 2
+      steps.wait.res.body.transpiler_info.transpiler_options.optimization_level == 1

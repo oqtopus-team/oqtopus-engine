@@ -40,13 +40,13 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				userReq: &sse.TranspileAndExecRequest{
-					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level":2}}}`,
+					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level":1}}}`,
 				},
 			},
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.SUCCEEDED.String(),
 				Message:        "dummysuccessresult",
-				TranspilerInfo: `{"transpiler_lib":"qiskit","transpiler_options":{"optimization_level":2}}`,
+				TranspilerInfo: `{"transpiler_lib":"qiskit","transpiler_options":{"optimization_level":1}}`,
 				TranspiledQasm: "transpiled QASM",
 				Result:         `{"counts":{"00":400,"11":600},"divided_result":null,"transpiler_info":{"stats":"{}","virtual_physical_mapping":"{}"},"estimation":{"exp_value":0, "stds": 0},"message":"dummy success result","execution_time":0}`,
 			},
@@ -66,7 +66,7 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.SUCCEEDED.String(),
 				Message:        "dummysuccessresult",
-				TranspilerInfo: `{"transpiler_lib":"qiskit","transpiler_options":{"optimization_level":2}}`,
+				TranspilerInfo: `{"transpiler_lib":"qiskit","transpiler_options":{"optimization_level":1}}`,
 				TranspiledQasm: "transpiled QASM",
 				Result:         `{"counts":{"00":400,"11":600},"divided_result":null,"transpiler_info":{"stats":"{}","virtual_physical_mapping":"{}"},"estimation":{"exp_value":0, "stds": 0},"message":"dummy success result","execution_time":0}`,
 			},
@@ -86,7 +86,7 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.SUCCEEDED.String(),
 				Message:        "dummysuccessresult",
-				TranspilerInfo: `{"transpiler_lib":"qiskit","transpiler_options":{"optimization_level":2}}`,
+				TranspilerInfo: `{"transpiler_lib":"qiskit","transpiler_options":{"optimization_level":1}}`,
 				TranspiledQasm: "transpiled QASM",
 				Result:         `{"counts":{"00":400,"11":600},"divided_result":null,"transpiler_info":{"stats":"{}","virtual_physical_mapping":"{}"},"estimation":{"exp_value":0, "stds": 0},"message":"dummy success result","execution_time":0}`,
 			},
@@ -101,13 +101,13 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				userReq: &sse.TranspileAndExecRequest{
-					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": null, "transpiler_options": {"optimization_level": 2}}}`,
+					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": null, "transpiler_options": {"optimization_level": 1}}}`,
 				},
 			},
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.SUCCEEDED.String(),
 				Message:        "dummysuccessresult",
-				TranspilerInfo: `{"transpiler_lib":null,"transpiler_options":{"optimization_level":2}}`,
+				TranspilerInfo: `{"transpiler_lib":null,"transpiler_options":{"optimization_level":1}}`,
 				TranspiledQasm: "",
 				Result:         `{"counts":{"00":400,"11":600},"divided_result":null,"transpiler_info":{"stats":"{}","virtual_physical_mapping":"{}"},"estimation":{"exp_value":0, "stds": 0},"message":"dummy success result","execution_time":0}`,
 			},
@@ -162,13 +162,13 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				userReq: &sse.TranspileAndExecRequest{
-					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level": 2}}}`,
+					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level": 1}}}`,
 				},
 			},
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.FAILED.String(),
 				Message:        "Failed to transpile: Transpile Error",
-				TranspilerInfo: "{\"transpiler_lib\":\"qiskit\",\"transpiler_options\":{\"optimization_level\":2}}",
+				TranspilerInfo: "{\"transpiler_lib\":\"qiskit\",\"transpiler_options\":{\"optimization_level\":1}}",
 				TranspiledQasm: "",
 				Result:         "",
 			},
@@ -182,7 +182,7 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				userReq: &sse.TranspileAndExecRequest{
-					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level": 2}}}`,
+					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level": 1}}}`,
 				},
 			},
 			wantRes: &sse.TranspileAndExecResponse{
@@ -203,13 +203,13 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				userReq: &sse.TranspileAndExecRequest{
-					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level":2}}}`,
+					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level":1}}}`,
 				},
 			},
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.FAILED.String(),
 				Message:        "Failed to execute qpu",
-				TranspilerInfo: "{\"transpiler_lib\":\"qiskit\",\"transpiler_options\":{\"optimization_level\":2}}",
+				TranspilerInfo: "{\"transpiler_lib\":\"qiskit\",\"transpiler_options\":{\"optimization_level\":1}}",
 				TranspiledQasm: "transpiled QASM",
 				Result:         "",
 			},
@@ -224,13 +224,13 @@ func TestGRPCRouter_ReqTranspile(t *testing.T) {
 			args: args{
 				ctx: context.Background(),
 				userReq: &sse.TranspileAndExecRequest{
-					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level": 2}}}`,
+					JobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level": 1}}}`,
 				},
 			},
 			wantRes: &sse.TranspileAndExecResponse{
 				Status:         core.FAILED.String(),
 				Message:        "Failed to execute qpu",
-				TranspilerInfo: "{\"transpiler_lib\":\"qiskit\",\"transpiler_options\":{\"optimization_level\":2}}",
+				TranspilerInfo: "{\"transpiler_lib\":\"qiskit\",\"transpiler_options\":{\"optimization_level\":1}}",
 				TranspiledQasm: "transpiled QASM",
 				Result:         "",
 			},
@@ -360,7 +360,7 @@ func Test_useDefaultTranspiler(t *testing.T) {
 		{
 			name: "Full transpiler info",
 			args: args{
-				jobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level": 2}}}`,
+				jobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level": 1}}}`,
 			},
 			want: false,
 		},
@@ -381,7 +381,7 @@ func Test_useDefaultTranspiler(t *testing.T) {
 		{
 			name: "only transpiler_options",
 			args: args{
-				jobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_options": {"optimization_level": 2}}}`,
+				jobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_options": {"optimization_level": 1}}}`,
 			},
 			want: false,
 		},
@@ -395,7 +395,7 @@ func Test_useDefaultTranspiler(t *testing.T) {
 		{
 			name: "transpiler_lib is null",
 			args: args{
-				jobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": null, "transpiler_options": {"optimization_level": 2}}}`,
+				jobDataJson: `{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": null, "transpiler_options": {"optimization_level": 1}}}`,
 			},
 			want: false,
 		},
@@ -437,13 +437,13 @@ func Test_toJob(t *testing.T) {
 		{
 			name: "Success",
 			args: args{
-				body: []byte(`{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level":2}}}`),
+				body: []byte(`{"id":"A1234","qasm":"test_qasm","shots":1000,"transpiler_info": {"transpiler_lib": "qiskit", "transpiler_options": {"optimization_level":1}}}`),
 			},
 			want: &core.JobData{
 				ID:         "A1234",
 				QASM:       "test_qasm",
 				Shots:      1000,
-				Transpiler: notDefaultTranspilerConfig, //"{\"transpiler_lib\": \"qiskit\", \"transpiler_options\": {\"optimization_level\":2}}",
+				Transpiler: notDefaultTranspilerConfig, //"{\"transpiler_lib\": \"qiskit\", \"transpiler_options\": {\"optimization_level\":1}}",
 			},
 			wantErr: false,
 		},

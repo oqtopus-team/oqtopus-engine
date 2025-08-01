@@ -84,18 +84,6 @@ func (j *NormalJob) preProcessImpl() (err error) {
 	container := GetSystemComponents().Container
 	// TODO refactor this part
 	// make jobID pool in syscomponent
-	err = container.Invoke(
-		func(d DBManager) error {
-			if d.ExistInInnerJobIDSet(jd.ID) {
-				return ErrorJobIDConflict
-			}
-			return nil
-		})
-	if err != nil {
-		zap.L().Error(fmt.Sprintf("failed to check the existence of a job(%s). Reason:%s",
-			jd.ID, err.Error()))
-		return
-	}
 
 	if jd.NeedTranspiling() {
 		err = container.Invoke(
@@ -110,11 +98,6 @@ func (j *NormalJob) preProcessImpl() (err error) {
 		zap.L().Debug(fmt.Sprintf("skip transpiling a job(%s)/Transpiler:%v",
 			jd.ID, jd.Transpiler))
 	}
-	_ = container.Invoke(
-		func(d DBManager) error {
-			d.AddToInnerJobIDSet(jd.ID)
-			return nil
-		})
 	return
 }
 
@@ -240,11 +223,6 @@ func DeleteJob(id string) bool {
 		zap.L().Info(fmt.Sprintf("failed to delete a job(%s)", id))
 		return false
 	}
-	_ = c.Invoke(
-		func(d DBManager) error {
-			d.RemoveFromInnerJobIDSet(id)
-			return nil
-		})
 	return true
 }
 

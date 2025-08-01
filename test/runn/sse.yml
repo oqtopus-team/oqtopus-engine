@@ -47,7 +47,7 @@ steps:
   check-transpiler-info:
     test: |
       steps.wait.res.body.transpiler_info.transpiler_lib == "qiskit"
-      && steps.wait.res.body.transpiler_info.transpiler_options.optimization_level == 2
+      && steps.wait.res.body.transpiler_info.transpiler_options.optimization_level == 1
   check-counts:
     test: |
       len(steps.wait.res.body.job_info.result.sampling.counts) > 0

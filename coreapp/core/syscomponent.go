@@ -134,7 +134,7 @@ func DEFAULT_TRANSPILER_CONFIG() *TranspilerConfig {
 		OptimizationLevel int `json:"optimization_level"`
 	}
 	dtp := DefaultTranspilerOptions{
-		OptimizationLevel: 2,
+		OptimizationLevel: 1,
 	}
 	dtpByte, err := json.Marshal(dtp)
 	if err != nil {
@@ -173,10 +173,6 @@ type DBManager interface {
 	Get(string) (Job, error)
 	Update(Job) error
 	Delete(string) error
-
-	AddToInnerJobIDSet(string)
-	RemoveFromInnerJobIDSet(string)
-	ExistInInnerJobIDSet(string) bool
 }
 
 type SSEGatewayRouter interface {

@@ -104,18 +104,6 @@ func (j *ManualJob) preProcessImpl() (err error) {
 	container := core.GetSystemComponents().Container
 	err = container.Invoke(
 		func(d core.DBManager) error {
-			if d.ExistInInnerJobIDSet(jd.ID) {
-				return ErrorJobIDConflict
-			}
-			return nil
-		})
-	if err != nil {
-		zap.L().Error(fmt.Sprintf("failed to check the existence of a job(%s). Reason:%s",
-			jd.ID, err.Error()))
-		return
-	}
-	err = container.Invoke(
-		func(d core.DBManager) error {
 			return d.Insert(j)
 		})
 	if err != nil {
@@ -143,12 +131,6 @@ func (j *ManualJob) preProcessImpl() (err error) {
 		zap.L().Error(fmt.Sprintf("failed to transpile a job(%s). Reason:%s", jd.ID, err.Error()))
 		return
 	}
-
-	_ = container.Invoke(
-		func(d core.DBManager) error {
-			d.AddToInnerJobIDSet(jd.ID)
-			return nil
-		})
 
 	return
 }
