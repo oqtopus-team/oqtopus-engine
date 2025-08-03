@@ -3,7 +3,7 @@ tasks:
   build-docker:
     desc: "Build SSE Docker Image"
     vars:
-      REPO: '{{.SSE_CONTAINER_REPO | default "sse/python3.11.9"}}'
+      REPO: '{{.SSE_CONTAINER_REPO | default "sse/python3.13"}}'
       TAG: '{{.SSE_CONTAINER_TAG | default "latest"}}'
       IMAGE: '{{.SSE_CONTAINER_IMAGE | default (printf "%s:%s" .REPO .TAG)}}'
     cmds:

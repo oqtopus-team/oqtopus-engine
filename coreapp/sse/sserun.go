@@ -73,6 +73,7 @@ func (c *ContainerDefinition) Setup(containerName string, envVars []string, cont
 		Env:          envVars,
 		AttachStdout: true,
 		AttachStderr: true,
+		Cmd:          []string{"sh"},
 	}
 
 	// Generate docker client

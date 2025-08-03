@@ -1,6 +1,6 @@
 services:
   sse:
-    image: ${SSE_CONTAINER_IMAGE:-sse/python3.11.9}
+    image: ${SSE_CONTAINER_IMAGE:-sse/python3.13}
     build:
       context: .
     working_dir: '/sse/'

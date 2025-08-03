@@ -7,9 +7,9 @@ managed:
 plugins:
   # python
   - remote: buf.build/grpc/python:v1.73.0
-    out: ../sse_runtime/src/sse_runtime/sse_sampler
+    out: ../sse_runtime/src/sse_runtime
   - remote: buf.build/protocolbuffers/python:v25.1
-    out: ../sse_runtime/src/sse_runtime/sse_sampler
+    out: ../sse_runtime/src/sse_runtime
   # go
   - remote: buf.build/grpc/go:v1.2.0
     out: ../coreapp
