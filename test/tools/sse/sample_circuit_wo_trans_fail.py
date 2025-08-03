@@ -11,6 +11,7 @@ import qiskit
 import qulacs
 import skqulacs
 import pyqubo
+import openjij
 import cirq
 import pennylane
 import openfermion
