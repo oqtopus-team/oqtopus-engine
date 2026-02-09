@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package estimator_interface.v1;
+
+// RPC service for Estimation Job
+service EstimatorService {
+  rpc ReqEstimationPreProcess(ReqEstimationPreProcessRequest) returns (ReqEstimationPreProcessResponse);
+  rpc ReqEstimationPostProcess(ReqEstimationPostProcessRequest) returns (ReqEstimationPostProcessResponse);
+}
+
+message ReqEstimationPreProcessRequest {
+  string qasm_code = 1;
+  // e.g. "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0], q[1];\n"
+
+  string operators = 2;
+  // e.g. "[[\"X 0 X 1\", 1.5], [\"Y 0 Z 1\", 1.2]]"
+
+  repeated string basis_gates = 3;
+  // e.g. ["id", "sx", "rz", "rzx"]
+
+  repeated uint32 mapping_list = 4;
+  // e.g. [2, 1, 0, 3] : means logical qubit 0 mapped into physical qubit 2
+}
+
+message ReqEstimationPreProcessResponse {
+  repeated string qasm_codes = 1;
+  // e.g. ["qasm code 1", "qasm code 2"]
+
+  string grouped_operators = 2;
+  // e.g. '[[["XX", "ZY"], ["YX"]], [[1.5, -0.5], [1.2]]]' means operator 1.5XX and -0.5ZY coresspond to circuit1, operator 1.2YX coressponds to circuit2
+}
+
+message Counts {
+  map<string, uint32> counts = 1;
+}
+
+message ReqEstimationPostProcessRequest {
+  repeated Counts counts = 1;
+  // e.g. [{"00" : 100, "11" : 200}, {"00" : 200, "11" : 100}]
+
+  string grouped_operators = 2;
+  // e.g. '[[["XX", "ZY"], ["YX"]], [[1.5, -0.5], [1.2]]]' means operator 1.5XX and -0.5ZY coresspond to circuit1, operator 1.2YX coressponds to circuit2
+}
+
+message ReqEstimationPostProcessResponse {
+  float expval = 1;
+  float stds = 2;
+}

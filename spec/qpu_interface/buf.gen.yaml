@@ -1,0 +1,6 @@
+version: v2
+plugins:
+  - remote: buf.build/grpc/python:v1.76.0
+    out: ../../core/src/
+  - remote: buf.build/protocolbuffers/python:v33.2
+    out: ../../core/src/

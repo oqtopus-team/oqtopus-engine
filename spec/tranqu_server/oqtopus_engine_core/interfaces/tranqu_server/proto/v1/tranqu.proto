@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package tranqu_server.proto.v1;
+
+message TranspileRequest {
+  string request_id = 1;
+  string program = 2;
+  string program_lib = 3;
+  string transpiler_lib = 4;
+  string transpiler_options = 5;
+  string device = 6;
+  string device_lib = 7;
+}
+
+message TranspileResponse {
+  uint32 status = 1;
+  string transpiled_program = 2;
+  string stats = 3;
+  string virtual_physical_mapping = 4;
+}
+
+service TranspilerService {
+  rpc Transpile(TranspileRequest) returns (TranspileResponse) {}
+}

@@ -1,0 +1,15 @@
+services:
+  estimator:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      TZ: ${TZ}
+      ESTIMATOR_PORT: ${ESTIMATOR_PORT}
+      ESTIMATOR_MAX_THREADS: ${ESTIMATOR_MAX_THREADS}
+    ports:
+      - ${ESTIMATOR_PORT}:${ESTIMATOR_PORT}
+    volumes:
+      - ./:/app
+      - ${SHARE_DIR}/${LOG_DIR}:/estimator/logs
+    tty: true

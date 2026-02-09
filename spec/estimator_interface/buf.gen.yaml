@@ -1,0 +1,12 @@
+version: v2
+plugins:
+  # for core
+  - remote: buf.build/grpc/python:v1.76.0
+    out: ../../core/src/
+  - remote: buf.build/protocolbuffers/python:v33.2
+    out: ../../core/src/
+  # for estimator
+  - remote: buf.build/grpc/python:v1.76.0
+    out: ../../estimator/src/
+  - remote: buf.build/protocolbuffers/python:v33.2
+    out: ../../estimator/src/

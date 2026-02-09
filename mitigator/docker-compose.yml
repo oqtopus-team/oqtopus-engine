@@ -1,0 +1,15 @@
+services:
+  mitigator:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    environment:
+      TZ: ${TZ}
+      MITIGATOR_PORT: ${MITIGATOR_PORT}
+      MITIGATOR_MAX_THREADS: ${MITIGATOR_MAX_THREADS}
+    ports:
+      - ${MITIGATOR_PORT}:${MITIGATOR_PORT}
+    volumes:
+      - ./:/app
+      - ${SHARE_DIR}/${LOG_DIR}:/mitigator/logs
+    tty: true

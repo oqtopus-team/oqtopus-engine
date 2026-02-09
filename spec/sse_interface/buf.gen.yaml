@@ -1,0 +1,10 @@
+version: v2
+plugins:
+  - remote: buf.build/grpc/python:v1.76.0
+    out: ../../core/src/
+  - remote: buf.build/protocolbuffers/python:v29.5
+    out: ../../core/src/
+  - remote: buf.build/grpc/python:v1.76.0
+    out: ../../sse_runtime/src/sse_runtime/
+  - remote: buf.build/protocolbuffers/python:v29.5
+    out: ../../sse_runtime/src/sse_runtime/

@@ -1,0 +1,16 @@
+syntax = "proto3";
+package sse_interface.v1;
+
+service SseEngineService {
+  rpc SseEngine(SseEngineRequest) returns (SseEngineResponse);
+}
+
+message SseEngineRequest {
+  string job_json = 1;
+}
+
+message SseEngineResponse {
+  string status = 1;
+  string job_json = 2;
+  string message = 3;
+}

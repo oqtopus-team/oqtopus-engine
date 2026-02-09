@@ -1,0 +1,12 @@
+version: v2
+plugins:
+  # for core
+  - remote: buf.build/grpc/python:v1.76.0
+    out: ../../core/src/
+  - remote: buf.build/protocolbuffers/python:v33.2
+    out: ../../core/src/
+  # for mitigator
+  - remote: buf.build/grpc/python:v1.76.0
+    out: ../../mitigator/src/
+  - remote: buf.build/protocolbuffers/python:v33.2
+    out: ../../mitigator/src/

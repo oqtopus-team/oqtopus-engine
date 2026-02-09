@@ -1,0 +1,6 @@
+services:
+  circuit-combiner:
+    image: ${CIRCUIRT_COMBINER_IMAGE:-circuit-combiner/python3.12.9:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.dev

@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package combiner_interface.v1;
+
+// RPC service for circuit combiner
+service CombinerService {
+  rpc Combine (CombineRequest) returns (CombineResponse);
+}
+
+enum Status {
+  STATUS_SUCCESS = 0;
+  STATUS_FAILURE = 1;
+  STATUS_INVALID_QUBIT_SIZE = 2;
+}
+
+// request to circuit_combiner of gRPC server
+message CombineRequest {
+  // string of json array
+  // example: "{\\\"qasm\\\": [\\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\", \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\"]}" # noqa
+  string qasm_array = 1;
+  // device information like "qubit_index" or "measurement_windows_index"
+  int32 max_qubits = 2;
+}
+
+// response from circuit_combiner of gRPC server
+message CombineResponse {
+  // status of the response
+  Status combined_status = 1;
+  // combined circuit qasm
+  string combined_qasm = 2;
+  // combined qasm bit information
+  repeated int32 combined_qubits_list = 3;
+}
+
+

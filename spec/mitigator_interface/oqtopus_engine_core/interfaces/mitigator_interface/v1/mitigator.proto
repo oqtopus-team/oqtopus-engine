@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+// TODO: pass buf lint
+package mitigator_interface.v1;
+
+// RPC service for Error Mitigation
+service MitigatorService {
+    rpc ReqMitigation (ReqMitigationRequest) returns (ReqMitigationResponse);
+}
+message MesError{
+    float p0m1 = 1;
+    float p1m0 = 2;
+}
+
+message Qubit{
+    int32 id = 1;
+    float t1 = 2;
+    float t2 = 3;
+    float gate_error = 4;
+    MesError mes_error = 5;
+}
+
+message DeviceTopology{
+    string name = 1;
+    repeated Qubit qubits = 2;
+}
+
+message ReqMitigationRequest{
+    DeviceTopology device_topology =1;
+    map<string, int32> counts = 2;
+    string program = 3;
+}
+
+message ReqMitigationResponse{
+    map<string, int32> counts =1;
+}

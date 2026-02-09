@@ -1,0 +1,94 @@
+[project]
+name = "sse-runtime"
+version = "1.0.0"
+description = "SSE Runtime: A runtime container for SSE"
+license = "Apache-2.0"
+authors = [{ name = "oqtopus-team", email = "oqtopus-team@googlegroups.com" }]
+keywords = []
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: Apache Software License",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: Implementation :: CPython",
+]
+requires-python = ">=3.11"
+dependencies = [
+  "matplotlib==3.10.3",
+  "numpy==1.26.4",
+  "pyyaml==6.0.2",
+  "grpcio==1.71.0",
+  "grpcio-tools==1.71.0",
+  "networkx==3.5",
+  "pandas==2.3.1",
+  "polars==1.31.0",
+  "tqdm==4.67.1",
+  "scipy>=1.15.3",
+  "scikit-learn==1.7.0",
+  "quri-parts==0.22.1",
+  "quri-parts-oqtopus==1.0.3",
+  "qiskit==1.4.3",
+  "qulacs==0.6.12",
+  "skqulacs==0.5.3",
+  "pyqubo==1.5.0",
+  "openjij==0.11.2",
+  "cirq==1.5.0",
+  "pennylane==0.42.0",
+  "openfermion==1.7.1",
+  "mypy>=1.17.0",
+]
+
+[tool.uv]
+package = false
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+preview = true
+include = [
+  "src/**/*.py",
+  "tests/**/*.py",
+]
+exclude = [
+  "src/**/v1/**/*.py", # Generated codes
+  "src/quri_parts_oqtopus/rest/**/*.py",
+]
+lint.select = ["ALL"]
+lint.ignore = [
+  "COM812",
+  "CPY001",
+  "D100",
+  "D104",
+  "D107",
+  "D203",
+  "D213",
+  "ISC001",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+  "ANN201",
+  "ANN205",
+  "ANN401",
+  "CPY001",
+  "D",
+  "PLC1901",
+  "PLR2004",
+  "PLR6301",
+  "S101",
+]
+
+[tool.mypy]
+files = ["src"]
+exclude = [
+  "src/.*/v1/", # Generated codes
+]
+ignore_missing_imports = true
