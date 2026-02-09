@@ -38,6 +38,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
         initial_backoff_max_seconds: float = 60.0,
         loop_interval_seconds: float = 60.0,
         loop_backoff_max_seconds: float = 300.0,
+        enable_device_info_update: bool = True,  # noqa: FBT001, FBT002
     ) -> None:
         """Initialize the DeviceGatewayFetcher.
 
@@ -48,6 +49,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
             initial_backoff_max_seconds: Maximum backoff time for initial fetch.
             loop_interval_seconds: Fetch interval in seconds after initialization.
             loop_backoff_max_seconds: Maximum backoff time for loop fetch in seconds.
+            enable_device_info_update: Whether to update device info from gateway.
 
         """
         super().__init__()
@@ -59,6 +61,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
         self._initial_backoff_max_seconds = initial_backoff_max_seconds
         self._loop_interval_seconds = loop_interval_seconds
         self._loop_backoff_max_seconds = loop_backoff_max_seconds
+        self._enable_device_info_update = enable_device_info_update
 
         logger.info(
             "DeviceGatewayFetcher was initialized",
@@ -68,6 +71,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
                 "initial_backoff_max_seconds": initial_backoff_max_seconds,
                 "loop_interval_seconds": loop_interval_seconds,
                 "loop_backoff_max_seconds": loop_backoff_max_seconds,
+                "enable_device_info_update": enable_device_info_update,
             },
         )
 
@@ -121,7 +125,8 @@ class DeviceGatewayFetcher(DeviceFetcher):
 
                 # update device info and status in cloud
                 await self.gctx.device_repository.update_device(device)
-                await self.gctx.device_repository.update_device_info(device)
+                if self._enable_device_info_update:
+                    await self.gctx.device_repository.update_device_info(device)
                 await self.gctx.device_repository.update_device_status(device)
                 break
 
@@ -204,7 +209,8 @@ class DeviceGatewayFetcher(DeviceFetcher):
                     self.gctx.device.device_info = curr_device_info
                     self.gctx.device.calibrated_at = curr_calibrated_at
                     # Update device repository
-                    await self.gctx.device_repository.update_device_info(device)
+                    if self._enable_device_info_update:
+                        await self.gctx.device_repository.update_device_info(device)
 
                 # Compare and update if status changed
                 prev_status = self.gctx.device.status
