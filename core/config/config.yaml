@@ -16,6 +16,7 @@ device_fetcher:
   initial_backoff_max_seconds: ${oc.decode:${oc.env:DEVICE_FETCHER_INITIAL_BACKOFF_MAX_SECONDS, 60}}
   loop_interval_seconds: ${oc.decode:${oc.env:DEVICE_FETCHER_LOOP_INTERVAL_SECONDS, 60}}
   loop_backoff_max_seconds: ${oc.decode:${oc.env:DEVICE_FETCHER_LOOP_BACKOFF_MAX_SECONDS, 300}}
+  enable_device_info_update: ${oc.decode:${oc.env:DEVICE_FETCHER_ENABLE_DEVICE_INFO_UPDATE, true}}
 
 # repository configurations
 _job_repository:
