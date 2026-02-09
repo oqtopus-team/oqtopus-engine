@@ -4,7 +4,7 @@ Thank you for your interest in our project. This project is built by the communi
 
 ## Code of Conduct
 
-This project adopts a [Code of Conduct](https://oqtopus-team.github.io/code-of-conduct/). Please adhere to this Code of Conduct when participating, contributing, and communicating in the project.
+This project adopts a [Code of Conduct](https://github.com/oqtopus-team/.github/blob/main/CODE_OF_CONDUCT.md)). Please adhere to this Code of Conduct when participating, contributing, and communicating in the project.
 
 ## Reporting Bugs
 
