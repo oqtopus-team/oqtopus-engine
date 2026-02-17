@@ -1,3 +1,15 @@
 proto: # Settings for gRPC server
   max_workers: ${WORKERS} # Maximum number of workers
   address: "${ADDRESS}" # Address and port for RPCs
+zne:
+  default_config:
+    enabled: false
+    scale_factors:
+      - 1.0
+      - 2.0
+      - 3.0
+    factory: "richardson"
+    folding: "global"
+    num_to_average: 1
+    fail_open: true
+    poly_order: 2
