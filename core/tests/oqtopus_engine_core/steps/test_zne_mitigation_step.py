@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from omegaconf import OmegaConf
 
 from oqtopus_engine_core.framework import Job, JobContext, JobInfo
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import mitigator_pb2
@@ -131,3 +132,50 @@ async def test_post_process_calls_req_zne_post_process_and_updates_result() -> N
     assert job.job_info.result.estimation.exp_value == 1.23
     assert job.job_info.result.estimation.stds == 0.45
 
+
+@pytest.mark.asyncio
+async def test_pre_process_handles_omegaconf_in_default_config() -> None:
+    step = ZneMitigationStep(
+        zne_default_config=OmegaConf.create(
+            {
+                "enabled": True,
+                "scale_factors": [1.0, 2.0, 3.0],
+                "factory": "richardson",
+                "folding": "global",
+                "num_to_average": 1,
+                "fail_open": True,
+                "poly_order": 2,
+                "basis_gates": ["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"],
+            }
+        )
+    )
+    step._stub = AsyncMock()
+    step._stub.ReqZnePreProcess = AsyncMock(
+        return_value=mitigator_pb2.ReqZnePreProcessResponse(
+            execution_programs=[
+                mitigator_pb2.ZneExecutionProgram(
+                    scale_factor=1.0,
+                    repetition=0,
+                    program_index=0,
+                    suffix="s1-r0-p0",
+                    program="folded",
+                )
+            ]
+        )
+    )
+
+    jctx = JobContext()
+    jctx["estimation_job_info"] = SimpleNamespace(
+        preprocessed_qasms=['OPENQASM 3.0; include "stdgates.inc";'],
+        grouped_operators=[[['Z']], [[1.0]]],
+        counts_list=None,
+    )
+    job = _build_job()
+    job.mitigation_info = {}
+
+    await step.pre_process(SimpleNamespace(), jctx, job)
+
+    assert step._stub.ReqZnePreProcess.await_count == 1
+    request = step._stub.ReqZnePreProcess.await_args.args[0]
+    parsed = json.loads(request.zne_config_json)
+    assert parsed["basis_gates"] == ["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"]

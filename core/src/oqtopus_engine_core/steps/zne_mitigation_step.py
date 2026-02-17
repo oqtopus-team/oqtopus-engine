@@ -3,6 +3,7 @@ import logging
 from typing import Any
 
 import grpc
+from omegaconf import OmegaConf
 
 from oqtopus_engine_core.framework import (
     EstimationResult,
@@ -42,7 +43,14 @@ class ZneMitigationStep(Step):
             "poly_order": 2,
         }
         if zne_default_config:
-            self._zne_default_config.update(dict(zne_default_config))
+            if OmegaConf.is_config(zne_default_config):
+                resolved_default_config = OmegaConf.to_container(
+                    zne_default_config,
+                    resolve=True,
+                )
+            else:
+                resolved_default_config = dict(zne_default_config)
+            self._zne_default_config.update(resolved_default_config)
         logger.info(
             "ZneMitigationStep was initialized",
             extra={
@@ -167,4 +175,13 @@ class ZneMitigationStep(Step):
         req_cfg = mitigation_info.get("zne")
         if isinstance(req_cfg, dict):
             zne_cfg.update(req_cfg)
-        return zne_cfg
+        return self._to_builtin(zne_cfg)
+
+    def _to_builtin(self, value: Any) -> Any:
+        if OmegaConf.is_config(value):
+            return OmegaConf.to_container(value, resolve=True)
+        if isinstance(value, dict):
+            return {k: self._to_builtin(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self._to_builtin(v) for v in value]
+        return value
