@@ -22,6 +22,9 @@ job_repository:
 device_repository:
   _target_: oqtopus_engine_core.repositories.NullDeviceRepository
 
+# shared configurations
+basis_gates: ${oc.decode:${oc.env:BASIS_GATES, ["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"]}}
+
 # step configurations
 debug_step:
   _target_: oqtopus_engine_core.steps.DebugStep
@@ -40,18 +43,24 @@ tranqu_step:
 estimator_step:
   _target_: oqtopus_engine_core.steps.EstimatorStep
   estimator_address: ${oc.env:ESTIMATOR_ADDRESS, "localhost:52012"}
-  basis_gates:
-    - "cx"
-    - "id"
-    - "rz"
-    - "sx"
-    - "x"
-    - "reset"
-    - "delay"
-    - "measure"
+  basis_gates: ${basis_gates}
 ro_error_mitigation_step:
   _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
   mitigator_address: ${oc.env:MITIGATOR_ADDRESS, "localhost:52011"}
+  mitigator_timeout_seconds: ${oc.decode:${oc.env:MITIGATOR_TIMEOUT_SECONDS, 120}}
+zne_mitigation_step:
+  _target_: oqtopus_engine_core.steps.ZneMitigationStep
+  mitigator_address: ${oc.env:MITIGATOR_ADDRESS, "localhost:52011"}
+  mitigator_timeout_seconds: ${oc.decode:${oc.env:MITIGATOR_TIMEOUT_SECONDS, 120}}
+  zne_default_config:
+    enabled: ${oc.decode:${oc.env:ZNE_ENABLED, false}}
+    scale_factors: ${oc.decode:${oc.env:ZNE_SCALE_FACTORS, [1.0, 2.0, 3.0]}}
+    factory: ${oc.env:ZNE_FACTORY, "richardson"}
+    folding: ${oc.env:ZNE_FOLDING, "global"}
+    num_to_average: ${oc.decode:${oc.env:ZNE_NUM_TO_AVERAGE, 1}}
+    fail_open: ${oc.decode:${oc.env:ZNE_FAIL_OPEN, true}}
+    poly_order: ${oc.decode:${oc.env:ZNE_POLY_ORDER, 2}}
+    basis_gates: ${basis_gates}
 device_gateway_step:
   _target_: oqtopus_engine_core.steps.DeviceGatewayStep
   gateway_address: ${oc.env:GATEWAY_ADDRESS, "localhost:52021"}

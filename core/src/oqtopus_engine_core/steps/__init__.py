@@ -6,6 +6,7 @@ from .multi_manual_step import MultiManualStep
 from .ro_error_mitigation_step import ReadoutErrorMitigationStep
 from .sse_step import SseStep
 from .tranqu_step import TranquStep
+from .zne_mitigation_step import ZneMitigationStep
 
 __all__ = [
     "DebugStep",
@@ -16,4 +17,5 @@ __all__ = [
     "ReadoutErrorMitigationStep",
     "SseStep",
     "TranquStep",
+    "ZneMitigationStep",
 ]

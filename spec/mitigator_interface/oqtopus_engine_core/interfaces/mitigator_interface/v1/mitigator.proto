@@ -6,6 +6,9 @@ package mitigator_interface.v1;
 // RPC service for Error Mitigation
 service MitigatorService {
     rpc ReqMitigation (ReqMitigationRequest) returns (ReqMitigationResponse);
+    rpc ReqZneMitigation (ReqZneMitigationRequest) returns (ReqZneMitigationResponse);
+    rpc ReqZnePreProcess (ReqZnePreProcessRequest) returns (ReqZnePreProcessResponse);
+    rpc ReqZnePostProcess (ReqZnePostProcessRequest) returns (ReqZnePostProcessResponse);
 }
 message MesError{
     float p0m1 = 1;
@@ -33,4 +36,57 @@ message ReqMitigationRequest{
 
 message ReqMitigationResponse{
     map<string, int32> counts =1;
+}
+
+message ReqZneMitigationRequest{
+    string job_id = 1;
+    int32 shots = 2;
+    repeated string programs = 3;
+    string grouped_operators_json = 4;
+    string zne_config_json = 5;
+    DeviceTopology device_topology = 6;
+}
+
+message ReqZneMitigationResponse{
+    double exp_value = 1;
+    double stds = 2;
+    string metadata_json = 3;
+}
+
+message ZneExecutionProgram{
+    double scale_factor = 1;
+    int32 repetition = 2;
+    int32 program_index = 3;
+    string suffix = 4;
+    string program = 5;
+}
+
+message ReqZnePreProcessRequest{
+    string job_id = 1;
+    repeated string programs = 2;
+    string zne_config_json = 3;
+}
+
+message ReqZnePreProcessResponse{
+    repeated ZneExecutionProgram execution_programs = 1;
+    string metadata_json = 2;
+}
+
+message ZneExecutionResult{
+    double scale_factor = 1;
+    int32 repetition = 2;
+    int32 program_index = 3;
+    map<string, int32> counts = 4;
+}
+
+message ReqZnePostProcessRequest{
+    string grouped_operators_json = 1;
+    string zne_config_json = 2;
+    repeated ZneExecutionResult execution_results = 3;
+}
+
+message ReqZnePostProcessResponse{
+    double exp_value = 1;
+    double stds = 2;
+    string metadata_json = 3;
 }

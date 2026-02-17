@@ -34,19 +34,31 @@ class ReadoutErrorMitigationStep(Step):
 
     """
 
-    def __init__(self, mitigator_address: str) -> None:
+    def __init__(
+        self,
+        mitigator_address: str = "localhost:52011",
+        mitigator_timeout_seconds: float = 120.0,
+        zne_default_config: dict | None = None,
+    ) -> None:
         """Initialize the ReadoutErrorMitigationStep with mitigator service address.
 
         Args:
             mitigator_address: Address of the gRPC mitigator service
                 (e.g., "localhost:52011").
+            mitigator_timeout_seconds: Backward-compatible parameter.
+            zne_default_config: Backward-compatible parameter.
 
         """
         self._channel = grpc.aio.insecure_channel(mitigator_address)
         self._stub = mitigator_pb2_grpc.MitigatorServiceStub(self._channel)
+        self._mitigator_timeout_seconds = mitigator_timeout_seconds
         logger.info(
             "ReadoutErrorMitigationStep was initialized",
-            extra={"mitigator_address": mitigator_address},
+            extra={
+                "mitigator_address": mitigator_address,
+                "mitigator_timeout_seconds": mitigator_timeout_seconds,
+                "zne_default_config": zne_default_config,
+            },
         )
 
     async def pre_process(
@@ -190,7 +202,7 @@ class ReadoutErrorMitigationStep(Step):
                 )
 
             elif job.job_type == "estimation":
-                # For estimation jobs, process each count in counts_list
+                # For estimation jobs, process each count in counts_list.
                 if "estimation_job_info" not in jctx:
                     logger.warning(
                         "estimation_job_info not found in jctx for estimation job"
@@ -198,31 +210,97 @@ class ReadoutErrorMitigationStep(Step):
                     return
 
                 estimation_job_info = jctx["estimation_job_info"]
-                if estimation_job_info.counts_list is None:
-                    logger.warning("counts_list is None in estimation_job_info")
+                if estimation_job_info.counts_list is not None:
+                    preprocessed_qasms = estimation_job_info.preprocessed_qasms
+                    mitigated_counts_list = []
+
+                    for index, orig_counts in enumerate(estimation_job_info.counts_list):
+                        # Get corresponding QASM program
+                        program = (
+                            preprocessed_qasms[index]
+                            if preprocessed_qasms and index < len(preprocessed_qasms)
+                            else job.job_info.program[0]
+                        )
+
+                        # Prepare request
+                        request = mitigator_pb2.ReqMitigationRequest(
+                            device_topology=device_topology,
+                            counts=orig_counts,
+                            program=program,
+                        )
+
+                        # Call gRPC
+                        logger.info(
+                            "ReqMitigation request",
+                            extra={
+                                "job_id": job.job_id,
+                                "job_type": job.job_type,
+                                "request": request,
+                            },
+                        )
+                        response = await self._stub.ReqMitigation(request)
+                        logger.info(
+                            "ReqMitigation response",
+                            extra={
+                                "job_id": job.job_id,
+                                "job_type": job.job_type,
+                                "response": response,
+                            },
+                        )
+                        mitigated_counts = dict(response.counts)
+                        mitigated_counts_list.append(mitigated_counts)
+
+                        logger.debug(
+                            "estimation[%d] "
+                            "ro_error_mitigated_counts is %s, "
+                            "original_counts is %s",
+                            index,
+                            mitigated_counts,
+                            orig_counts,
+                        )
+
+                    # Update counts_list with mitigated results
+                    estimation_job_info.counts_list = mitigated_counts_list
                     return
 
-                preprocessed_qasms = estimation_job_info.preprocessed_qasms
-                mitigated_counts_list = []
+                # If direct estimation counts are absent, apply REM to ZNE execution results.
+                zne_job_info = jctx.get("zne_job_info")
+                if not zne_job_info:
+                    logger.warning("counts_list is None in estimation_job_info")
+                    return
+                execution_results = zne_job_info.get("execution_results") or []
+                execution_programs = zne_job_info.get("execution_programs") or []
+                if len(execution_results) == 0 or len(execution_programs) == 0:
+                    logger.warning("zne execution results/programs are missing for REM")
+                    return
 
-                for index, orig_counts in enumerate(estimation_job_info.counts_list):
-                    # Get corresponding QASM program
-                    program = (
-                        preprocessed_qasms[index]
-                        if preprocessed_qasms and index < len(preprocessed_qasms)
-                        else job.job_info.program[0]
+                program_map = {
+                    (
+                        float(item.scale_factor),
+                        int(item.repetition),
+                        int(item.program_index),
+                    ): item.program
+                    for item in execution_programs
+                }
+                mitigated_execution_results: list[dict[str, object]] = []
+                for result in execution_results:
+                    key = (
+                        float(result["scale_factor"]),
+                        int(result["repetition"]),
+                        int(result["program_index"]),
                     )
+                    program = program_map.get(key)
+                    if program is None:
+                        logger.warning("program is not found for zne execution result key=%s", key)
+                        continue
 
-                    # Prepare request
                     request = mitigator_pb2.ReqMitigationRequest(
                         device_topology=device_topology,
-                        counts=orig_counts,
+                        counts=dict(result["counts"]),
                         program=program,
                     )
-
-                    # Call gRPC
                     logger.info(
-                        "ReqMitigation request",
+                        "ReqMitigation request for zne execution result",
                         extra={
                             "job_id": job.job_id,
                             "job_type": job.job_type,
@@ -231,26 +309,21 @@ class ReadoutErrorMitigationStep(Step):
                     )
                     response = await self._stub.ReqMitigation(request)
                     logger.info(
-                        "ReqMitigation response",
+                        "ReqMitigation response for zne execution result",
                         extra={
                             "job_id": job.job_id,
                             "job_type": job.job_type,
                             "response": response,
                         },
                     )
-                    mitigated_counts = dict(response.counts)
-                    mitigated_counts_list.append(mitigated_counts)
-
-                    logger.debug(
-                        "estimation[%d] "
-                        "ro_error_mitigated_counts is %s, "
-                        "original_counts is %s",
-                        index,
-                        mitigated_counts,
-                        orig_counts,
+                    mitigated_execution_results.append(
+                        {
+                            "scale_factor": float(result["scale_factor"]),
+                            "repetition": int(result["repetition"]),
+                            "program_index": int(result["program_index"]),
+                            "counts": dict(response.counts),
+                        }
                     )
-
-                # Update counts_list with mitigated results
-                estimation_job_info.counts_list = mitigated_counts_list
+                zne_job_info["execution_results"] = mitigated_execution_results
 
             return

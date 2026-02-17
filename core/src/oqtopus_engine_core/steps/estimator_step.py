@@ -19,6 +19,7 @@ from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
 )
 
 logger = logging.getLogger(__name__)
+DEFAULT_BASIS_GATES = ["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"]
 
 
 class EstimationJobInfo:
@@ -60,7 +61,13 @@ class EstimatorStep(Step):
         """
         self._channel = grpc.aio.insecure_channel(estimator_address)
         self._stub = estimator_pb2_grpc.EstimatorServiceStub(self._channel)
-        self._basis_gates = OmegaConf.to_container(basis_gates, resolve=True)
+        if basis_gates is None:
+            basis_gates_resolved = None
+        elif OmegaConf.is_config(basis_gates):
+            basis_gates_resolved = OmegaConf.to_container(basis_gates, resolve=True)
+        else:
+            basis_gates_resolved = list(basis_gates)
+        self._basis_gates = basis_gates_resolved or list(DEFAULT_BASIS_GATES)
         logger.info(
             "EstimatorStep was initialized",
             extra={
@@ -189,6 +196,17 @@ class EstimatorStep(Step):
         if job.job_type != "estimation":
             logger.debug(
                 "job_type is not 'estimation', skipping post_process",
+                extra={"job_id": job.job_id, "job_type": job.job_type},
+            )
+            return
+
+        if (
+            job.job_info.result is not None
+            and job.job_info.result.estimation is not None
+            and job.job_info.result.estimation.exp_value is not None
+        ):
+            logger.info(
+                "skip estimator post_process because estimation result is precomputed",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
             return

@@ -47,6 +47,7 @@ async def main() -> None:
             instantiate(gctx.config["multi_manual_step"]),
             instantiate(gctx.config["tranqu_step"]),
             instantiate(gctx.config["estimator_step"]),
+            instantiate(gctx.config["zne_mitigation_step"]),
             instantiate(gctx.config["ro_error_mitigation_step"]),
         ],
         job_buffer=asyncio.Queue(),  # TODO Queueを直接見せずに抽象化すべき

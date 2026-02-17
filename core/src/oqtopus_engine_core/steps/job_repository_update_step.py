@@ -35,7 +35,7 @@ class JobRepositoryUpdateStep(Step):
     async def post_process(  # noqa: PLR6301
         self,
         gctx: GlobalContext,
-        jctx: JobContext,  # noqa: ARG002
+        jctx: JobContext,
         job: Job,
     ) -> None:
         """Post-process the job by updating its status in the job repository.

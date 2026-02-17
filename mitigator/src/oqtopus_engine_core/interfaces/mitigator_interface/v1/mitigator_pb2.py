@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\nEoqtopus_engine_core/interfaces/mitigator_interface/v1/mitigator.proto\x12\x16mitigator_interface.v1\"2\n\x08MesError\x12\x12\n\x04p0m1\x18\x01 \x01(\x02R\x04p0m1\x12\x12\n\x04p1m0\x18\x02 \x01(\x02R\x04p1m0\"\x95\x01\n\x05Qubit\x12\x0e\n\x02id\x18\x01 \x01(\x05R\x02id\x12\x0e\n\x02t1\x18\x02 \x01(\x02R\x02t1\x12\x0e\n\x02t2\x18\x03 \x01(\x02R\x02t2\x12\x1d\n\ngate_error\x18\x04 \x01(\x02R\tgateError\x12=\n\tmes_error\x18\x05 \x01(\x0b\x32 .mitigator_interface.v1.MesErrorR\x08mesError\"[\n\x0e\x44\x65viceTopology\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12\x35\n\x06qubits\x18\x02 \x03(\x0b\x32\x1d.mitigator_interface.v1.QubitR\x06qubits\"\x8e\x02\n\x14ReqMitigationRequest\x12O\n\x0f\x64\x65vice_topology\x18\x01 \x01(\x0b\x32&.mitigator_interface.v1.DeviceTopologyR\x0e\x64\x65viceTopology\x12P\n\x06\x63ounts\x18\x02 \x03(\x0b\x32\x38.mitigator_interface.v1.ReqMitigationRequest.CountsEntryR\x06\x63ounts\x12\x18\n\x07program\x18\x03 \x01(\tR\x07program\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x05R\x05value:\x02\x38\x01\"\xa5\x01\n\x15ReqMitigationResponse\x12Q\n\x06\x63ounts\x18\x01 \x03(\x0b\x32\x39.mitigator_interface.v1.ReqMitigationResponse.CountsEntryR\x06\x63ounts\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x05R\x05value:\x02\x38\x01\x32\x80\x01\n\x10MitigatorService\x12l\n\rReqMitigation\x12,.mitigator_interface.v1.ReqMitigationRequest\x1a-.mitigator_interface.v1.ReqMitigationResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\nEoqtopus_engine_core/interfaces/mitigator_interface/v1/mitigator.proto\x12\x16mitigator_interface.v1\"2\n\x08MesError\x12\x12\n\x04p0m1\x18\x01 \x01(\x02R\x04p0m1\x12\x12\n\x04p1m0\x18\x02 \x01(\x02R\x04p1m0\"\x95\x01\n\x05Qubit\x12\x0e\n\x02id\x18\x01 \x01(\x05R\x02id\x12\x0e\n\x02t1\x18\x02 \x01(\x02R\x02t1\x12\x0e\n\x02t2\x18\x03 \x01(\x02R\x02t2\x12\x1d\n\ngate_error\x18\x04 \x01(\x02R\tgateError\x12=\n\tmes_error\x18\x05 \x01(\x0b\x32 .mitigator_interface.v1.MesErrorR\x08mesError\"[\n\x0e\x44\x65viceTopology\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12\x35\n\x06qubits\x18\x02 \x03(\x0b\x32\x1d.mitigator_interface.v1.QubitR\x06qubits\"\x8e\x02\n\x14ReqMitigationRequest\x12O\n\x0f\x64\x65vice_topology\x18\x01 \x01(\x0b\x32&.mitigator_interface.v1.DeviceTopologyR\x0e\x64\x65viceTopology\x12P\n\x06\x63ounts\x18\x02 \x03(\x0b\x32\x38.mitigator_interface.v1.ReqMitigationRequest.CountsEntryR\x06\x63ounts\x12\x18\n\x07program\x18\x03 \x01(\tR\x07program\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x05R\x05value:\x02\x38\x01\"\xa5\x01\n\x15ReqMitigationResponse\x12Q\n\x06\x63ounts\x18\x01 \x03(\x0b\x32\x39.mitigator_interface.v1.ReqMitigationResponse.CountsEntryR\x06\x63ounts\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x05R\x05value:\x02\x38\x01\"\x91\x02\n\x17ReqZneMitigationRequest\x12\x15\n\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x14\n\x05shots\x18\x02 \x01(\x05R\x05shots\x12\x1a\n\x08programs\x18\x03 \x03(\tR\x08programs\x12\x34\n\x16grouped_operators_json\x18\x04 \x01(\tR\x14groupedOperatorsJson\x12&\n\x0fzne_config_json\x18\x05 \x01(\tR\rzneConfigJson\x12O\n\x0f\x64\x65vice_topology\x18\x06 \x01(\x0b\x32&.mitigator_interface.v1.DeviceTopologyR\x0e\x64\x65viceTopology\"p\n\x18ReqZneMitigationResponse\x12\x1b\n\texp_value\x18\x01 \x01(\x01R\x08\x65xpValue\x12\x12\n\x04stds\x18\x02 \x01(\x01R\x04stds\x12#\n\rmetadata_json\x18\x03 \x01(\tR\x0cmetadataJson\"\xaf\x01\n\x13ZneExecutionProgram\x12!\n\x0cscale_factor\x18\x01 \x01(\x01R\x0bscaleFactor\x12\x1e\n\nrepetition\x18\x02 \x01(\x05R\nrepetition\x12#\n\rprogram_index\x18\x03 \x01(\x05R\x0cprogramIndex\x12\x16\n\x06suffix\x18\x04 \x01(\tR\x06suffix\x12\x18\n\x07program\x18\x05 \x01(\tR\x07program\"t\n\x17ReqZnePreProcessRequest\x12\x15\n\x06job_id\x18\x01 \x01(\tR\x05jobId\x12\x1a\n\x08programs\x18\x02 \x03(\tR\x08programs\x12&\n\x0fzne_config_json\x18\x03 \x01(\tR\rzneConfigJson\"\x9b\x01\n\x18ReqZnePreProcessResponse\x12Z\n\x12\x65xecution_programs\x18\x01 \x03(\x0b\x32+.mitigator_interface.v1.ZneExecutionProgramR\x11\x65xecutionPrograms\x12#\n\rmetadata_json\x18\x02 \x01(\tR\x0cmetadataJson\"\x87\x02\n\x12ZneExecutionResult\x12!\n\x0cscale_factor\x18\x01 \x01(\x01R\x0bscaleFactor\x12\x1e\n\nrepetition\x18\x02 \x01(\x05R\nrepetition\x12#\n\rprogram_index\x18\x03 \x01(\x05R\x0cprogramIndex\x12N\n\x06\x63ounts\x18\x04 \x03(\x0b\x32\x36.mitigator_interface.v1.ZneExecutionResult.CountsEntryR\x06\x63ounts\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x05R\x05value:\x02\x38\x01\"\xd1\x01\n\x18ReqZnePostProcessRequest\x12\x34\n\x16grouped_operators_json\x18\x01 \x01(\tR\x14groupedOperatorsJson\x12&\n\x0fzne_config_json\x18\x02 \x01(\tR\rzneConfigJson\x12W\n\x11\x65xecution_results\x18\x03 \x03(\x0b\x32*.mitigator_interface.v1.ZneExecutionResultR\x10\x65xecutionResults\"q\n\x19ReqZnePostProcessResponse\x12\x1b\n\texp_value\x18\x01 \x01(\x01R\x08\x65xpValue\x12\x12\n\x04stds\x18\x02 \x01(\x01R\x04stds\x12#\n\rmetadata_json\x18\x03 \x01(\tR\x0cmetadataJson2\xe8\x03\n\x10MitigatorService\x12l\n\rReqMitigation\x12,.mitigator_interface.v1.ReqMitigationRequest\x1a-.mitigator_interface.v1.ReqMitigationResponse\x12u\n\x10ReqZneMitigation\x12/.mitigator_interface.v1.ReqZneMitigationRequest\x1a\x30.mitigator_interface.v1.ReqZneMitigationResponse\x12u\n\x10ReqZnePreProcess\x12/.mitigator_interface.v1.ReqZnePreProcessRequest\x1a\x30.mitigator_interface.v1.ReqZnePreProcessResponse\x12x\n\x11ReqZnePostProcess\x12\x30.mitigator_interface.v1.ReqZnePostProcessRequest\x1a\x31.mitigator_interface.v1.ReqZnePostProcessResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -35,6 +35,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_REQMITIGATIONREQUEST_COUNTSENTRY']._serialized_options = b'8\001'
   _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._loaded_options = None
   _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._serialized_options = b'8\001'
+  _globals['_ZNEEXECUTIONRESULT_COUNTSENTRY']._loaded_options = None
+  _globals['_ZNEEXECUTIONRESULT_COUNTSENTRY']._serialized_options = b'8\001'
   _globals['_MESERROR']._serialized_start=97
   _globals['_MESERROR']._serialized_end=147
   _globals['_QUBIT']._serialized_start=150
@@ -49,6 +51,24 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_REQMITIGATIONRESPONSE']._serialized_end=833
   _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._serialized_start=608
   _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._serialized_end=665
-  _globals['_MITIGATORSERVICE']._serialized_start=836
-  _globals['_MITIGATORSERVICE']._serialized_end=964
+  _globals['_REQZNEMITIGATIONREQUEST']._serialized_start=836
+  _globals['_REQZNEMITIGATIONREQUEST']._serialized_end=1109
+  _globals['_REQZNEMITIGATIONRESPONSE']._serialized_start=1111
+  _globals['_REQZNEMITIGATIONRESPONSE']._serialized_end=1223
+  _globals['_ZNEEXECUTIONPROGRAM']._serialized_start=1226
+  _globals['_ZNEEXECUTIONPROGRAM']._serialized_end=1401
+  _globals['_REQZNEPREPROCESSREQUEST']._serialized_start=1403
+  _globals['_REQZNEPREPROCESSREQUEST']._serialized_end=1519
+  _globals['_REQZNEPREPROCESSRESPONSE']._serialized_start=1522
+  _globals['_REQZNEPREPROCESSRESPONSE']._serialized_end=1677
+  _globals['_ZNEEXECUTIONRESULT']._serialized_start=1680
+  _globals['_ZNEEXECUTIONRESULT']._serialized_end=1943
+  _globals['_ZNEEXECUTIONRESULT_COUNTSENTRY']._serialized_start=608
+  _globals['_ZNEEXECUTIONRESULT_COUNTSENTRY']._serialized_end=665
+  _globals['_REQZNEPOSTPROCESSREQUEST']._serialized_start=1946
+  _globals['_REQZNEPOSTPROCESSREQUEST']._serialized_end=2155
+  _globals['_REQZNEPOSTPROCESSRESPONSE']._serialized_start=2157
+  _globals['_REQZNEPOSTPROCESSRESPONSE']._serialized_end=2270
+  _globals['_MITIGATORSERVICE']._serialized_start=2273
+  _globals['_MITIGATORSERVICE']._serialized_end=2761
 # @@protoc_insertion_point(module_scope)
