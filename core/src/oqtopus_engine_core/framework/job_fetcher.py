@@ -53,7 +53,7 @@ async def wait_until_fetchable(
             await asyncio.sleep(interval_seconds)
             continue
 
-        buffer_size = pipeline._job_buffer.qsize()
+        buffer_size = pipeline._job_buffer.size()
         if buffer_size >= job_fetch_threshold:
             logger.debug(
                 "job buffer reached fetch threshold, sleeping before next fetch",

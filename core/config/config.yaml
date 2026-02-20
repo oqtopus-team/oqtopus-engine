@@ -34,6 +34,10 @@ device_repository:
   api_key: ${oc.env:DEVICE_REPOSITORY_API_KEY, ""}
   workers: ${oc.decode:${oc.env:DEVICE_REPOSITORY_WORKERS, 1}}
 
+# buffer configurations
+buffer:
+  _target_: oqtopus_engine_core.buffers.QueueBuffer
+
 # step configurations
 debug_step:
   _target_: oqtopus_engine_core.steps.DebugStep
