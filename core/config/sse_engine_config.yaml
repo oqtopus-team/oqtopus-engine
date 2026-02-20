@@ -22,6 +22,10 @@ job_repository:
 device_repository:
   _target_: oqtopus_engine_core.repositories.NullDeviceRepository
 
+# buffer configurations
+buffer:
+  _target_: oqtopus_engine_core.buffers.QueueBuffer
+
 # step configurations
 debug_step:
   _target_: oqtopus_engine_core.steps.DebugStep

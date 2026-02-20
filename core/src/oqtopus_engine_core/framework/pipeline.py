@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from .buffer import Buffer
     from .context import GlobalContext, JobContext
     from .exception_handler import PipelineExceptionHandler
     from .model import Job
@@ -22,7 +23,7 @@ class PipelineExecutor:
     def __init__(
         self,
         before_buffer_steps: list[Step],
-        job_buffer: asyncio.Queue[tuple[GlobalContext, JobContext, Job]],
+        job_buffer: Buffer,
         after_buffer_steps: list[Step],
         exception_handler: PipelineExceptionHandler | None = None,
     ) -> None:
@@ -80,7 +81,7 @@ class PipelineExecutor:
                 "jctx": jctx,
             },
         )
-        await self._job_buffer.put((gctx, jctx, job))
+        await self._job_buffer.put(gctx, jctx, job)
 
     async def start(self) -> None:
         """Start the background worker to process jobs from the buffer."""
@@ -125,7 +126,6 @@ class PipelineExecutor:
                     "jctx": jctx,
                 },
             )
-            self._job_buffer.task_done()
 
     async def _safe_call(  # noqa: PLR0913, PLR0917
         self,

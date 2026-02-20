@@ -49,7 +49,7 @@ async def main() -> None:
             instantiate(gctx.config["estimator_step"]),
             instantiate(gctx.config["ro_error_mitigation_step"]),
         ],
-        job_buffer=asyncio.Queue(),  # TODO Queueを直接見せずに抽象化すべき
+        job_buffer=instantiate(gctx.config["buffer"]),
         after_buffer_steps=[  # TODO after buffer step
             instantiate(gctx.config["sse_step"]), #TODO: pipeline locked during sse step
             instantiate(gctx.config["device_gateway_step"]),
