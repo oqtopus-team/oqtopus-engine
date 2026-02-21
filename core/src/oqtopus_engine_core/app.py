@@ -7,6 +7,7 @@ from oqtopus_engine_core.framework import (
     DeviceFetcher,
     GlobalContext,
     JobFetcher,
+    JobRepository,
     PipelineExceptionHandler,
     PipelineExecutor,
 )
@@ -40,20 +41,20 @@ async def main() -> None:
     )
 
     # Initialize the pipeline executor
+    job_buffer: Buffer = instantiate(gctx.config["buffer"])
     pipeline = PipelineExecutor(
-        before_buffer_steps=[
+        pipeline=[
             # instantiate(gctx.config["debug_step"]),  # noqa: ERA001
             instantiate(gctx.config["job_repository_update_step"]),
             instantiate(gctx.config["multi_manual_step"]),
             instantiate(gctx.config["tranqu_step"]),
             instantiate(gctx.config["estimator_step"]),
             instantiate(gctx.config["ro_error_mitigation_step"]),
-        ],
-        job_buffer=instantiate(gctx.config["buffer"]),
-        after_buffer_steps=[  # TODO after buffer step
+            job_buffer,
             instantiate(gctx.config["sse_step"]), #TODO: pipeline locked during sse step
             instantiate(gctx.config["device_gateway_step"]),
         ],
+        job_buffer=job_buffer,
         exception_handler=exception_handler,
     )
 
@@ -63,7 +64,8 @@ async def main() -> None:
     job_fetcher.pipeline = pipeline
 
     # Initialize the job repository
-    gctx.job_repository = instantiate(gctx.config["job_repository"])
+    job_repository: JobRepository = instantiate(gctx.config["job_repository"])
+    gctx.job_repository = job_repository
 
     # Initialize the device fetcher
     device_fetcher: DeviceFetcher = instantiate(gctx.config["device_fetcher"])
