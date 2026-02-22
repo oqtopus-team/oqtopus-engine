@@ -124,7 +124,7 @@ class PipelineExecutor:
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_from(  # noqa: C901, PLR0911, PLR0912
+    async def _run_from(  # noqa: C901, PLR0911
         self,
         step_phase: StepPhase,
         index: int,
@@ -179,36 +179,35 @@ class PipelineExecutor:
                         # Stop the pipeline for this job if the step failed.
                         return
 
-                    pos -= 1
-
-                    # ----- Join on post-process -----
-                    if isinstance(node, JoinOnPostprocess):
+                    # ----- Join on post-process (children only) -----
+                    if isinstance(node, JoinOnPostprocess) and job.parent is not None:
+                        # Parent should resume from the *next* step after the join.
                         await self._handle_join(
                             step=node,
                             step_phase=StepPhase.POST_PROCESS,
-                            next_index=pos,
+                            next_index=pos + 1,
                             gctx=gctx,
                             jctx=jctx,
                             job=job,
                         )
-                        return  # Stop backward execution
+                        return  # Stop backward execution for this child
 
                     # ----- Split on post-process ----
                     if isinstance(node, SplitOnPostprocess):
+                        # Children created from a post-process split start from
+                        # the step immediately after the splitter.
                         await self._handle_split(
                             step=node,
                             step_phase=StepPhase.POST_PROCESS,
-                            next_index=pos,
+                            next_index=pos + 1,
                             gctx=gctx,
                             jctx=jctx,
                             job=job,
                         )
                         return  # Stop backward execution
 
-                else:
-                    # Buffers should not be encountered in the backward pass,
-                    # but if they are, just skip them
-                    pos -= 1
+                # For Buffers or normal steps, just move to the previous index.
+                pos -= 1
 
             # log completion of the entire pipeline execution
             logger.info(
@@ -248,8 +247,8 @@ class PipelineExecutor:
 
             index += 1
 
-            # ----- Join on pre-process -----
-            if isinstance(node, JoinOnPreprocess):
+            # ----- Join on pre-process (children only) -----
+            if isinstance(node, JoinOnPreprocess) and job.parent is not None:
                 await self._handle_join(
                     step=node,
                     step_phase=StepPhase.PRE_PROCESS,
@@ -449,8 +448,10 @@ class PipelineExecutor:
             self._pending_children[parent_id] = child_count
 
         # ------------------------------------------------------------
-        # 3. Start child pipelines
+        # 3. Start child pipelines (and wait for them)
         # ------------------------------------------------------------
+        child_coros: list[Awaitable[None]] = []
+
         for child_job, child_jctx in zip(job.children, jctx.children, strict=True):
             logger.info(
                 "start child pipeline",
@@ -465,23 +466,36 @@ class PipelineExecutor:
             child_job.parent = job
             child_jctx.parent = jctx
 
-            # Start the child pipeline as a background task.
-            # This helper is responsible for creating and tracking the asyncio.Task.
-            self._start_child_pipeline(
-                step_phase=step_phase,
-                start_index=next_index,
-                gctx=gctx,
-                jctx=child_jctx,
-                job=child_job,
+            # Enqueue child pipelines as coroutines; they will run concurrently
+            # via asyncio.gather below.
+            child_coros.append(
+                self._run_from(
+                    step_phase=step_phase,
+                    index=next_index,
+                    gctx=gctx,
+                    jctx=child_jctx,
+                    job=child_job,
+                )
             )
 
-        # Parent pipeline stops here after spawning children.
         logger.info(
-            "parent pipeline stopped after split",
+            "parent pipeline stopped after split (waiting for children)",
             extra={
                 "job_id": job.job_id,
                 "job_type": job.job_type,
                 "phase": step_phase.value,
+            },
+        )
+
+        # Run all child pipelines concurrently and wait for completion.
+        if child_coros:
+            await asyncio.gather(*child_coros)
+
+        logger.info(
+            "all child pipelines completed after split",
+            extra={
+                "job_id": job.job_id,
+                "job_type": job.job_type,
             },
         )
 
@@ -703,47 +717,36 @@ class PipelineExecutor:
         )
 
         # ------------------------------------------------------------
-        # 4-B. Resume parent pipeline (post-process)
+        # 4-B. Resume parent pipeline synchronously)
         # ------------------------------------------------------------
-        # Create a background task to resume the parent pipeline.
-        # We must store a reference to this task to prevent the garbage
-        # collector from destroying it before completion (RUF006).
-        parent_task = asyncio.create_task(
-            self._run_from(
-                step_phase=StepPhase.POST_PROCESS,
+        if step_phase == StepPhase.POST_PROCESS:
+            # Resume parent's POST phase from the requested index.
+            if 0 <= next_index < len(self._pipeline):
+                await self._run_from(
+                    step_phase=StepPhase.POST_PROCESS,
+                    index=next_index,
+                    gctx=gctx,
+                    jctx=parent_jctx,
+                    job=parent_job,
+                )
+            else:
+                # No steps after the join for the parent; nothing to do.
+                logger.info(
+                    "no parent post-process steps after join; skipping resume",
+                    extra={
+                        "parent_job_id": parent_id,
+                        "next_index": next_index,
+                    },
+                )
+        # JoinOnPreprocess could resume pre-process here.
+        elif 0 <= next_index < len(self._pipeline):
+            await self._run_from(
+                step_phase=StepPhase.PRE_PROCESS,
                 index=next_index,
                 gctx=gctx,
                 jctx=parent_jctx,
                 job=parent_job,
             )
-        )
-        self._background_tasks.add(parent_task)
-
-        # Ensure the task is removed from the tracking set once finished.
-        # We pass parent_job as a default argument to ensure the correct
-        # context is captured in the closure (B023, ANN001).
-        def _parent_cleanup(t: asyncio.Task, p_job: Job = parent_job) -> None:
-            self._background_tasks.discard(t)
-            try:
-                t.result()
-            except asyncio.CancelledError:
-                logger.info(
-                    "Parent pipeline resume cancelled",
-                    extra={
-                        "job_id": p_job.job_id,
-                        "job_type": p_job.job_type,
-                    },
-                )
-            except Exception:
-                logger.exception(
-                    "Parent pipeline resume failed",
-                    extra={
-                        "job_id": p_job.job_id,
-                        "job_type": p_job.job_type,
-                    },
-                )
-
-        parent_task.add_done_callback(_parent_cleanup)
 
     async def _cancel_pending_children_for_parent(self, child_job: Job) -> None:
         """Best-effort cleanup for pending-children state when a child fails.
