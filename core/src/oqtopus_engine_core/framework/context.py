@@ -24,19 +24,51 @@ class GlobalContext(BaseModel):
 class JobContext(UserDict):
     """Job-related context with attribute-style access.
 
-    This is a dictionary-like object used to store job-specific information.
-    It supports accessing keys as attributes, enabling convenient syntax.
+    JobContext behaves like a mutable mapping for storing job-related execution
+    state. In addition to storing arbitrary key-value pairs, it optionally
+    supports a simple hierarchical structure through the `parent` and
+    `children` attributes.
+
+    The hierarchy is general-purpose and does not impose any particular
+    semantics. It can be used by higher-level components to build nested or
+    tree-structured execution contexts.
     """
 
-    def __init__(self, initial: dict | None = None, **kwargs: Any) -> None:  # noqa: ANN401
-        """Initialize the JobContext with an optional initial dictionary.
+    def __init__(
+        self,
+        initial: dict | None = None,
+        *,
+        parent: "JobContext | None" = None,
+        children: list["JobContext"] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Initialize a JobContext.
 
         Args:
-            initial: Initial key-value pairs to populate the context.
-            **kwargs: Additional key-value pairs to populate the context.
+            initial:
+                Optional initial key-value pairs for the context. If None, an
+                empty mapping is created.
 
+            parent:
+                Optional parent context. Stored as an attribute and not as
+                part of the mapping.
+
+            children:
+                Optional list of child contexts. Stored as an attribute and not
+                as part of the mapping. A new list is created if None is given.
+
+            **kwargs:
+                Additional key-value pairs to be inserted into the mapping.
         """
         super().__init__(initial or {}, **kwargs)
+
+        # parent/children are maintained as attributes, not inside the mapping
+        super().__setattr__("parent", parent)
+        super().__setattr__("children", children or [])
+
+    # ------------------------------------------------------------------
+    # attribute-style access
+    # ------------------------------------------------------------------
 
     def __getattr__(self, name: str) -> Any:  # noqa: ANN401
         """Retrieve an attribute from the internal data store.
@@ -64,7 +96,7 @@ class JobContext(UserDict):
             value: The value to associate with the given key.
 
         """
-        if name == "data":
+        if name in {"parent", "children", "data"}:
             super().__setattr__(name, value)
         else:
             self.data[name] = value
