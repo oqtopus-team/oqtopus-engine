@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Device(BaseModel):
@@ -70,6 +70,8 @@ class JobInfo(BaseModel):
 class Job(BaseModel):
     """Job model."""
 
+    model_config = {"arbitrary_types_allowed": True}
+
     job_id: str
     name: str | None = None
     description: str | None = None
@@ -86,3 +88,35 @@ class Job(BaseModel):
     ready_at: datetime | None = None
     running_at: datetime | None = None
     ended_at: datetime | None = None
+    parent: "Job | None" = None
+    children: list["Job"] = Field(default_factory=list)
+
+    def __repr__(self) -> str:
+        """Return a string representation excluding linked jobs.
+
+        Returns:
+            str: Formal string representation of the Job object.
+
+        """
+        attrs = []
+        for key, value in self.__dict__.items():
+            if key == "parent" and value is not None:
+                # Removed quotes to match Pydantic style
+                attrs.append(f"parent={value.job_id}")
+            elif key == "children" and value:
+                child_ids = [child.job_id for child in value]
+                attrs.append(f"children={child_ids}")
+            elif key not in {"parent", "children"}:
+                # Use direct value instead of !r to avoid quotes
+                attrs.append(f"{key}={value}")
+        
+        return f"{self.__class__.__name__}({', '.join(attrs)})"
+
+    def __str__(self) -> str:
+        """Return the custom repr string.
+
+        Returns:
+            str: Formal string representation of the Job object.
+
+        """
+        return self.__repr__()
