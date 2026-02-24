@@ -124,7 +124,7 @@ class PipelineExecutor:
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_from(  # noqa: C901, PLR0911
+    async def _run_from(  # noqa: C901, PLR0911, PLR0912
         self,
         step_phase: StepPhase,
         index: int,
@@ -132,11 +132,14 @@ class PipelineExecutor:
         jctx: JobContext,
         job: Job,
     ) -> None:
-        """Run a job from the given pipeline index and phase.
+        """Run a job through the pipeline as a simple state machine.
 
-        This function executes both forward (PRE_PROCESS) and backward (POST_PROCESS)
-        phases, handling Buffers, safe step execution, and transition to the backward
-        phase at pipeline end.
+        The state is represented by (step_phase, cursor). The method:
+          - Moves forward in PRE_PROCESS phase.
+          - Moves backward in POST_PROCESS phase.
+          - Delegates split/join behavior to helper methods.
+          - Delegates any advanced buffering or joining logic inside Buffer
+            implementations (the framework only enqueues and stops).
 
         Args:
             step_phase: The current phase of execution (pre_process or post_process).
@@ -146,141 +149,153 @@ class PipelineExecutor:
             job: The job being processed.
 
         """
-        # log start of the entire pipeline execution
+        # log the start of the whole pipeline execution.
         if index == 0 and step_phase == StepPhase.PRE_PROCESS:
             logger.info(
                 "job processing started",
                 extra={
                     "job_id": job.job_id,
                     "job_type": job.job_type,
-                    "jctx": jctx,
                 },
             )
 
-        # ============================================================
-        # post-process (backward execution)
-        # ============================================================
-        if step_phase == StepPhase.POST_PROCESS:
-            pos = index
-            while pos >= 0:
-                node = self._pipeline[pos]
+        # state variables (do not mutate function arguments).
+        current_phase = step_phase
+        cursor = index
 
-                # Only Steps have post_process
-                if isinstance(node, Step):
-                    success = await self._safe_call(
-                        fn=node.post_process,
+        while True:
+            # ========================================================
+            # phase-dependent terminal checks and phase transitions
+            # ========================================================
+            if current_phase == StepPhase.PRE_PROCESS:
+                # end of forward pipeline: switch to full backward pass.
+                if cursor >= len(self._pipeline):
+                    current_phase = StepPhase.POST_PROCESS
+                    cursor = len(self._pipeline) - 1
+                    continue
+            # backward finished: no more nodes to process.
+            elif cursor < 0:
+                logger.info(
+                    "job processing finished",
+                    extra={
+                        "job_id": job.job_id,
+                        "job_type": job.job_type,
+                        "jctx": jctx,
+                    },
+                )
+                return
+
+            # at this point cursor must be valid (0 <= cursor < len)
+            node = self._pipeline[cursor]
+
+            # ========================================================
+            # handle Buffer nodes
+            # ========================================================
+            if isinstance(node, Buffer):
+                if current_phase == StepPhase.PRE_PROCESS:
+                    # Delegate all buffering, scheduling, and any join-like
+                    # semantics to the Buffer implementation itself.
+                    await node.put(gctx, jctx, job)
+                    return
+                # In POST_PROCESS, Buffers are not expected. If they appear,
+                # the safest option is to skip them and continue backward.
+                cursor -= 1
+                continue
+
+            # from here, we expect Step-like nodes.
+            # ========================================================
+            # PRE_PROCESS: forward execution
+            # ========================================================
+            if current_phase == StepPhase.PRE_PROCESS:
+                success = await self._safe_call(
+                    fn=node.pre_process,
+                    gctx=gctx,
+                    jctx=jctx,
+                    job=job,
+                    step=node,
+                    phase=StepPhase.PRE_PROCESS,
+                )
+                if not success:
+                    # stop the pipeline for this job if the step failed.
+                    return
+
+                next_cursor = cursor + 1
+
+                # ----- join on PRE_PROCESS (children only) -----
+                if isinstance(node, JoinOnPreprocess):
+                    await self._handle_join(
+                        step=node,
+                        step_phase=StepPhase.PRE_PROCESS,
+                        next_index=next_cursor,
                         gctx=gctx,
                         jctx=jctx,
                         job=job,
-                        step=node,
-                        phase=StepPhase.POST_PROCESS,
                     )
-                    if not success:
-                        # Stop the pipeline for this job if the step failed.
-                        return
+                    return  # stop forward execution for this child job.
 
-                    # ----- Join on post-process (children only) -----
-                    if isinstance(node, JoinOnPostprocess) and job.parent is not None:
-                        # Parent should resume from the *next* step after the join.
-                        await self._handle_join(
-                            step=node,
-                            step_phase=StepPhase.POST_PROCESS,
-                            next_index=pos + 1,
-                            gctx=gctx,
-                            jctx=jctx,
-                            job=job,
-                        )
-                        return  # Stop backward execution for this child
+                # ----- split on PRE_PROCESS -----
+                if isinstance(node, SplitOnPreprocess):
+                    await self._handle_split(
+                        step=node,
+                        step_phase=StepPhase.PRE_PROCESS,
+                        next_index=next_cursor,
+                        gctx=gctx,
+                        jctx=jctx,
+                        job=job,
+                    )
+                    return  # parent stops; children will be scheduled separately.
 
-                    # ----- Split on post-process ----
-                    if isinstance(node, SplitOnPostprocess):
-                        # Children created from a post-process split start from
-                        # the step immediately after the splitter.
-                        await self._handle_split(
-                            step=node,
-                            step_phase=StepPhase.POST_PROCESS,
-                            next_index=pos + 1,
-                            gctx=gctx,
-                            jctx=jctx,
-                            job=job,
-                        )
-                        return  # Stop backward execution
+                # normal step: just move forward.
+                cursor = next_cursor
+                continue
 
-                # For Buffers or normal steps, just move to the previous index.
-                pos -= 1
-
-            # log completion of the entire pipeline execution
-            logger.info(
-                "job processing finished",
-                extra={
-                    "job_id": job.job_id,
-                    "job_type": job.job_type,
-                    "jctx": jctx,
-                },
-            )
-            return
-
-        # ============================================================
-        # pre-process (forward execution)
-        # ============================================================
-        while index < len(self._pipeline):
-            node = self._pipeline[index]
-
-            # ----- Buffer encountered -----
-            if isinstance(node, Buffer):
-                # Enqueue into buffer and stop forward execution
-                await node.put(gctx, jctx, job)
-                return
-
-            # ----- Step encountered -----
-            success = await self._safe_call(
-                fn=node.pre_process,
-                gctx=gctx,
-                jctx=jctx,
-                job=job,
-                step=node,
-                phase=StepPhase.PRE_PROCESS,
-            )
-            if not success:
-                # Stop the pipeline for this job if the step failed.
-                return
-
-            index += 1
-
-            # ----- Join on pre-process (children only) -----
-            if isinstance(node, JoinOnPreprocess) and job.parent is not None:
-                await self._handle_join(
-                    step=node,
-                    step_phase=StepPhase.PRE_PROCESS,
-                    next_index=index,
+            # ========================================================
+            # POST_PROCESS: backward execution
+            # ========================================================
+            # only Step instances are expected to implement post_process.
+            if isinstance(node, Step):
+                success = await self._safe_call(
+                    fn=node.post_process,
                     gctx=gctx,
                     jctx=jctx,
                     job=job,
-                )
-                return  # Stop forward execution
-
-            # ----- Split on pre-process -----
-            if isinstance(node, SplitOnPreprocess):
-                await self._handle_split(
                     step=node,
-                    step_phase=StepPhase.PRE_PROCESS,
-                    next_index=index,
-                    gctx=gctx,
-                    jctx=jctx,
-                    job=job,
+                    phase=StepPhase.POST_PROCESS,
                 )
-                return  # Stop forward execution
+                if not success:
+                    # stop the pipeline for this job if the step failed.
+                    return
 
-        # ============================================================
-        # End of forward pipeline → launch full backward pass
-        # ============================================================
-        await self._run_from(
-            step_phase=StepPhase.POST_PROCESS,
-            index=len(self._pipeline) - 1,
-            gctx=gctx,
-            jctx=jctx,
-            job=job,
-        )
+                # ----- join on POST_PROCESS (children only) -----
+                if isinstance(node, JoinOnPostprocess):
+                    # parent should resume from the next step after the join.
+                    await self._handle_join(
+                        step=node,
+                        step_phase=StepPhase.POST_PROCESS,
+                        next_index=cursor + 1,
+                        gctx=gctx,
+                        jctx=jctx,
+                        job=job,
+                    )
+                    return  # stop backward execution for this child job.
+
+                # ----- split on POST_PROCESS -----
+                if isinstance(node, SplitOnPostprocess):
+                    # children created from a post-process split start from
+                    # the step immediately after the splitter.
+                    await self._handle_split(
+                        step=node,
+                        step_phase=StepPhase.POST_PROCESS,
+                        next_index=cursor + 1,
+                        gctx=gctx,
+                        jctx=jctx,
+                        job=job,
+                    )
+                    return  # stop backward execution for the current job.
+
+            # for non-step nodes in POST_PROCESS (unexpected) or normal steps,
+            # simply move to the previous index.
+            cursor -= 1
 
     async def _safe_call(  # noqa: PLR0913, PLR0917
         self,

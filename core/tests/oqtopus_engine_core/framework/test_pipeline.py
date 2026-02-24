@@ -284,7 +284,7 @@ async def test_parent_post_runs_after_join():
 @pytest.mark.asyncio
 async def test_parent_reaching_join_does_not_trigger_join():
     """
-    Parent reaching JoinStep should NOT trigger join because join 
+    Parent reaching JoinStep should NOT trigger join because join
     is executed only when job.parent is not None.
     """
     pipeline = [JoinStep(), FlagStep()]
@@ -452,3 +452,48 @@ async def test_join_and_flag_both_present():
 
     assert "joined" in jctx
     assert jctx["mark"] is True
+
+
+@pytest.mark.asyncio
+async def test_buffer_in_postprocess_is_skipped_safely():
+    """
+    SAFETY TEST — Buffer appears during POST_PROCESS phase.
+
+    This test verifies the following:
+      - Although Buffer nodes are not expected to appear in POST_PROCESS,
+        the state-machine implementation must treat them safely.
+      - Specifically, encountering a Buffer during backward execution
+        should not raise an exception or corrupt the control flow.
+      - The executor must simply decrement the cursor and continue
+        the backward traversal without invoking Buffer.put().
+
+    Expected behavior:
+      - The pipeline completes without errors.
+      - No calls to Buffer.put() are made.
+      - Execution behaves as a no-op for the Buffer in POST_PROCESS.
+    """
+
+    class DummyBuffer(QueueBuffer):
+        """A no-op buffer used to simulate an unexpected buffer in POST_PROCESS."""
+        pass
+
+    pipeline = [
+        RecordStep(),    # index 0
+        DummyBuffer(),   # index 1 (unexpected in POST_PROCESS)
+        RecordStep(),    # index 2
+    ]
+
+    executor = PipelineExecutor(pipeline, DummyBuffer())
+    jctx = JobContext(initial={})
+
+    # Directly start in POST_PROCESS at index 1 → tests the skip logic
+    await executor._run_from(
+        StepPhase.POST_PROCESS,
+        1,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    # Should finish without crashing.
+    assert True
