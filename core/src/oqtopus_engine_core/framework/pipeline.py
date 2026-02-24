@@ -164,6 +164,9 @@ class PipelineExecutor:
         cursor = index
 
         while True:
+            # --- record execution trace for debugging ---
+            jctx.step_history.append((current_phase.value, cursor))
+
             # ========================================================
             # phase-dependent terminal checks and phase transitions
             # ========================================================
@@ -272,7 +275,7 @@ class PipelineExecutor:
                     await self._handle_join(
                         step=node,
                         step_phase=StepPhase.POST_PROCESS,
-                        next_index=cursor + 1,
+                        next_index=cursor - 1,
                         gctx=gctx,
                         jctx=jctx,
                         job=job,
@@ -286,7 +289,7 @@ class PipelineExecutor:
                     await self._handle_split(
                         step=node,
                         step_phase=StepPhase.POST_PROCESS,
-                        next_index=cursor + 1,
+                        next_index=cursor - 1,
                         gctx=gctx,
                         jctx=jctx,
                         job=job,
@@ -465,7 +468,7 @@ class PipelineExecutor:
         # ------------------------------------------------------------
         # 3. Start child pipelines (and wait for them)
         # ------------------------------------------------------------
-        child_coros: list[Awaitable[None]] = []
+        child_coroutines: list[Awaitable[None]] = []
 
         for child_job, child_jctx in zip(job.children, jctx.children, strict=True):
             logger.info(
@@ -483,7 +486,7 @@ class PipelineExecutor:
 
             # Enqueue child pipelines as coroutines; they will run concurrently
             # via asyncio.gather below.
-            child_coros.append(
+            child_coroutines.append(
                 self._run_from(
                     step_phase=step_phase,
                     index=next_index,
@@ -503,8 +506,8 @@ class PipelineExecutor:
         )
 
         # Run all child pipelines concurrently and wait for completion.
-        if child_coros:
-            await asyncio.gather(*child_coros)
+        if child_coroutines:
+            await asyncio.gather(*child_coroutines)
 
         logger.info(
             "all child pipelines completed after split",

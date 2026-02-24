@@ -38,9 +38,9 @@ class JobContext(UserDict):
         self,
         initial: dict | None = None,
         *,
-        parent: "JobContext | None" = None,
-        children: list["JobContext"] | None = None,
-        **kwargs: Any,
+        parent: JobContext | None = None,
+        children: list[JobContext] | None = None,
+        **kwargs: Any,  # noqa: ANN401
     ) -> None:
         """Initialize a JobContext.
 
@@ -59,12 +59,19 @@ class JobContext(UserDict):
 
             **kwargs:
                 Additional key-value pairs to be inserted into the mapping.
+
         """
         super().__init__(initial or {}, **kwargs)
 
         # parent/children are maintained as attributes, not inside the mapping
         super().__setattr__("parent", parent)
         super().__setattr__("children", children or [])
+
+        # ------------------------------------------------------------
+        # Lightweight step history for debugging.
+        # The pipeline can append tuples: (step_phase, cursor)
+        # ------------------------------------------------------------
+        self.data.setdefault("step_history", [])
 
     # ------------------------------------------------------------------
     # attribute-style access
@@ -96,7 +103,7 @@ class JobContext(UserDict):
             value: The value to associate with the given key.
 
         """
-        if name in {"parent", "children", "data"}:
+        if name in {"parent", "children", "data", "step_history"}:
             super().__setattr__(name, value)
         else:
             self.data[name] = value
@@ -111,6 +118,9 @@ class JobContext(UserDict):
             AttributeError: If the key is not found in the data store.
 
         """
+        if name in {"parent", "children", "data", "step_history"}:
+            message = f"'{name}' is a reserved attribute and cannot be deleted"
+            raise AttributeError(message)
         if name in self.data:
             del self.data[name]
         else:

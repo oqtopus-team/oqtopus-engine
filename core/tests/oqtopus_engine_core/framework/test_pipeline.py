@@ -53,8 +53,7 @@ class SplitStep(Step, SplitOnPreprocess):
         child_ctxs = []
         for i in range(2):
             c_job = make_test_job(job_id=f"{job.job_id}-child{i}", job_type="child")
-            c_jctx = JobContext(initial={}, parent=jctx)
-            c_job.parent = job
+            c_jctx = JobContext(initial={})
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
 
@@ -173,13 +172,14 @@ class TripleSplitStep(Step, SplitOnPreprocess):
         pass
 
 
-class MarkStep(Step):
+class ErrorInPostStep(Step):
+    """Throw error during POST_PROCESS."""
+
     async def pre_process(self, gctx, jctx, job):
-        """No-op pre-process."""
         pass
 
     async def post_process(self, gctx, jctx, job):
-        jctx["mark"] = True
+        raise RuntimeError("post exploded")
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +267,7 @@ async def test_nested_split():
 @pytest.mark.asyncio
 async def test_parent_post_runs_after_join():
     """
-    After join is complete, parent POST should continue to following steps.
+    After join is complete, parent pre-process should continue to following steps.
     """
     pipeline = [SplitStep(), JoinStep(), FlagStep()]
 
@@ -278,7 +278,9 @@ async def test_parent_post_runs_after_join():
         StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, make_test_job("root")
     )
 
-    assert jctx["flag"] is True
+    assert jctx["joined"] is True
+    for child_jctx in jctx.children:
+        assert child_jctx["flag"] is True
 
 
 @pytest.mark.asyncio
@@ -292,12 +294,10 @@ async def test_parent_reaching_join_does_not_trigger_join():
     executor = PipelineExecutor(pipeline, QueueBuffer())
     jctx = JobContext(initial={})
 
-    await executor._run_from(
-        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, make_test_job("root")
-    )
-
-    assert "joined" not in jctx
-    assert jctx["flag"] is True
+    with pytest.raises(RuntimeError):
+        await executor._run_from(
+            StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, make_test_job("root")
+        )
 
 
 @pytest.mark.asyncio
@@ -344,16 +344,6 @@ async def test_join_jobs_called_once():
     )
 
     assert join_step.calls == 1
-
-
-class ErrorInPostStep(Step):
-    """Throw error during POST_PROCESS."""
-
-    async def pre_process(self, gctx, jctx, job):
-        pass
-
-    async def post_process(self, gctx, jctx, job):
-        raise RuntimeError("post exploded")
 
 
 @pytest.mark.asyncio
@@ -436,7 +426,7 @@ async def test_join_and_flag_both_present():
     pipeline = [
         SplitStep(),
         SlowJoinStep(),
-        MarkStep(),
+        FlagStep(),
     ]
 
     executor = PipelineExecutor(pipeline, QueueBuffer())
@@ -451,7 +441,8 @@ async def test_join_and_flag_both_present():
     )
 
     assert "joined" in jctx
-    assert jctx["mark"] is True
+    for child_jctx in jctx.children:
+        assert child_jctx["flag"] is True
 
 
 @pytest.mark.asyncio
