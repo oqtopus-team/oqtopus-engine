@@ -72,6 +72,15 @@ class PipelineExecutor:
         # Control flag for the main loop
         self._stop_event = asyncio.Event()
 
+        logger.info(
+            "pipeline executor initialized",
+            extra={
+                "pipeline": self._pipeline,
+                "job_buffer": self._job_buffer,
+                "exception_handler": self._exception_handler,
+            },
+        )
+
     async def start(self) -> None:
         """Start pipeline workers and enter a long-running idle loop."""
         for index, node in enumerate(self._pipeline):
@@ -164,9 +173,6 @@ class PipelineExecutor:
         cursor = index
 
         while True:
-            # --- record execution trace for debugging ---
-            jctx.step_history.append((current_phase.value, cursor))
-
             # ========================================================
             # phase-dependent terminal checks and phase transitions
             # ========================================================
@@ -190,6 +196,8 @@ class PipelineExecutor:
 
             # at this point cursor must be valid (0 <= cursor < len)
             node = self._pipeline[cursor]
+            # record execution trace for debugging ---
+            jctx.step_history.append((current_phase.value, cursor))
 
             # ========================================================
             # handle Buffer nodes

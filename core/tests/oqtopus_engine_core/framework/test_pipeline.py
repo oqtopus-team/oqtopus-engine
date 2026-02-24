@@ -45,7 +45,7 @@ def make_test_global_context() -> GlobalContext:
 # Helper Step Implementations
 # ---------------------------------------------------------------------------
 
-class SplitStep(Step, SplitOnPreprocess):
+class SplitOnPreStep(Step, SplitOnPreprocess):
     """Create two children during pre-process."""
 
     async def pre_process(self, gctx, jctx, job):
@@ -64,7 +64,39 @@ class SplitStep(Step, SplitOnPreprocess):
         pass
 
 
-class JoinStep(Step, JoinOnPostprocess):
+class SplitOnPostStep(Step, SplitOnPostprocess):
+    """Create two children during post-process."""
+
+    async def pre_process(self, gctx, jctx, job):
+        pass
+
+    async def post_process(self, gctx, jctx, job):
+        child_jobs = []
+        child_ctxs = []
+        for i in range(2):
+            c_job = make_test_job(job_id=f"{job.job_id}-child{i}", job_type="child")
+            c_jctx = JobContext(initial={})
+            child_jobs.append(c_job)
+            child_ctxs.append(c_jctx)
+
+        job.children = child_jobs
+        jctx.children = child_ctxs
+
+
+class JoinOnPreStep(Step, JoinOnPreprocess):
+    """Join in pre-process phase."""
+
+    async def pre_process(self, gctx, jctx, job):
+        pass
+
+    async def post_process(self, gctx, jctx, job):
+        pass
+
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child):
+        parent_jctx["pre_join"] = True
+
+
+class JoinOnPostStep(Step, JoinOnPostprocess):
     """Join step triggered only on post-process."""
 
     async def pre_process(self, gctx, jctx, job):
@@ -108,20 +140,6 @@ class SlowJoinStep(Step, JoinOnPostprocess):
 
     async def join_jobs(self, gctx, parent_jctx, parent_job, last_child):
         parent_jctx["joined"] = last_child.job_id
-
-
-class NestedSplitStep(Step, SplitOnPostprocess):
-    """Create a single grandchild during post-process."""
-
-    async def pre_process(self, gctx, jctx, job):
-        pass
-
-    async def post_process(self, gctx, jctx, job):
-        c = make_test_job(job_id=f"{job.job_id}-grand", job_type="child")
-        ctx = JobContext(initial={}, parent=jctx)
-        c.parent = job
-        job.children = [c]
-        jctx.children = [ctx]
 
 
 class FlagStep(Step):
@@ -183,6 +201,15 @@ class ErrorInPostStep(Step):
 
 
 # ---------------------------------------------------------------------------
+# Helper Buffer Implementations
+# ---------------------------------------------------------------------------
+
+class DummyBuffer(QueueBuffer):
+    """A no-op buffer used to simulate an unexpected buffer in POST_PROCESS."""
+    pass
+
+
+# ---------------------------------------------------------------------------
 # Test Cases
 # ---------------------------------------------------------------------------
 
@@ -193,9 +220,9 @@ async def test_split_join_parent_resume():
     """
     pipeline = [
         RecordStep(),
-        SplitStep(),
+        SplitOnPreStep(),
         RecordStep(),
-        JoinStep(),
+        JoinOnPostStep(),
         RecordStep(),
     ]
 
@@ -209,6 +236,21 @@ async def test_split_join_parent_resume():
 
     assert jctx["joined"] is True
     assert ("post", "RecordStep") in jctx["record"]
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("pre_process", 1),
+        ("post_process", 2),
+        ("post_process", 1),
+        ("post_process", 0),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 2),
+            ("pre_process", 3),
+            ("pre_process", 4),
+            ("post_process", 4),
+            ("post_process", 3),
+        ]
 
 
 @pytest.mark.asyncio
@@ -216,7 +258,7 @@ async def test_child_error_cleans_pending_children():
     """
     A child fails before join → pending_children must be removed.
     """
-    pipeline = [SplitStep(), ErrorStep(), JoinStep()]
+    pipeline = [SplitOnPreStep(), ErrorStep(), JoinOnPostStep()]
 
     executor = PipelineExecutor(pipeline, QueueBuffer())
     jctx = JobContext(initial={})
@@ -226,6 +268,13 @@ async def test_child_error_cleans_pending_children():
     )
 
     assert not executor._pending_children
+    assert jctx.step_history == [
+        ("pre_process", 0),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+        ]
 
 
 @pytest.mark.asyncio
@@ -233,7 +282,7 @@ async def test_race_safe_last_child():
     """
     Race-safe join: only exactly one child becomes last_child.
     """
-    pipeline = [SplitStep(), SlowJoinStep()]
+    pipeline = [SplitOnPreStep(), SlowJoinStep()]
 
     executor = PipelineExecutor(pipeline, QueueBuffer())
     jctx = JobContext(initial={})
@@ -243,25 +292,41 @@ async def test_race_safe_last_child():
     )
 
     assert jctx["joined"] in ("root-child0", "root-child1")
-
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("post_process", 0),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+            ("post_process", 1),
+        ]
 
 @pytest.mark.asyncio
-async def test_nested_split():
+async def test_split_on_preprocess_and_postprocess():
     """
     Nested split should not crash.
     """
-    pipeline = [SplitStep(), NestedSplitStep(), JoinStep()]
+    pipeline = [SplitOnPreStep(), SplitOnPostStep(), JoinOnPostStep()]
     executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
 
     await executor._run_from(
         StepPhase.PRE_PROCESS,
         0,
         make_test_global_context(),
-        JobContext(initial={}),
+        jctx,
         make_test_job("root"),
     )
 
-    assert True
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("post_process", 1),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("post_process", 0),
+        ]
 
 
 @pytest.mark.asyncio
@@ -269,7 +334,7 @@ async def test_parent_post_runs_after_join():
     """
     After join is complete, parent pre-process should continue to following steps.
     """
-    pipeline = [SplitStep(), JoinStep(), FlagStep()]
+    pipeline = [SplitOnPreStep(), JoinOnPostStep(), FlagStep()]
 
     executor = PipelineExecutor(pipeline, QueueBuffer())
     jctx = JobContext(initial={})
@@ -282,6 +347,17 @@ async def test_parent_post_runs_after_join():
     for child_jctx in jctx.children:
         assert child_jctx["flag"] is True
 
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("post_process", 0),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+            ("pre_process", 2),
+            ("post_process", 2),
+            ("post_process", 1),
+        ]
 
 @pytest.mark.asyncio
 async def test_parent_reaching_join_does_not_trigger_join():
@@ -289,7 +365,7 @@ async def test_parent_reaching_join_does_not_trigger_join():
     Parent reaching JoinStep should NOT trigger join because join
     is executed only when job.parent is not None.
     """
-    pipeline = [JoinStep(), FlagStep()]
+    pipeline = [JoinOnPostStep(), FlagStep()]
 
     executor = PipelineExecutor(pipeline, QueueBuffer())
     jctx = JobContext(initial={})
@@ -298,6 +374,12 @@ async def test_parent_reaching_join_does_not_trigger_join():
         await executor._run_from(
             StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, make_test_job("root")
         )
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("pre_process", 1),
+        ("post_process", 1),
+        ("post_process", 0),
+    ]
 
 
 @pytest.mark.asyncio
@@ -323,6 +405,16 @@ async def test_split_three_children_join_correct_last():
         "root-child2",
     )
 
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("post_process", 0),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+            ("post_process", 1),
+        ]
+
 
 @pytest.mark.asyncio
 async def test_join_jobs_called_once():
@@ -330,7 +422,7 @@ async def test_join_jobs_called_once():
     join_jobs must be called exactly once even with race conditions.
     """
     join_step = CountJoinStep()
-    pipeline = [SplitStep(), join_step]
+    pipeline = [SplitOnPreStep(), join_step]
 
     executor = PipelineExecutor(pipeline, QueueBuffer())
     jctx = JobContext(initial={})
@@ -344,6 +436,15 @@ async def test_join_jobs_called_once():
     )
 
     assert join_step.calls == 1
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("post_process", 0),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+            ("post_process", 1),
+        ]
 
 
 @pytest.mark.asyncio
@@ -351,26 +452,36 @@ async def test_child_post_error_cleans_pending_children():
     """
     A child throwing error during POST must also clean pending_children.
     """
-    pipeline = [SplitStep(), ErrorInPostStep(), JoinStep()]
+    pipeline = [SplitOnPreStep(), ErrorInPostStep(), JoinOnPostStep()]
     executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
 
     await executor._run_from(
         StepPhase.PRE_PROCESS,
         0,
         make_test_global_context(),
-        JobContext(initial={}),
+        jctx,
         make_test_job("root"),
     )
 
     assert not executor._pending_children
-
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("post_process", 1),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+            ("pre_process", 2),
+            ("post_process", 2),
+        ]
 
 @pytest.mark.asyncio
 async def test_join_at_pipeline_end_no_resume():
     """
     JoinStep at end of pipeline → join occurs but no parent resume should happen.
     """
-    pipeline = [SplitStep(), JoinStep()]  # No steps after join
+    pipeline = [SplitOnPreStep(), JoinOnPostStep()]  # No steps after join
     executor = PipelineExecutor(pipeline, QueueBuffer())
     jctx = JobContext(initial={})
 
@@ -383,27 +494,22 @@ async def test_join_at_pipeline_end_no_resume():
     )
 
     assert jctx["joined"] is True
-
-
-class PreJoinStep(Step, JoinOnPreprocess):
-    """Join in pre-process phase."""
-
-    async def pre_process(self, gctx, jctx, job):
-        pass
-
-    async def post_process(self, gctx, jctx, job):
-        pass
-
-    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child):
-        parent_jctx["pre_join"] = True
-
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("post_process", 0),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+            ("post_process", 1),
+        ]
 
 @pytest.mark.asyncio
 async def test_join_on_preprocess_runs_only_for_children():
     """
     JoinOnPreprocess should fire only for children, not for parent.
     """
-    pipeline = [SplitStep(), PreJoinStep()]
+    pipeline = [SplitOnPreStep(), JoinOnPreStep()]
     executor = PipelineExecutor(pipeline, QueueBuffer())
     jctx = JobContext(initial={})
 
@@ -416,6 +522,15 @@ async def test_join_on_preprocess_runs_only_for_children():
     )
 
     assert jctx.get("pre_join") is True
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("post_process", 1),
+        ("post_process", 0),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+        ]
 
 
 @pytest.mark.asyncio
@@ -424,7 +539,7 @@ async def test_join_and_flag_both_present():
     Ensure joined flag and another POST flag can co-exist properly.
     """
     pipeline = [
-        SplitStep(),
+        SplitOnPreStep(),
         SlowJoinStep(),
         FlagStep(),
     ]
@@ -444,47 +559,62 @@ async def test_join_and_flag_both_present():
     for child_jctx in jctx.children:
         assert child_jctx["flag"] is True
 
+    assert jctx.step_history == [
+         ("pre_process", 0),
+         ("post_process", 0),
+     ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+            ("pre_process", 2),
+            ("post_process", 2),
+            ("post_process", 1),
+        ]
+
 
 @pytest.mark.asyncio
-async def test_buffer_in_postprocess_is_skipped_safely():
+async def test_buffer_in_pipeline():
     """
-    SAFETY TEST — Buffer appears during POST_PROCESS phase.
+    Test the standard execution flow of a pipeline containing a Buffer node.
 
     This test verifies the following:
-      - Although Buffer nodes are not expected to appear in POST_PROCESS,
-        the state-machine implementation must treat them safely.
-      - Specifically, encountering a Buffer during backward execution
-        should not raise an exception or corrupt the control flow.
-      - The executor must simply decrement the cursor and continue
-        the backward traversal without invoking Buffer.put().
+      - The PipelineExecutor correctly traverses through a pipeline that
+        includes a Buffer node.
+      - During PRE_PROCESS, the execution moves forward from index 0 to 2.
+      - During POST_PROCESS, the execution moves backward from index 2 to 0.
+      - The step history correctly records the full bidirectional traversal
+        including the Buffer node's position.
 
     Expected behavior:
-      - The pipeline completes without errors.
-      - No calls to Buffer.put() are made.
-      - Execution behaves as a no-op for the Buffer in POST_PROCESS.
+      - The pipeline completes successfully.
+      - Each step (including Buffer) is visited in the correct order for both
+        PRE_PROCESS and POST_PROCESS phases.
     """
 
-    class DummyBuffer(QueueBuffer):
-        """A no-op buffer used to simulate an unexpected buffer in POST_PROCESS."""
-        pass
-
+    buffer = DummyBuffer()
     pipeline = [
-        RecordStep(),    # index 0
-        DummyBuffer(),   # index 1 (unexpected in POST_PROCESS)
-        RecordStep(),    # index 2
+        RecordStep(),
+        buffer,
+        RecordStep(),
     ]
 
-    executor = PipelineExecutor(pipeline, DummyBuffer())
+    executor = PipelineExecutor(pipeline, buffer)
     jctx = JobContext(initial={})
 
     # Directly start in POST_PROCESS at index 1 → tests the skip logic
     await executor._run_from(
-        StepPhase.POST_PROCESS,
-        1,
+        StepPhase.PRE_PROCESS,
+        0,
         make_test_global_context(),
         jctx,
         make_test_job("root"),
     )
 
-    # Should finish without crashing.
-    assert True
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("pre_process", 1),
+        ("pre_process", 2),
+        ("post_process", 2),
+        ("post_process", 1),
+        ("post_process", 0),
+    ]
