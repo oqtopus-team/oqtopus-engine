@@ -75,7 +75,7 @@ Once **all** child jobs have passed through the join step, the `join_jobs()` met
 ```python
 from oqtopus_engine_core.framework import Step, SplitOnPreprocess
 
-class TwoWaySplitStep(Step, SplitOnPreprocess):
+class MySplitStep(Step, SplitOnPreprocess):
     async def pre_process(
         self,
         gctx: GlobalContext,
@@ -132,7 +132,7 @@ A join step aggregates results from all child jobs and resumes the parent job.
 ```python
 from oqtopus_engine_core.framework import Step, JoinOnPostprocess
 
-class CountAggregationJoinStep(JoinOnPostprocess, Step):
+class MyJoinStep(Step, JoinOnPostprocess):
     async def pre_process(
         self,
         gctx: GlobalContext,
@@ -156,12 +156,8 @@ class CountAggregationJoinStep(JoinOnPostprocess, Step):
         parent_job: Job,
         last_child: Job,
     ) -> None:
-        merged = {}
-        for child in parent_job.children:
-            counts = child.job_info.get("counts", {})
-            for k, v in counts.items():
-                merged[k] = merged.get(k, 0) + v
-        parent_job.job_info["counts"] = merged
+        # Perform any processing required for the join.
+        # Example: update the parent job based on data collected from child jobs.
 ```
 
 ### 4.3 Framework Guarantees
