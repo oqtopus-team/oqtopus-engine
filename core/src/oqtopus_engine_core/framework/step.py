@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 # Base Step Class
 # =============================================================================
 
+
 class Step(ABC):
     """Abstract base class for pipeline steps with pre- and post-process hooks.
 
@@ -54,6 +55,7 @@ class Step(ABC):
 # =============================================================================
 # Split Mixins (Fan-out)
 # =============================================================================
+
 
 class SplitStepMixin:
     """Mixin marking that a step is capable of performing *split* behavior.
@@ -100,8 +102,10 @@ class SplitOnPreprocess(SplitStepMixin):
 
         # Disallow coexistence with JoinOnPreprocess
         if any(base is JoinOnPreprocess for base in cls.__bases__):
-            message = (f"{cls.__name__} cannot inherit both "
-                       "SplitOnPreprocess and JoinOnPreprocess")
+            message = (
+                f"{cls.__name__} cannot inherit both "
+                "SplitOnPreprocess and JoinOnPreprocess"
+            )
             raise TypeError(message)
 
 
@@ -129,14 +133,17 @@ class SplitOnPostprocess(SplitStepMixin):
 
         # Disallow coexistence with JoinOnPostprocess
         if any(base is JoinOnPostprocess for base in cls.__bases__):
-            message = (f"{cls.__name__} cannot inherit both "
-                       "SplitOnPostprocess and JoinOnPostprocess")
+            message = (
+                f"{cls.__name__} cannot inherit both "
+                "SplitOnPostprocess and JoinOnPostprocess"
+            )
             raise TypeError(message)
 
 
 # =============================================================================
 # Join Mixins (Fan-in)
 # =============================================================================
+
 
 class JoinStepMixin(ABC):
     """Mixin marking that a step is capable of performing *join* behavior.
@@ -169,7 +176,7 @@ class JoinStepMixin(ABC):
     async def join_jobs(
         self,
         gctx: GlobalContext,
-        jctx: JobContext,
+        parent_jctx: JobContext,
         parent_job: Job,
         last_child: Job,
     ) -> None:
@@ -198,8 +205,10 @@ class JoinOnPreprocess(JoinStepMixin):
 
         # Disallow coexistence with SplitOnPreprocess
         if any(base is SplitOnPreprocess for base in cls.__bases__):
-            message = (f"{cls.__name__} cannot inherit both "
-                       "JoinOnPreprocess and SplitOnPreprocess")
+            message = (
+                f"{cls.__name__} cannot inherit both "
+                "JoinOnPreprocess and SplitOnPreprocess"
+            )
             raise TypeError(message)
 
 
@@ -224,6 +233,8 @@ class JoinOnPostprocess(JoinStepMixin):
 
         # Disallow coexistence with SplitOnPostprocess
         if any(base is SplitOnPostprocess for base in cls.__bases__):
-            message = (f"{cls.__name__} cannot inherit both "
-                       "JoinOnPostprocess and SplitOnPostprocess")
+            message = (
+                f"{cls.__name__} cannot inherit both "
+                "JoinOnPostprocess and SplitOnPostprocess"
+            )
             raise TypeError(message)

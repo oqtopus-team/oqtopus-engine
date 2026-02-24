@@ -1,16 +1,25 @@
 # Concept
 
-This page explains the design concepts of OQTOPUS Engine and the architecture that supports them.
+This document provides a conceptual overview of the pipeline framework inside the OQTOPUS Engine.  
+It describes the job-processing model, the role of steps and buffers, the two-phase execution flow, and how split/join semantics enable tree-structured job execution.
 
-## Pipeline Framework
+## 1. Pipeline Framework Overview
 
-In earlier versions, we implemented functions that performed pre-process and post-process operations directly on Job objects.
-As the number of tasks—such as sampling, expectation-value estimation, transpilation, and error mitigation—increased, the design became more complex, and the need for flexible composition grew.
-Anticipating further increases in functionality, OQTOPUS Engine adopts the following pipeline architecture:
+A pipeline is defined as an ordered list of **steps** and **buffers**.  
+Each **job** enters the pipeline and moves through these elements under the control of the `PipelineExecutor`.
 
-- Jobs are treated as entities that hold data.
-- Each function (e.g., transpilation) is defined as a Step, which is applied in sequence.
-- By passing a Job entity through these Steps, the desired processing is achieved.
+The executor separates the *definition* of the pipeline (a list of elements) from its *execution* (the asynchronous orchestration of job movement).
+
+Conceptually:
+
+- A **Step** transforms a job or its context.
+- A **Buffer** queues jobs.
+- The pipeline performs processing in two directions:
+  - **pre-process phase** (forward traversal)
+  - **post-process phase** (backward traversal)
+
+During execution, the pipeline may create a **tree of jobs** via split/join semantics.  
+This allows a single parent job to be split into multiple children jobs and later joined back again.
 
 Each Step is layered like a stack, allowing natural composition of what used to be pre-process and post-process functionalities.
 
@@ -88,38 +97,126 @@ This separation allows context information and the job entity to be handled appr
 
 - **Global Context (`gctx`)**  
   Holds information shared across the entire pipeline (e.g., device information). Steps refer to this information, but **are not expected to modify it**.
-
 - **Job Context (`jctx`)**  
-  Holds information shared across Steps during processing of the same job. **Modification by Steps is expected**, and it is used when Steps require dependencies within the pipeline.
-
+  Holds information shared across steps during processing of the same job. **Modification by steps is expected**, and it is used when steps require dependencies within the pipeline.
 - **Job**  
-  The job entity to be processed. Steps update this object to perform various operations such as transpilation.
+  The job entity to be processed. steps update this object to perform various operations such as transpilation.
 
-## Buffer
+## 2. Two-Phase Execution Model
 
-To avoid resource conflicts on the quantum processor, jobs are temporarily stored in a buffer and processed sequentially when execution resources become available.
+### 2.1 pre-process Phase (Forward Traversal)
 
-Pipeline Steps are categorized as:
+- The executor starts at the first element.
+- For each step, it calls the step’s `pre_process()` method.
+- When encountering a buffer:
+  - the job is enqueued into the buffer;
+  - the forward traversal stops;
+  - the buffer's worker will later resume the job from the next element.
 
-- **Before Buffer Steps**: Steps that perform pre-processing before a job is inserted into the buffer
-- **After Buffer Steps**: Steps that perform pre-processing after a job is removed from the buffer and before execution on the quantum processor
+### 2.2 post-process Phase (Backward Traversal)
 
-The buffer is used only for pre-processing and is not involved in post-processing.
+- The executor starts from the last element.
+- For each step, it calls the step’s `post_process()` method.
+- Buffers are skipped during backward traversal.
 
-## Parallelization
+Backward traversal typically begins after:
 
-OQTOPUS Engine executes each job’s pipeline processing as an asynchronous coroutine using `async` / `await`.
-This enables efficient parallel execution of I/O-bound tasks.
+- a job reaches the end of the pipeline, or
+- a parent job is resumed after its children have been joined.
 
-However, Python’s GIL (Global Interpreter Lock) makes it difficult to fully utilize multiple CPU cores.
-Therefore, for CPU-bound operations, additional mechanisms such as multi-process execution may be required.
+## 3. Buffers
 
-## Fetcher
+A buffer:
+
+- separates asynchronous execution between steps;
+- starts a dedicated worker task when the executor begins;
+- stores enqueued jobs from pre-process traversal;
+- pops a job and resumes its execution from after the buffer.
+
+Buffers participate **only** in the pre-process phase.  
+They do not act during post-process traversal.
+
+This design allows pipelined and concurrent processing using multiple workers.
+
+## 4. Job Tree and Split/Join Semantics
+
+### 4.1 Job Tree Structure
+
+A job may be split into multiple child jobs:
+
+- `job.children` contains the list of generated child jobs.
+- Each child automatically receives `job.parent`.
+- Job contexts (`JobContext`) mirror the same parent/child relationships.
+
+This forms a **job tree**, where:
+
+- the root job represents the original request;
+- intermediate nodes represent branch points;
+- leaves represent independently executed sub-jobs.
+
+### 4.2 Split Semantics
+
+A step may create child jobs during either:
+
+- the pre-process phase (SplitOnPreprocess), or
+- the post-process phase (SplitOnPostprocess).
+
+When splitting:
+
+- the parent job’s pipeline execution pauses;
+- each child job starts its own pipeline execution from the beginning.
+
+The parent will not resume until all children complete and a join occurs.
+
+### 4.3 Join Semantics
+
+A join step waits for all child jobs to complete.  
+When the **last** child reaches the join step:
+
+- the executor calls the join step’s `join_jobs()` method exactly once;
+- the parent job is resumed in the same phase (pre-process or post-process) where the join step resides;
+- all children are released after joining.
+
+Join steps enable aggregation of results, multi-programming flows, and complex orchestration styles.
+
+## 5. Parallelization
+
+The pipeline framework enables parallel execution at two levels:
+
+### 5.1 Concurrency via Buffers
+
+Each buffer has its own worker task.  
+Jobs placed in different buffers can be processed concurrently because each worker executes downstream steps independently.
+
+This enables pipeline-level parallelism even without job splitting.
+
+### 5.2 Concurrency via Split Steps
+
+Split steps spawn multiple child jobs.  
+Each child job executes:
+
+- its own forward traversal,
+- its own buffer scheduling,
+- its own backward traversal.
+
+All child pipelines run concurrently under the executor.
+
+### 5.3 Synchronization via Join Steps
+
+Join steps re-synchronize the execution:
+
+- child jobs run independently and may finish at different times;
+- the last child to reach the join step triggers the aggregation logic;
+- only after join completion does the parent job resume execution.
+
+This model provides structured parallelism similar to fork/join patterns in classical workflow engines.
+
+## 6. Fetcher
 
 Some processes must run periodically and autonomously, separate from the pipeline itself.
 OQTOPUS Engine implements these operations as asynchronous fetchers.
 
-### Job Fetcher
+### 6.1 Job Fetcher
 
 OQTOPUS Engine periodically communicates with external systems to retrieve jobs.
 For example, it may fetch jobs via the OQTOPUS Cloud API.
@@ -127,12 +224,12 @@ For example, it may fetch jobs via the OQTOPUS Cloud API.
 Job retrieval timing is controlled based on buffer capacity:
 if the buffer contains sufficient pending jobs, retrieval is paused; when the buffer level drops, it resumes.
 
-### Device Fetcher
+### 6.2 Device Fetcher
 
 OQTOPUS Engine periodically communicates with external systems to fetch device information,
 for example through the Device Gateway interface, for use by the transpiler and other components.
 
-## Dependency Injection
+## 7. Dependency Injection
 
 External interfaces such as fetchers may need to be swapped depending on the execution environment.
 
@@ -155,9 +252,24 @@ Running the following code instantiates the class specified in `_target_` with t
 job_fetcher: JobFetcher = instantiate(gctx.config["job_fetcher"])
 ```
 
-## Exception Handling in the Framework
+## 8. Exception Handling
 
-If an exception occurs during a Step’s pre-process or post-process and the developer does not handle it, the exception may propagate upward.
-Even in such cases, OQTOPUS Engine is designed so that the entire process does not crash.
+The executor wraps each step call with a safe execution wrapper:
 
-The framework catches unhandled exceptions, safely marks the job as `failed`, and logs detailed information so the root cause can be investigated later.
+- Exceptions in a step are logged with contextual information.
+- Errors in a child job prevent the corresponding parent job from resuming.
+- A failing child does not trigger a join, and the parent job’s pipeline does not continue past the join step.
+
+The system guarantees that exceptions are surfaced and that step-level failures do not silently break pipeline consistency.
+
+## 9. Summary
+
+The OQTOPUS Engine pipeline framework provides:
+
+- clear phase separation (pre-process / post-process);
+- asynchronous and buffer-driven execution;
+- structured parallelism via split/join semantics;
+- explicit job tree modeling;
+- predictable synchronization points via join steps.
+
+This design enables complex processing scenarios such as multi-programming, batching, post-processing aggregation, and multi-path execution in a controlled and extensible manner.
