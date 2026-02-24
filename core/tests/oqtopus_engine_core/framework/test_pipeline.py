@@ -1,4 +1,5 @@
 import asyncio
+
 import pytest
 
 from oqtopus_engine_core.buffers import QueueBuffer
@@ -9,17 +10,17 @@ from oqtopus_engine_core.framework.pipeline import (
     StepPhase,
 )
 from oqtopus_engine_core.framework.step import (
-    Step,
-    SplitOnPostprocess,
-    SplitOnPreprocess,
     JoinOnPostprocess,
     JoinOnPreprocess,
+    SplitOnPostprocess,
+    SplitOnPreprocess,
+    Step,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helper factory functions
 # ---------------------------------------------------------------------------
+
 
 def make_test_job(job_id: str, job_type: str = "root") -> Job:
     """Create a minimal but valid Job instance for pipeline tests."""
@@ -44,6 +45,7 @@ def make_test_global_context() -> GlobalContext:
 # ---------------------------------------------------------------------------
 # Helper Step Implementations
 # ---------------------------------------------------------------------------
+
 
 class SplitOnPreStep(Step, SplitOnPreprocess):
     """Create two children during pre-process."""
@@ -160,7 +162,6 @@ class CountJoinStep(Step, JoinOnPostprocess):
 
     async def pre_process(self, gctx, jctx, job):
         """No-op pre-process (required for abstract base class)."""
-        pass
 
     async def post_process(self, gctx, jctx, job):
         pass
@@ -187,7 +188,6 @@ class TripleSplitStep(Step, SplitOnPreprocess):
 
     async def post_process(self, gctx, jctx, job):
         """No-op post-process (required for abstract base class)."""
-        pass
 
 
 class ErrorInPostStep(Step):
@@ -204,14 +204,15 @@ class ErrorInPostStep(Step):
 # Helper Buffer Implementations
 # ---------------------------------------------------------------------------
 
+
 class DummyBuffer(QueueBuffer):
     """A no-op buffer used to simulate an unexpected buffer in POST_PROCESS."""
-    pass
 
 
 # ---------------------------------------------------------------------------
 # Test Cases
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_split_join_parent_resume():
@@ -264,7 +265,11 @@ async def test_child_error_cleans_pending_children():
     jctx = JobContext(initial={})
 
     await executor._run_from(
-        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, make_test_job("root")
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
     )
 
     assert not executor._pending_children
@@ -288,7 +293,11 @@ async def test_race_safe_last_child():
     jctx = JobContext(initial={})
 
     await executor._run_from(
-        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, make_test_job("root")
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
     )
 
     assert jctx["joined"] in ("root-child0", "root-child1")
@@ -301,6 +310,7 @@ async def test_race_safe_last_child():
             ("pre_process", 1),
             ("post_process", 1),
         ]
+
 
 @pytest.mark.asyncio
 async def test_split_on_preprocess_and_postprocess():
@@ -340,7 +350,11 @@ async def test_parent_post_runs_after_join():
     jctx = JobContext(initial={})
 
     await executor._run_from(
-        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, make_test_job("root")
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
     )
 
     assert jctx["joined"] is True
@@ -359,6 +373,7 @@ async def test_parent_post_runs_after_join():
             ("post_process", 1),
         ]
 
+
 @pytest.mark.asyncio
 async def test_parent_reaching_join_does_not_trigger_join():
     """
@@ -372,7 +387,11 @@ async def test_parent_reaching_join_does_not_trigger_join():
 
     with pytest.raises(RuntimeError):
         await executor._run_from(
-            StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, make_test_job("root")
+            StepPhase.PRE_PROCESS,
+            0,
+            make_test_global_context(),
+            jctx,
+            make_test_job("root"),
         )
     assert jctx.step_history == [
         ("pre_process", 0),
@@ -476,6 +495,7 @@ async def test_child_post_error_cleans_pending_children():
             ("post_process", 2),
         ]
 
+
 @pytest.mark.asyncio
 async def test_join_at_pipeline_end_no_resume():
     """
@@ -503,6 +523,7 @@ async def test_join_at_pipeline_end_no_resume():
             ("pre_process", 1),
             ("post_process", 1),
         ]
+
 
 @pytest.mark.asyncio
 async def test_join_on_preprocess_runs_only_for_children():
@@ -560,9 +581,9 @@ async def test_join_and_flag_both_present():
         assert child_jctx["flag"] is True
 
     assert jctx.step_history == [
-         ("pre_process", 0),
-         ("post_process", 0),
-     ]
+        ("pre_process", 0),
+        ("post_process", 0),
+    ]
     for child_jctx in jctx.children:
         assert child_jctx.step_history == [
             ("pre_process", 1),
@@ -601,7 +622,6 @@ async def test_buffer_in_pipeline():
     executor = PipelineExecutor(pipeline, buffer)
     jctx = JobContext(initial={})
 
-    # Directly start in POST_PROCESS at index 1 → tests the skip logic
     await executor._run_from(
         StepPhase.PRE_PROCESS,
         0,
@@ -610,6 +630,17 @@ async def test_buffer_in_pipeline():
         make_test_job("root"),
     )
 
+    # When _run_from reaches a Buffer during PRE_PROCESS, it performs buffer.put(...)
+    # and then returns, delegating the continuation to a worker. In unit tests, no
+    # workers are running, so we manually resume execution from the next step.
+    next_gctx, next_jctx, next_job = await buffer.get()
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        2,
+        next_gctx,
+        next_jctx,
+        next_job,
+    )
     assert jctx.step_history == [
         ("pre_process", 0),
         ("pre_process", 1),

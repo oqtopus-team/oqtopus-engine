@@ -746,7 +746,7 @@ class PipelineExecutor:
         # 4-B. Resume parent pipeline synchronously)
         # ------------------------------------------------------------
         if step_phase == StepPhase.POST_PROCESS:
-            # Resume parent's POST phase from the requested index.
+            # Resume parent's POST_PROCESS phase from the requested index.
             if 0 <= next_index < len(self._pipeline):
                 await self._run_from(
                     step_phase=StepPhase.POST_PROCESS,
@@ -764,15 +764,27 @@ class PipelineExecutor:
                         "next_index": next_index,
                     },
                 )
-        # JoinOnPreprocess could resume pre-process here.
-        elif 0 <= next_index < len(self._pipeline):
-            await self._run_from(
-                step_phase=StepPhase.PRE_PROCESS,
-                index=next_index,
-                gctx=gctx,
-                jctx=parent_jctx,
-                job=parent_job,
-            )
+        elif step_phase == StepPhase.PRE_PROCESS:
+            # JoinOnPreprocess could resume pre-process here.
+            if 0 <= next_index < len(self._pipeline):
+                await self._run_from(
+                    step_phase=StepPhase.PRE_PROCESS,
+                    index=next_index,
+                    gctx=gctx,
+                    jctx=parent_jctx,
+                    job=parent_job,
+                )
+            else:
+                # Join is at the end of the pipeline.
+                # Parent has no more PRE_PROCESS steps, so we directly start
+                #  the POST_PROCESS pass from the last pipeline element.
+                await self._run_from(
+                    step_phase=StepPhase.POST_PROCESS,
+                    index=len(self._pipeline) - 1,
+                    gctx=gctx,
+                    jctx=parent_jctx,
+                    job=parent_job,
+                )
 
     async def _cancel_pending_children_for_parent(self, child_job: Job) -> None:
         """Best-effort cleanup for pending-children state when a child fails.
