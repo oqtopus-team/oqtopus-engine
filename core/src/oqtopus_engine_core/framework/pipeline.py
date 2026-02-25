@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 from .buffer import Buffer
 from .step import (
+    DetachOnPostprocess,
+    DetachOnPreprocess,
     JoinOnPostprocess,
     JoinOnPreprocess,
     SplitOnPostprocess,
@@ -239,6 +241,22 @@ class PipelineExecutor:
 
                 next_cursor = cursor + 1
 
+                # ----- detach on PRE_PROCESS -----
+                if isinstance(node, DetachOnPreprocess):
+                    # Continue pipeline asynchronously
+                    if next_cursor < len(self._pipeline):
+                        task = asyncio.create_task(
+                            self._run_from(
+                                step_phase=StepPhase.PRE_PROCESS,
+                                index=next_cursor,
+                                gctx=gctx,
+                                jctx=jctx,
+                                job=job,
+                            )
+                        )
+                        self._background_tasks.add(task)
+                    return  # Worker returns immediately
+
                 # ----- join on PRE_PROCESS (children only) -----
                 if isinstance(node, JoinOnPreprocess):
                     await self._handle_join(
@@ -283,6 +301,22 @@ class PipelineExecutor:
                 if not success:
                     # stop the pipeline for this job if the step failed.
                     return
+
+                # ----- detach on POST_PROCESS -----
+                if isinstance(node, DetachOnPostprocess):
+                    # Continue pipeline asynchronously
+                    if next_cursor < len(self._pipeline):
+                        task = asyncio.create_task(
+                            self._run_from(
+                                step_phase=StepPhase.POST_PROCESS,
+                                index=next_cursor,
+                                gctx=gctx,
+                                jctx=jctx,
+                                job=job,
+                            )
+                        )
+                        self._background_tasks.add(task)
+                    return  # Worker returns immediately
 
                 # ----- join on POST_PROCESS (children only) -----
                 if isinstance(node, JoinOnPostprocess):
