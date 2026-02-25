@@ -184,6 +184,13 @@ class PipelineExecutor:
                     continue
             # backward finished: no more nodes to process.
             elif cursor < 0:
+                # When a child job finishes its entire pipeline without
+                # triggering a join, we must decrement the pending-children
+                # counters to avoid resource leaks. This will also cascade
+                # to ancestor parents if their counters reach zero.
+                if job.parent is not None:
+                    await self._cascade_cleanup(job)
+
                 logger.info(
                     "job processing finished",
                     extra={
@@ -575,7 +582,7 @@ class PipelineExecutor:
 
         task.add_done_callback(_done)
 
-    async def _handle_join(  # noqa: C901, PLR0913, PLR0917
+    async def _handle_join(  # noqa: C901, PLR0912, PLR0913, PLR0917
         self,
         step: Step,
         step_phase: StepPhase,
@@ -810,3 +817,54 @@ class PipelineExecutor:
                     },
                 )
                 del self._pending_children[parent_job_id]
+
+    async def _cascade_cleanup(self, job: Job) -> None:
+        """Cascade cleanup for non-joined child jobs.
+
+        This method is called when a job with a parent reaches the end of its
+        pipeline *without* triggering a join. It decrements the parent's
+        pending-children counter, and if it reaches zero, recursively applies
+        the same logic to the ancestor chain.
+
+        This guarantees that:
+        - split-only pipelines do not leak pending-children entries, and
+        - multi-level splits are cleaned up correctly without invoking join.
+        """
+        current = job
+
+        while True:
+            parent = current.parent
+            if parent is None:
+                # Reached the root; nothing more to cascade.
+                return
+
+            parent_id = parent.job_id
+
+            async with self._pending_children_lock:
+                if parent_id not in self._pending_children:
+                    # Parent is not tracked for pending children; nothing to do
+                    # for this branch of the ancestor chain.
+                    return
+
+                self._pending_children[parent_id] -= 1
+                remaining = self._pending_children[parent_id]
+
+                logger.info(
+                    "decremented pending children due to child pipeline completion",
+                    extra={
+                        "parent_job_id": parent_id,
+                        "child_job_id": current.job_id,
+                        "remaining_children": remaining,
+                    },
+                )
+
+                if remaining > 0:
+                    # Parent still has other children running; stop cascading.
+                    return
+
+                # remaining == 0: all children of this parent are done.
+                # We can safely remove the counter entry and cascade upward.
+                del self._pending_children[parent_id]
+
+            # Move one level up the ancestor chain and continue.
+            current = parent

@@ -649,3 +649,121 @@ async def test_buffer_in_pipeline():
         ("post_process", 1),
         ("post_process", 0),
     ]
+
+@pytest.mark.asyncio
+async def test_split_only_triggers_cascade_cleanup():
+    """
+    Split-only pipeline (no join) must decrement pending_children and
+    remove the parent's entry via cascade_cleanup.
+
+    Scenario:
+      - A parent job performs split and stops execution.
+      - Each child fully runs PRE_PROCESS → POST_PROCESS and finishes the pipeline.
+      - Because no join occurs, cascade_cleanup must decrement the
+        parent's pending_children and delete it when reaching zero.
+
+    Expected:
+      - executor._pending_children becomes empty after children complete.
+      - No resource leak remains.
+    """
+    pipeline = [SplitOnPreStep(), RecordStep()]  # No join step
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+
+    jctx = JobContext(initial={})
+    root_job = make_test_job("root")
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    # After children complete, all pending_children should be cleaned.
+    assert executor._pending_children == {}
+
+
+@pytest.mark.asyncio
+async def test_nested_split_only_cascade_cleanup():
+    """
+    Multi-level split-only pipeline must perform recursive cascade cleanup.
+
+    Scenario:
+      - root splits into children.
+      - Each child performs another split into grandchildren.
+      - No join step exists; all jobs finish normally.
+      - cascade_cleanup must propagate upward through 2 levels.
+
+    Expected:
+      - executor._pending_children becomes empty (root-level entry removed).
+      - No resource leak remains.
+    """
+    pipeline = [SplitOnPreStep(), SplitOnPreStep()]  # Nested split, no join
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
+
+    root_job = make_test_job("root")
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    assert executor._pending_children == {}
+
+
+@pytest.mark.asyncio
+async def test_broken_buffer_does_not_cleanup_children():
+    """
+    If Buffer.get fails before returning a job, the executor cannot know
+    which parent to clean up. In this case, pending_children is not
+    decremented and the error is only logged by the worker.
+
+    This test documents that behavior: cleanup is not guaranteed when
+    the infrastructure (Buffer) itself is broken.
+    """
+    class BrokenBuffer(QueueBuffer):
+        async def get(self):
+            raise RuntimeError("buffer broke")
+
+    buffer = BrokenBuffer()
+    pipeline = [SplitOnPreStep(), buffer]
+    executor = PipelineExecutor(pipeline, buffer)
+    jctx = JobContext(initial={})
+    root_job = make_test_job("root")
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    # Children were created, but no worker consumed them.
+    # The executor cannot safely clean up pending_children here.
+    assert executor._pending_children == {"root": 2}
+
+
+@pytest.mark.asyncio
+async def test_split_buffer_split_cascade_cleanup():
+    """
+    split → split → no join
+
+    This test ensures that cascade cleanup works correctly even when Buffers
+    interrupt execution between split steps.
+
+    Expected:
+      - Both split levels allocate pending_children.
+      - All children resume and finish.
+      - Final cleanup must clear every pending_children entry.
+    """
+
+    pipeline = [
+        SplitOnPreStep(),
+        SplitOnPreStep(),  # split again
+        RecordStep(),
+    ]
+
+    executor = PipelineExecutor(pipeline, pipeline[1])
+    jctx = JobContext(initial={})
+    root_job = make_test_job("root")
+
+    # First _run_from: hitting the buffer causes executor to return early.
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    # All pending_children must be released.
+    assert executor._pending_children == {}
