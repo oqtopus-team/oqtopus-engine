@@ -172,11 +172,26 @@ class MyJoinStep(Step, JoinOnPostprocess):
 
 ### 5.1 Valid and Invalid Combinations
 
-- A step must not implement both split and join behavior at the same time.  
-  The following class-level combinations are therefore prohibited:
+For each phase (pre-process / post-process), a step may have **at most one**
+control-flow mixin.
 
-  - A step cannot derive from both `SplitOnPreprocess` and `JoinOnPreprocess`.
-  - A step cannot derive from both `SplitOnPostprocess` and `JoinOnPostprocess`.
+Invalid (TypeError):
+
+- Multiple *pre-process* mixins:
+  - `SplitOnPreprocess`
+  - `JoinOnPreprocess`
+  - `DetachOnPreprocess`
+
+- Multiple *post-process* mixins:
+  - `SplitOnPostprocess`
+  - `JoinOnPostprocess`
+  - `DetachOnPostprocess`
+
+Valid:
+
+- Any combination where mixins belong to **different phases**  
+  (e.g., `JoinOnPreprocess` + `DetachOnPostprocess`)
+- Steps without any control-flow mixin
 
 If a step violates these constraints, the engine will raise a `TypeError` during class construction.
 
