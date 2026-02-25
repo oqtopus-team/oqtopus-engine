@@ -1,0 +1,132 @@
+{
+  "folders": [
+    {
+      "name": "root",
+      "path": "."
+    },
+    {
+      "name": "core",
+      "path": "core"
+    },
+    {
+      "name": "mitigator",
+      "path": "mitigator"
+    },
+    {
+      "name": "estimator",
+      "path": "estimator"
+    },
+    {
+      "name": "combiner",
+      "path": "combiner"
+    },
+    {
+      "name": "sse_runtime",
+      "path": "sse_runtime"
+    }
+  ],
+  "settings": {
+    // Hide subproject directories only within the "Config & Root Files" view
+    // to avoid visual duplication in the sidebar
+    "files.exclude": {
+      "core": true,
+      "mitigator": true,
+      "estimator": true,
+      "combiner": true,
+      "sse_runtime": true,
+    },
+
+    // --- Language Server & Analysis Settings ---
+    "python.languageServer": "Pylance",
+    "python.analysis.typeCheckingMode": "basic",
+    // Use the python interpreter from the uv virtual environment in each folder
+    "python.defaultInterpreterPath": "./.venv/bin/python",
+
+    // --- Python Language Specific Settings ---
+    "[python]": {
+      "editor.formatOnSave": true,
+      "editor.codeActionsOnSave": {
+        "source.fixAll.ruff": "explicit",
+        "source.organizeImports.ruff": "explicit"
+      },
+      "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "ruff.path": [
+      "./.venv/bin/ruff"
+    ],
+    "mypy-type-checker.path": [
+      "./.venv/bin/mypy"
+    ],
+    "mypy-type-checker.args": [
+      "--config=${workspaceFolder}/pyproject.toml"
+    ],
+    "autoDocstring.docstringFormat": "google",
+
+    // --- Testing Settings (pytest) ---
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "python.testing.autoTestDiscoverOnSaveEnabled": true,
+
+    // --- Other Tool & Editor Settings ---
+    "[json]": {
+      "editor.defaultFormatter": "vscode.json-language-features"
+    },
+    "todo-tree.general.tags": [
+      "BUG", "HACK", "FIXME", "TODO", "XXX", "[ ]", "[x]"
+    ],
+    "todo-tree.highlights.customHighlight": {
+      "BUG": { "icon": "bug" },
+      "TODO": { "icon": "check" },
+      "HACK": { "icon": "tools" },
+      "FIXME": { "icon": "flame" },
+      "XXX": { "icon": "x" },
+      "[ ]": { "icon": "issue-draft" },
+      "[x]": { "icon": "issue-closed" }
+    },
+    "files.associations": {
+      ".gitmessage": "plaintext"
+    },
+    "coverage-gutters.showGutterCoverage": true,
+    "coverage-gutters.showLineCoverage": true,
+    "coverage-gutters.showRulerCoverage": true,
+    "yaml.validate": false,
+    "markdownlint.config": {
+      "MD024": false,
+      "MD033": false,
+      "MD041": false
+    }
+  },
+  "launch": {
+    // --- Debug Configurations (from launch.json) ---
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Python Debugger: Current File",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${file}",
+        "console": "integratedTerminal",
+        "cwd": "./src",
+        "justMyCode": false
+      }
+    ]
+  },
+  "extensions": {
+    // --- Recommended Extensions (from extensions.json) ---
+    "recommendations": [
+      "astral-sh.uv",
+      "charliermarsh.ruff",
+      "christian-kohler.path-intellisense",
+      "davidanson.vscode-markdownlint",
+      "editorconfig.editorconfig",
+      "gruntfuggly.todo-tree",
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "ms-python.debugpy",
+      "ms-vscode.live-server",
+      "njpwerner.autodocstring",
+      "redhat.vscode-yaml",
+      "usernamehw.errorlens"
+    ]
+  }
+}
