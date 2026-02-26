@@ -175,3 +175,26 @@ async def test_post_process_estimation_applies_readout_mitigation_to_zne_executi
 
     assert step._stub.ReqMitigation.await_count == 1
     assert jctx["zne_job_info"]["execution_results"][0]["counts"] == {"0": 95, "1": 5}
+
+
+@pytest.mark.asyncio
+async def test_post_process_skips_with_legacy_ro_error_mitigation_key() -> None:
+    step = ReadoutErrorMitigationStep()
+    step._stub = AsyncMock()
+    job = Job(
+        job_id="job-legacy-ro-key",
+        device_id="device-1",
+        shots=100,
+        job_type="sampling",
+        job_info=JobInfo(
+            program=["OPENQASM 3.0; include \"stdgates.inc\";"],
+            result=JobResult(sampling=SamplingResult(counts={"0": 1})),
+        ),
+        transpiler_info={},
+        simulator_info={},
+        mitigation_info={"ro_error_mitigation": "pseudo_inverse"},
+        status="ready",
+    )
+
+    await step.post_process(_build_gctx(), JobContext(), job)
+    assert step._stub.ReqMitigation.await_count == 0

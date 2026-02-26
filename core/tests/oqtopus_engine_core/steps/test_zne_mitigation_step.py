@@ -228,3 +228,22 @@ async def test_pre_process_ignores_user_basis_gates_and_uses_system_setting() ->
     request = step._stub.ReqZnePreProcess.await_args.args[0]
     parsed = json.loads(request.zne_config_json)
     assert parsed["basis_gates"] == ["cx", "rz"]
+
+
+@pytest.mark.asyncio
+async def test_pre_process_skips_legacy_zne_format_without_params() -> None:
+    step = ZneMitigationStep()
+    step._stub = AsyncMock()
+    jctx = JobContext()
+    jctx["estimation_job_info"] = SimpleNamespace(
+        preprocessed_qasms=['OPENQASM 3.0; include "stdgates.inc";'],
+        grouped_operators=[[['Z']], [[1.0]]],
+        counts_list=None,
+    )
+    job = _build_job()
+    job.mitigation_info = {"zne": {"factory": "richardson", "scale_factors": [1.0, 2.0, 3.0]}}
+
+    await step.pre_process(SimpleNamespace(), jctx, job)
+
+    assert "zne_job_info" not in jctx
+    assert step._stub.ReqZnePreProcess.await_count == 0

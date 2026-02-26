@@ -177,17 +177,16 @@ class ZneMitigationStep(Step):
         if not isinstance(zne_raw, dict):
             return None
 
-        zne_cfg = dict(self._zne_default_config)
         zne_raw_builtin = self._to_builtin(zne_raw)
         req_params = zne_raw_builtin.get("params")
+        if not isinstance(req_params, dict):
+            logger.warning(
+                "invalid zne mitigation_info format; expected mitigation_info.zne.params object"
+            )
+            return None
 
-        # New schema: {"zne": {"params": {...}}}
-        if isinstance(req_params, dict):
-            zne_cfg.update(req_params)
-        else:
-            # Backward compatibility: old flat schema under mitigation_info["zne"].
-            zne_cfg.update(zne_raw_builtin)
-
+        zne_cfg = dict(self._zne_default_config)
+        zne_cfg.update(req_params)
         # fail_open and basis_gates are system-controlled and cannot be overridden
         # from user mitigation_info.
         zne_cfg["fail_open"] = bool(self._zne_default_config.get("fail_open", True))

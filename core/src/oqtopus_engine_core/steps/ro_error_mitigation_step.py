@@ -335,9 +335,9 @@ class ReadoutErrorMitigationStep(Step):
             if method is None:
                 return None
             return str(method).lower()
-
-        # Backward compatibility.
-        legacy_method = mitigation_info.get("ro_error_mitigation")
-        if legacy_method is None:
-            return None
-        return str(legacy_method).lower()
+        if mitigation_info.get("ro_error_mitigation") is not None:
+            logger.warning(
+                "legacy mitigation_info.ro_error_mitigation is no longer supported; "
+                "use mitigation_info.readout.method"
+            )
+        return None
