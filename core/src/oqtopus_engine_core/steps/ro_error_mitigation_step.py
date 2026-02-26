@@ -205,8 +205,10 @@ class ReadoutErrorMitigationStep(Step):
             self._record_readout_details(
                 job,
                 target="sampling",
-                before={"counts": deepcopy(orig_counts)},
-                after={"counts": deepcopy(mitigated_counts)},
+                detail={
+                    "before": {"counts": deepcopy(orig_counts)},
+                    "after": {"counts": deepcopy(mitigated_counts)},
+                },
             )
             logger.debug(
                 "ro_error_mitigated_counts is %s, original_counts is %s",
@@ -276,8 +278,15 @@ class ReadoutErrorMitigationStep(Step):
                 self._record_readout_details(
                     job,
                     target="estimation_counts_list",
-                    before={"counts_list": original_counts_list},
-                    after={"counts_list": deepcopy(mitigated_counts_list)},
+                    detail={
+                        "result_count": len(mitigated_counts_list),
+                        "before_total_shots": self._total_shots_from_counts_list(
+                            original_counts_list
+                        ),
+                        "after_total_shots": self._total_shots_from_counts_list(
+                            mitigated_counts_list
+                        ),
+                    },
                 )
                 return
 
@@ -347,8 +356,15 @@ class ReadoutErrorMitigationStep(Step):
             self._record_readout_details(
                 job,
                 target="zne_execution_results",
-                before={"execution_results": original_execution_results},
-                after={"execution_results": deepcopy(mitigated_execution_results)},
+                detail={
+                    "result_count": len(mitigated_execution_results),
+                    "before_total_shots": self._total_shots_from_execution_results(
+                        original_execution_results
+                    ),
+                    "after_total_shots": self._total_shots_from_execution_results(
+                        mitigated_execution_results
+                    ),
+                },
             )
 
     def _resolve_readout_method(self, mitigation_info: dict) -> str | None:
@@ -369,8 +385,7 @@ class ReadoutErrorMitigationStep(Step):
         self,
         job: Job,
         target: str,
-        before: dict[str, Any],
-        after: dict[str, Any],
+        detail: dict[str, Any],
     ) -> None:
         if job.job_info.result is None:
             job.job_info.result = JobResult()
@@ -385,7 +400,14 @@ class ReadoutErrorMitigationStep(Step):
             readout_details = {}
             mitigation_details["readout"] = readout_details
 
-        readout_details[target] = {
-            "before": before,
-            "after": after,
-        }
+        readout_details[target] = detail
+
+    def _total_shots_from_counts_list(self, counts_list: list[dict[str, int]]) -> int:
+        return int(sum(sum(counts.values()) for counts in counts_list))
+
+    def _total_shots_from_execution_results(
+        self, execution_results: list[dict[str, Any]]
+    ) -> int:
+        return int(
+            sum(sum(dict(result["counts"]).values()) for result in execution_results)
+        )

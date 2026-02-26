@@ -114,8 +114,9 @@ async def test_post_process_estimation_applies_readout_mitigation_to_counts_list
     assert job.job_info.result.mitigation_details == {
         "readout": {
             "estimation_counts_list": {
-                "before": {"counts_list": [{"0": 80, "1": 20}, {"0": 30, "1": 70}]},
-                "after": {"counts_list": [{"0": 90, "1": 10}, {"0": 40, "1": 60}]},
+                "result_count": 2,
+                "before_total_shots": 200,
+                "after_total_shots": 200,
             },
         }
     }
@@ -196,26 +197,9 @@ async def test_post_process_estimation_applies_readout_mitigation_to_zne_executi
     assert job.job_info.result.mitigation_details == {
         "readout": {
             "zne_execution_results": {
-                "before": {
-                    "execution_results": [
-                        {
-                            "scale_factor": 1.0,
-                            "repetition": 0,
-                            "program_index": 0,
-                            "counts": {"0": 90, "1": 10},
-                        }
-                    ]
-                },
-                "after": {
-                    "execution_results": [
-                        {
-                            "scale_factor": 1.0,
-                            "repetition": 0,
-                            "program_index": 0,
-                            "counts": {"0": 95, "1": 5},
-                        }
-                    ]
-                },
+                "result_count": 1,
+                "before_total_shots": 100,
+                "after_total_shots": 100,
             },
         }
     }
