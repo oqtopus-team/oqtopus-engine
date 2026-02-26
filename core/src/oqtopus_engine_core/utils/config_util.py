@@ -1,12 +1,15 @@
 import logging.config
 import os
+import re
 from pathlib import Path
 from typing import Any
 
-from hydra import compose, initialize
-from omegaconf import OmegaConf
+import yaml
 
 SENSITIVE_KEYS = {"api_token", "password", "secret_key"}
+
+# Pattern matching ${VAR} and ${VAR, default}
+_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)(?:,\s*([^}]+))?\}")
 
 
 def mask_sensitive_info(config: dict[str, Any]) -> dict[str, Any]:
@@ -54,32 +57,69 @@ def setup_logging(logging_cfg: dict) -> None:
     logging.config.dictConfig(logging_cfg)
 
 
-def load_config(config_path: str) -> dict[str, Any]:
-    """Load a configuration file using Hydra.
+def _replace_env(match: re.Match) -> str:
+    """Replace ${VAR} or ${VAR, default} with the appropriate string.
+
+    Internal callback used by re.sub before YAML parsing.
+
+    Rules:
+      - If the environment variable VAR exists → substitute its value (raw string)
+      - If default is provided → substitute it directly (YAML will type-cast it)
+      - If no default is provided → substitute empty string ""
 
     Args:
-        config_path: Relative path from the application base directory,
-            including the file name with extension (e.g., 'config/config.yaml').
+        match: The regex match object containing the variable name and optional default.
 
     Returns:
-        The loaded configuration.
-
-    Raises:
-        FileNotFoundError: If the config file does not exist.
+        The string to substitute in place of the matched pattern.
 
     """
-    # check if the config file exists
-    path = Path(config_path)
-    if not path.is_file():
-        msg = f"Config file not found: {path.resolve()}"
-        raise FileNotFoundError(msg)
+    var_name = match.group(1)
+    default_raw = match.group(2)
 
-    # get the directory of this file and the full path of the config file
-    this_file_dir = Path(__file__).parent.resolve()
-    full_config_path = (Path.cwd() / config_path).parent.resolve()
-    relative_config_path = os.path.relpath(full_config_path, start=this_file_dir)
+    # Environment variable exists → use it directly
+    if var_name in os.environ:
+        return os.environ[var_name]
 
-    # load the config file using Hydra
-    with initialize(version_base=None, config_path=relative_config_path):
-        config_omega = compose(config_name=Path(config_path).stem)
-        return OmegaConf.to_container(config_omega, resolve=True)
+    # No env → default exists
+    if default_raw is not None:
+        return default_raw
+
+    # No env and no default → empty string
+    return '""'  # Valid YAML string literal
+
+
+def load_config(config_path: str) -> dict[str, Any]:
+    """Load a YAML configuration file.
+
+    Supported syntax:
+        ${VAR}              → If VAR not set, becomes "" (empty string)
+        ${VAR, default}     → If VAR not set, "default" is inserted literally,
+                              and then YAML type-casts it.
+
+    Behavior:
+      1. Read the entire YAML file as a raw string.
+      2. Perform string-level substitution for ${...} patterns.
+      3. Pass the substituted string to PyYAML, allowing YAML to determine types.
+
+    This design ensures:
+      - No custom smart-casting logic is needed.
+      - Default values are type-cast by YAML (10→int, false→bool, etc.).
+      - Environment variable values are applied before YAML parsing.
+
+    Args:
+        config_path: Path to the YAML configuration file.
+
+    Returns:
+        Parsed configuration as a Python dict with correct types.
+
+    """
+    # Step 1: Load file as raw text
+    with Path(config_path).open(encoding="utf-8") as f:
+        raw_text = f.read()
+
+    # Step 2: Replace ${VAR} / ${VAR, default} before YAML parsing
+    replaced_text = _PATTERN.sub(_replace_env, raw_text)
+
+    # Step 3: Let YAML parse and type-cast the final text
+    return yaml.safe_load(replaced_text) or {}

@@ -88,9 +88,9 @@ This pipeline architecture resembles the structure of a network protocol stack.
 Similarly, OQTOPUS Engine can be understood as follows:
 
 | Network Protocol Processing | OQTOPUS Engine Processing |
-| -------------------------- | -------------------- |
-| downstream (sending)       | pre-process          |
-| upstream (receiving)         | post-process         |
+| --------------------------- | ------------------------- |
+| downstream (sending)        | pre-process               |
+| upstream (receiving)        | post-process              |
 
 Additionally, pre-process/post-process functions receive the following three arguments.
 This separation allows context information and the job entity to be handled appropriately.
@@ -231,20 +231,96 @@ for example through the Device Gateway interface, for use by the transpiler and 
 
 ## 7. Dependency Injection
 
-External interfaces such as fetchers may need to be swapped depending on the execution environment.
+External interfaces such as fetchers, buffers, or hooks often need to be swapped depending on the execution environment.
+To support this, OQTOPUS Engine provides a lightweight dependency injection (DI) mechanism based on:
 
-To support this, OQTOPUS Engine employs lightweight Dependency Injection (DI) using [Hydra](https://hydra.cc/) and [OmegaConf](https://omegaconf.readthedocs.io/).
+- Plain YAML configuration files
+- Environment-variable interpolation (`${VAR}` and `${VAR, default}`)
+- Dynamic class importing via Python's import system
 
-For example, to replace the job fetcher with a custom module, you can specify the following configuration:
+This approach keeps the configuration simple, explicit, and easy to override across different environments.
 
-```yaml
-job_fetcher:
-  _target_: oqtopus_engine_core.fetcher.OqtopusCloudJobFetcher
-  url: "http://localhost:8888"
-  api_token: ""
-  interval_seconds: 10
-  limits: 10
+### 7.1 Environment Variable Interpolation
+
+OQTOPUS Engine supports two interpolation formats:
+
+#### `${VAR, default}` — with a default value
+
+If the environment variable VAR is unset, the string `default` is inserted into the YAML document as-is, and [PyYAML](https://github.com/yaml/pyyaml) automatically determines its type.
+
+Example:
+
+```text
+gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}   # -> string
+interval_seconds: ${FETCHER_INTERVAL, 10}                # -> int
+use_ssl: ${USE_SSL, false}                               # -> bool
+ratio: ${RATIO, 0.75}                                    # -> float
 ```
+
+If environment variables are set:
+
+```bash
+export FETCHER_INTERVAL=5
+export USE_SSL=true
+```
+
+The resulting YAML becomes:
+
+```text
+interval_seconds: 5
+use_ssl: true
+```
+
+PyYAML then converts these into the appropriate Python types.
+
+#### `${VAR}` — without a default value
+
+If VAR is unset, it is substituted with an empty string:
+
+```text
+host: ${HOST}     # -> "" if HOST is unset
+```
+
+If VAR is set:
+
+```text
+export HOST="example.com"
+```
+
+The resulting YAML becomes:
+
+```text
+host: example.com
+```
+
+### 7.2 Type Handling
+
+OQTOPUS Engine does not implement custom type conversion.
+All type interpretation is delegated to PyYAML, which performs YAML-compliant type inference.
+
+### 7.3 Specifying DI Targets
+
+Each DI-enabled component is configured with a `_target_` field containing the fully qualified class path.
+All remaining fields are passed directly to the constructor of that class.
+
+Example:
+
+```text
+job_fetcher:
+  _target_: oqtopus_engine_core.fetchers.OqtopusCloudJobFetcher
+  url: ${JOB_FETCHER_URL, "http://localhost:8888"}
+  api_token: ${JOB_FETCHER_API_TOKEN}
+  interval_seconds: ${JOB_FETCHER_INTERVAL, 10}
+  limits: ${JOB_FETCHER_LIMITS, 10}
+```
+
+How it works:
+
+1. `_target_` provides the Python import path for the class to instantiate.
+2. Environment-variable interpolation is applied before YAML parsing.
+3. PyYAML parses the resulting YAML and converts values to appropriate Python types.
+4. The DI container dynamically imports the class.
+5. The constructor is called with the parsed field values.
 
 Running the following code instantiates the class specified in `_target_` with the provided arguments:
 
