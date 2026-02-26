@@ -7,7 +7,7 @@ from omegaconf import OmegaConf
 
 from oqtopus_engine_core.framework import Job, JobContext, JobInfo, JobResult
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import mitigator_pb2
-from oqtopus_engine_core.steps.zne_mitigation_step import ZneStep
+from oqtopus_engine_core.steps.zne_step import ZneStep
 
 
 def _build_job(job_type: str = "estimation", fail_open: bool = True) -> Job:
