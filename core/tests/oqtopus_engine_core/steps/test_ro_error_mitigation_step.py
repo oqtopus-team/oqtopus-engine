@@ -70,10 +70,7 @@ async def test_post_process_sampling_applies_readout_mitigation() -> None:
     }
     assert job.job_info.result.mitigation_details == {
         "readout": {
-            "sampling": {
-                "before": {"counts": {"00": 500, "01": 300, "10": 150, "11": 50}},
-                "after": {"counts": {"00": 480, "01": 320, "10": 140, "11": 60}},
-            },
+            "before": {"counts": {"00": 500, "01": 300, "10": 150, "11": 50}},
         }
     }
 

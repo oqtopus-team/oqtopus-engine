@@ -204,10 +204,9 @@ class ReadoutErrorMitigationStep(Step):
             job.job_info.result.sampling.counts = mitigated_counts
             self._record_readout_details(
                 job,
-                target="sampling",
+                target=None,
                 detail={
                     "before": {"counts": deepcopy(orig_counts)},
-                    "after": {"counts": deepcopy(mitigated_counts)},
                 },
             )
             logger.debug(
@@ -376,7 +375,7 @@ class ReadoutErrorMitigationStep(Step):
     def _record_readout_details(
         self,
         job: Job,
-        target: str,
+        target: str | None,
         detail: dict[str, Any],
     ) -> None:
         if job.job_info.result is None:
@@ -392,6 +391,9 @@ class ReadoutErrorMitigationStep(Step):
             readout_details = {}
             mitigation_details["readout"] = readout_details
 
+        if target is None:
+            readout_details.update(detail)
+            return
         readout_details[target] = detail
 
     def _total_shots_from_counts_list(self, counts_list: list[dict[str, int]]) -> int:
