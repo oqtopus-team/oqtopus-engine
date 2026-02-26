@@ -11,6 +11,7 @@ from oqtopus_engine_core.framework import (
     SamplingResult,
     Step,
 )
+from oqtopus_engine_core.framework.step import DetachOnPostprocess
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2, qpu_pb2_grpc
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ def _select_program(job: Job) -> str:
     return transpile_result.transpiled_program
 
 
-class DeviceGatewayStep(Step):
+class DeviceGatewayStep(Step, DetachOnPostprocess):
     """Step that sends a job to the device gateway via gRPC during pre_process."""
 
     def __init__(self, gateway_address: str = "localhost:50051") -> None:
@@ -66,7 +67,7 @@ class DeviceGatewayStep(Step):
 
         # Update job status
         job.status = "running"
-        # TODO nowait
+        # TODO: nowait
         # await gctx.job_repository.update_job_status_nowait(job)
         await gctx.job_repository.update_job_status(job)
 
