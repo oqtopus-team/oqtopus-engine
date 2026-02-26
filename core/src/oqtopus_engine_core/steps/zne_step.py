@@ -175,17 +175,27 @@ class ZneStep(Step):
             mitigation_details = {}
             job.job_info.result.mitigation_details = mitigation_details
 
-        zne_metadata: dict[str, Any] | str | None = None
+        zne_details: dict[str, Any] = {
+            "after": {
+                "exp_value": float(post_response.exp_value),
+                "stds": float(post_response.stds),
+            }
+        }
         if post_response.metadata_json:
             try:
                 parsed = json.loads(post_response.metadata_json)
-                zne_metadata = parsed if isinstance(parsed, dict) else {"value": parsed}
+                if isinstance(parsed, dict) and isinstance(
+                    parsed.get("scale_results"), list
+                ):
+                    scale_results = parsed["scale_results"]
+                    zne_details["scale_results"] = scale_results
+                    before_result = self._select_before_scale_result(scale_results)
+                    if before_result is not None:
+                        zne_details["before"] = before_result
             except json.JSONDecodeError:
-                zne_metadata = post_response.metadata_json
+                logger.warning("failed to parse zne post-process metadata_json")
 
-        mitigation_details["zne"] = {
-            "metadata": zne_metadata,
-        }
+        mitigation_details["zne"] = zne_details
 
     def _resolve_zne_config(
         self, mitigation_info: dict[str, Any]
@@ -219,3 +229,32 @@ class ZneStep(Step):
         if isinstance(value, (list, tuple)):
             return [self._to_builtin(v) for v in value]
         return value
+
+    def _select_before_scale_result(
+        self, scale_results: list[Any]
+    ) -> dict[str, float] | None:
+        candidates: list[dict[str, float]] = []
+        for item in scale_results:
+            if not isinstance(item, dict):
+                continue
+            if "scale_factor" not in item or "exp_value" not in item:
+                continue
+            try:
+                candidate = {
+                    "scale_factor": float(item["scale_factor"]),
+                    "exp_value": float(item["exp_value"]),
+                }
+                if "stds" in item and item["stds"] is not None:
+                    candidate["stds"] = float(item["stds"])
+            except (TypeError, ValueError):
+                continue
+            candidates.append(candidate)
+
+        if not candidates:
+            return None
+
+        for candidate in candidates:
+            if candidate["scale_factor"] == 1.0:
+                return candidate
+
+        return min(candidates, key=lambda item: item["scale_factor"])

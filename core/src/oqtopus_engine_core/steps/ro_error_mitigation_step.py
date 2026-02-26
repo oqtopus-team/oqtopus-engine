@@ -225,7 +225,6 @@ class ReadoutErrorMitigationStep(Step):
             estimation_job_info = jctx["estimation_job_info"]
             if estimation_job_info.counts_list is not None:
                 preprocessed_qasms = estimation_job_info.preprocessed_qasms
-                original_counts_list = deepcopy(estimation_job_info.counts_list)
                 mitigated_counts_list = []
 
                 for index, orig_counts in enumerate(estimation_job_info.counts_list):
@@ -280,10 +279,7 @@ class ReadoutErrorMitigationStep(Step):
                     target="estimation_counts_list",
                     detail={
                         "result_count": len(mitigated_counts_list),
-                        "before_total_shots": self._total_shots_from_counts_list(
-                            original_counts_list
-                        ),
-                        "after_total_shots": self._total_shots_from_counts_list(
+                        "total_shots": self._total_shots_from_counts_list(
                             mitigated_counts_list
                         ),
                     },
@@ -301,7 +297,6 @@ class ReadoutErrorMitigationStep(Step):
                 logger.warning("zne execution results/programs are missing for REM")
                 return
 
-            original_execution_results = deepcopy(execution_results)
             program_map = {
                 (
                     float(item.scale_factor),
@@ -358,10 +353,7 @@ class ReadoutErrorMitigationStep(Step):
                 target="zne_execution_results",
                 detail={
                     "result_count": len(mitigated_execution_results),
-                    "before_total_shots": self._total_shots_from_execution_results(
-                        original_execution_results
-                    ),
-                    "after_total_shots": self._total_shots_from_execution_results(
+                    "total_shots": self._total_shots_from_execution_results(
                         mitigated_execution_results
                     ),
                 },

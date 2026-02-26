@@ -103,7 +103,12 @@ async def test_post_process_calls_req_zne_post_process_and_updates_result() -> N
         return_value=mitigator_pb2.ReqZnePostProcessResponse(
             exp_value=1.23,
             stds=0.45,
-            metadata_json=json.dumps({"ok": True}),
+            metadata_json=json.dumps(
+                {
+                    "scale_results": [{"scale_factor": 1.0, "exp_value": 1.23, "stds": 0.45}],
+                    "factory": "richardson",
+                }
+            ),
         )
     )
 
@@ -134,7 +139,9 @@ async def test_post_process_calls_req_zne_post_process_and_updates_result() -> N
     assert job.job_info.result.estimation.stds == 0.45
     assert job.job_info.result.mitigation_details == {
         "zne": {
-            "metadata": {"ok": True},
+            "after": {"exp_value": 1.23, "stds": 0.45},
+            "before": {"scale_factor": 1.0, "exp_value": 1.23, "stds": 0.45},
+            "scale_results": [{"scale_factor": 1.0, "exp_value": 1.23, "stds": 0.45}],
         }
     }
 
@@ -147,7 +154,12 @@ async def test_post_process_keeps_existing_readout_details_and_adds_zne() -> Non
         return_value=mitigator_pb2.ReqZnePostProcessResponse(
             exp_value=0.5,
             stds=0.1,
-            metadata_json=json.dumps({"ok": True}),
+            metadata_json=json.dumps(
+                {
+                    "scale_results": [{"scale_factor": 1.0, "exp_value": 0.5, "stds": 0.1}],
+                    "folding": "global",
+                }
+            ),
         )
     )
 
@@ -201,7 +213,53 @@ async def test_post_process_keeps_existing_readout_details_and_adds_zne() -> Non
     assert job.job_info.result.mitigation_details is not None
     assert "readout" in job.job_info.result.mitigation_details
     assert job.job_info.result.mitigation_details["zne"] == {
-        "metadata": {"ok": True},
+        "after": {"exp_value": 0.5, "stds": 0.1},
+        "before": {"scale_factor": 1.0, "exp_value": 0.5, "stds": 0.1},
+        "scale_results": [{"scale_factor": 1.0, "exp_value": 0.5, "stds": 0.1}],
+    }
+
+
+@pytest.mark.asyncio
+async def test_post_process_uses_min_scale_factor_as_before_when_scale_1_missing() -> None:
+    step = ZneStep(mitigator_timeout_seconds=5)
+    step._stub = AsyncMock()
+    step._stub.ReqZnePostProcess = AsyncMock(
+        return_value=mitigator_pb2.ReqZnePostProcessResponse(
+            exp_value=0.8,
+            stds=0.2,
+            metadata_json=json.dumps(
+                {
+                    "scale_results": [
+                        {"scale_factor": 2.0, "exp_value": 0.7, "stds": 0.21},
+                        {"scale_factor": 3.0, "exp_value": 0.6, "stds": 0.22},
+                    ]
+                }
+            ),
+        )
+    )
+    jctx = JobContext()
+    jctx["zne_job_info"] = {
+        "grouped_operators_json": json.dumps([[['Z']], [[1.0]]]),
+        "zne_config_json": json.dumps({"enabled": True}),
+        "execution_results": [
+            {
+                "scale_factor": 2.0,
+                "repetition": 0,
+                "program_index": 0,
+                "counts": {"0": 80, "1": 20},
+            }
+        ],
+    }
+    job = _build_job()
+
+    await step.post_process(SimpleNamespace(), jctx, job)
+
+    assert job.job_info.result is not None
+    assert job.job_info.result.mitigation_details is not None
+    assert job.job_info.result.mitigation_details["zne"]["before"] == {
+        "scale_factor": 2.0,
+        "exp_value": 0.7,
+        "stds": 0.21,
     }
 
 

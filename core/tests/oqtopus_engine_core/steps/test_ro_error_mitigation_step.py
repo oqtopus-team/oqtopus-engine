@@ -115,8 +115,7 @@ async def test_post_process_estimation_applies_readout_mitigation_to_counts_list
         "readout": {
             "estimation_counts_list": {
                 "result_count": 2,
-                "before_total_shots": 200,
-                "after_total_shots": 200,
+                "total_shots": 200,
             },
         }
     }
@@ -198,8 +197,7 @@ async def test_post_process_estimation_applies_readout_mitigation_to_zne_executi
         "readout": {
             "zne_execution_results": {
                 "result_count": 1,
-                "before_total_shots": 100,
-                "after_total_shots": 100,
+                "total_shots": 100,
             },
         }
     }
