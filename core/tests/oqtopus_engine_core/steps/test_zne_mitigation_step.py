@@ -191,3 +191,40 @@ async def test_pre_process_ignores_user_fail_open_and_uses_system_setting() -> N
             JobContext(),
             _build_job(job_type="sampling", fail_open=True),
         )
+
+
+@pytest.mark.asyncio
+async def test_pre_process_ignores_user_basis_gates_and_uses_system_setting() -> None:
+    step = ZneMitigationStep(
+        zne_default_config={
+            "basis_gates": ["cx", "rz"],
+        }
+    )
+    step._stub = AsyncMock()
+    step._stub.ReqZnePreProcess = AsyncMock(
+        return_value=mitigator_pb2.ReqZnePreProcessResponse(
+            execution_programs=[
+                mitigator_pb2.ZneExecutionProgram(
+                    scale_factor=1.0,
+                    repetition=0,
+                    program_index=0,
+                    suffix="s1-r0-p0",
+                    program="folded",
+                )
+            ]
+        )
+    )
+    jctx = JobContext()
+    jctx["estimation_job_info"] = SimpleNamespace(
+        preprocessed_qasms=['OPENQASM 3.0; include "stdgates.inc";'],
+        grouped_operators=[[['Z']], [[1.0]]],
+        counts_list=None,
+    )
+    job = _build_job()
+    job.mitigation_info = {"zne": {"params": {"basis_gates": ["x", "sx"]}}}
+
+    await step.pre_process(SimpleNamespace(), jctx, job)
+
+    request = step._stub.ReqZnePreProcess.await_args.args[0]
+    parsed = json.loads(request.zne_config_json)
+    assert parsed["basis_gates"] == ["cx", "rz"]

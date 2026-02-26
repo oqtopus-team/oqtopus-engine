@@ -188,8 +188,10 @@ class ZneMitigationStep(Step):
             # Backward compatibility: old flat schema under mitigation_info["zne"].
             zne_cfg.update(zne_raw_builtin)
 
-        # fail_open is system-controlled and cannot be overridden from user mitigation_info.
+        # fail_open and basis_gates are system-controlled and cannot be overridden
+        # from user mitigation_info.
         zne_cfg["fail_open"] = bool(self._zne_default_config.get("fail_open", True))
+        zne_cfg["basis_gates"] = self._to_builtin(self._zne_default_config.get("basis_gates"))
         fail_open = bool(zne_cfg["fail_open"])
         return self._to_builtin(zne_cfg), fail_open
 
