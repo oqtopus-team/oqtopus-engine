@@ -1,69 +1,81 @@
-# fetcher configurations
-_job_fetcher:
-  _target_: oqtopus_engine_core.fetchers.MockJobFetcher
-  interval_seconds: ${oc.decode:${oc.env:JOB_FETCHER_INTERVAL_SECONDS, 10}}
-  limit: ${oc.decode:${oc.env:JOB_FETCHER_LIMIT, 10}}
-  job_fetch_threshold: ${oc.decode:${oc.env:JOB_FETCHER_THRESHOLD, 10}}
-job_fetcher:
-  _target_: oqtopus_engine_core.fetchers.SseEngineGateway
-  sse_engine_address: ${oc.env:SSE_ENGINE_ADDRESS, "localhost:52014"}
-device_fetcher:
-  _target_: oqtopus_engine_core.fetchers.DeviceGatewayFetcher
-  gateway_address: ${oc.env:GATEWAY_ADDRESS, "localhost:52021"}
-  initial_interval_seconds: ${oc.decode:${oc.env:DEVICE_FETCHER_INITIAL_INTERVAL_SECONDS, 10}}
-  initial_backoff_max_seconds: ${oc.decode:${oc.env:DEVICE_FETCHER_INITIAL_BACKOFF_MAX_SECONDS, 60}}
-  loop_interval_seconds: ${oc.decode:${oc.env:DEVICE_FETCHER_LOOP_INTERVAL_SECONDS, 60}}
-  loop_backoff_max_seconds: ${oc.decode:${oc.env:DEVICE_FETCHER_LOOP_BACKOFF_MAX_SECONDS, 300}}
-  enable_device_info_update: ${oc.decode:${oc.env:DEVICE_FETCHER_ENABLE_DEVICE_INFO_UPDATE, true}}
+di_container:
+  registry:
+    # fetcher configurations
+    _job_fetcher:
+      _target_: oqtopus_engine_core.fetchers.MockJobFetcher
+      interval_seconds: ${JOB_FETCHER_INTERVAL_SECONDS, 10}
+      limit: ${JOB_FETCHER_LIMIT, 10}
+      job_fetch_threshold: ${JOB_FETCHER_THRESHOLD, 10}
 
-# repository configurations
-job_repository:
-  _target_: oqtopus_engine_core.repositories.NullJobRepository
-device_repository:
-  _target_: oqtopus_engine_core.repositories.NullDeviceRepository
+    job_fetcher:
+      _target_: oqtopus_engine_core.fetchers.SseEngineGateway
+      sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:52014"}
 
-# buffer configurations
-buffer:
-  _target_: oqtopus_engine_core.buffers.QueueBuffer
+    device_fetcher:
+      _target_: oqtopus_engine_core.fetchers.DeviceGatewayFetcher
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      initial_interval_seconds: ${DEVICE_FETCHER_INITIAL_INTERVAL_SECONDS, 10}
+      initial_backoff_max_seconds: ${DEVICE_FETCHER_INITIAL_BACKOFF_MAX_SECONDS, 60}
+      loop_interval_seconds: ${DEVICE_FETCHER_LOOP_INTERVAL_SECONDS, 60}
+      loop_backoff_max_seconds: ${DEVICE_FETCHER_LOOP_BACKOFF_MAX_SECONDS, 300}
+      enable_device_info_update: ${DEVICE_FETCHER_ENABLE_DEVICE_INFO_UPDATE, true}
 
-# step configurations
-debug_step:
-  _target_: oqtopus_engine_core.steps.DebugStep
-job_repository_update_step:
-  _target_: oqtopus_engine_core.steps.JobRepositoryUpdateStep
-multi_manual_step:
-  _target_: oqtopus_engine_core.steps.MultiManualStep
-  combiner_address: ${oc.env:COMBINER_ADDRESS, "localhost:52013"}
-tranqu_step:
-  _target_: oqtopus_engine_core.steps.TranquStep
-  tranqu_address: ${oc.env:TRANQU_ADDRESS, "localhost:52020"}
-  default_transpiler_info:
-    transpiler_lib: qiskit
-    transpiler_options:
-      optimization_level: 1
-estimator_step:
-  _target_: oqtopus_engine_core.steps.EstimatorStep
-  estimator_address: ${oc.env:ESTIMATOR_ADDRESS, "localhost:52012"}
-  basis_gates:
-    - "cx"
-    - "id"
-    - "rz"
-    - "sx"
-    - "x"
-    - "reset"
-    - "delay"
-    - "measure"
-ro_error_mitigation_step:
-  _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
-  mitigator_address: ${oc.env:MITIGATOR_ADDRESS, "localhost:52011"}
-device_gateway_step:
-  _target_: oqtopus_engine_core.steps.DeviceGatewayStep
-  gateway_address: ${oc.env:GATEWAY_ADDRESS, "localhost:52021"}
-sse_step:
-  _target_: oqtopus_engine_core.steps.sse_step.SseStep
-  runner_settings:
-    sse_engine_port: ${oc.decode:${oc.env:SSE_GATEWAY_ROUTER_LISTEN_PORT, 52014}}
+    # repository configurations
+    job_repository:
+      _target_: oqtopus_engine_core.repositories.NullJobRepository
 
-# exception handler configurations
-pipeline_exception_handler:
-  _target_: oqtopus_engine_core.handlers.FailJobRepositoryHandler
+    device_repository:
+      _target_: oqtopus_engine_core.repositories.NullDeviceRepository
+
+    # buffer configurations
+    buffer:
+      _target_: oqtopus_engine_core.buffers.QueueBuffer
+
+    # step configurations
+    debug_step:
+      _target_: oqtopus_engine_core.steps.DebugStep
+
+    job_repository_update_step:
+      _target_: oqtopus_engine_core.steps.JobRepositoryUpdateStep
+
+    multi_manual_step:
+      _target_: oqtopus_engine_core.steps.MultiManualStep
+      combiner_address: ${COMBINER_ADDRESS, "localhost:52013"}
+
+    tranqu_step:
+      _target_: oqtopus_engine_core.steps.TranquStep
+      tranqu_address: ${TRANQU_ADDRESS, "localhost:52020"}
+      default_transpiler_info:
+        transpiler_lib: qiskit
+        transpiler_options:
+          optimization_level: 1
+
+    estimator_step:
+      _target_: oqtopus_engine_core.steps.EstimatorStep
+      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:52012"}
+      basis_gates:
+        - "cx"
+        - "id"
+        - "rz"
+        - "sx"
+        - "x"
+        - "reset"
+        - "delay"
+        - "measure"
+
+    ro_error_mitigation_step:
+      _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
+      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+
+    device_gateway_step:
+      _target_: oqtopus_engine_core.steps.DeviceGatewayStep
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+
+    sse_step:
+      _target_: oqtopus_engine_core.steps.sse_step.SseStep
+      runner_settings:
+        sse_engine_port: ${SSE_GATEWAY_ROUTER_LISTEN_PORT, 52014}
+
+    # exception handler configurations
+    pipeline_exception_handler:
+      _target_: oqtopus_engine_core.handlers.FailJobRepositoryHandler
