@@ -73,6 +73,11 @@ class ZneStep(Step):
 
         if job.job_type != "estimation":
             if fail_open:
+                self._record_zne_fallback(
+                    job=job,
+                    reason="zne is supported only for estimation jobs",
+                    stage="pre_process",
+                )
                 logger.warning(
                     "zne is configured for non-estimation job, skipping due to fail_open",
                     extra={"job_id": job.job_id, "job_type": job.job_type},
@@ -83,6 +88,11 @@ class ZneStep(Step):
 
         if "estimation_job_info" not in jctx:
             if fail_open:
+                self._record_zne_fallback(
+                    job=job,
+                    reason="estimation_job_info not found in jctx",
+                    stage="pre_process",
+                )
                 logger.warning(
                     "estimation_job_info not found in jctx for zne, fallback allowed",
                     extra={"job_id": job.job_id, "job_type": job.job_type},
@@ -94,6 +104,11 @@ class ZneStep(Step):
         grouped_operators = estimation_job_info.grouped_operators
         if grouped_operators is None:
             if fail_open:
+                self._record_zne_fallback(
+                    job=job,
+                    reason="grouped_operators is None in estimation_job_info",
+                    stage="pre_process",
+                )
                 logger.warning(
                     "grouped_operators is None in estimation_job_info for zne, fallback allowed",
                     extra={"job_id": job.job_id, "job_type": job.job_type},
@@ -113,8 +128,13 @@ class ZneStep(Step):
                 pre_request,
                 timeout=self._mitigator_timeout_seconds,
             )
-        except Exception:
+        except Exception as exc:
             if fail_open:
+                self._record_zne_fallback(
+                    job=job,
+                    reason=str(exc),
+                    stage="pre_process",
+                )
                 logger.exception(
                     "ReqZnePreProcess failed, fallback allowed",
                     extra={"job_id": job.job_id, "job_type": job.job_type},
@@ -175,12 +195,7 @@ class ZneStep(Step):
             mitigation_details = {}
             job.job_info.result.mitigation_details = mitigation_details
 
-        zne_details: dict[str, Any] = {
-            "after": {
-                "exp_value": float(post_response.exp_value),
-                "stds": float(post_response.stds),
-            }
-        }
+        zne_details: dict[str, Any] = {}
         if post_response.metadata_json:
             try:
                 parsed = json.loads(post_response.metadata_json)
@@ -189,9 +204,6 @@ class ZneStep(Step):
                 ):
                     scale_results = parsed["scale_results"]
                     zne_details["scale_results"] = scale_results
-                    before_result = self._select_before_scale_result(scale_results)
-                    if before_result is not None:
-                        zne_details["before"] = before_result
             except json.JSONDecodeError:
                 logger.warning("failed to parse zne post-process metadata_json")
 
@@ -230,31 +242,20 @@ class ZneStep(Step):
             return [self._to_builtin(v) for v in value]
         return value
 
-    def _select_before_scale_result(
-        self, scale_results: list[Any]
-    ) -> dict[str, float] | None:
-        candidates: list[dict[str, float]] = []
-        for item in scale_results:
-            if not isinstance(item, dict):
-                continue
-            if "scale_factor" not in item or "exp_value" not in item:
-                continue
-            try:
-                candidate = {
-                    "scale_factor": float(item["scale_factor"]),
-                    "exp_value": float(item["exp_value"]),
-                }
-                if "stds" in item and item["stds"] is not None:
-                    candidate["stds"] = float(item["stds"])
-            except (TypeError, ValueError):
-                continue
-            candidates.append(candidate)
+    def _record_zne_fallback(self, job: Job, reason: str, stage: str) -> None:
+        if job.job_info.result is None:
+            job.job_info.result = JobResult()
 
-        if not candidates:
-            return None
+        mitigation_details = job.job_info.result.mitigation_details
+        if not isinstance(mitigation_details, dict):
+            mitigation_details = {}
+            job.job_info.result.mitigation_details = mitigation_details
 
-        for candidate in candidates:
-            if candidate["scale_factor"] == 1.0:
-                return candidate
+        zne_details = mitigation_details.get("zne")
+        if not isinstance(zne_details, dict):
+            zne_details = {}
+            mitigation_details["zne"] = zne_details
 
-        return min(candidates, key=lambda item: item["scale_factor"])
+        zne_details["status"] = "fallback"
+        zne_details["stage"] = stage
+        zne_details["reason"] = reason
