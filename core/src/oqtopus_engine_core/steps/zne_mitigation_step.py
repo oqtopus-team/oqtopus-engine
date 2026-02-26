@@ -66,11 +66,11 @@ class ZneMitigationStep(Step):
         jctx: JobContext,
         job: Job,
     ) -> None:
-        zne_config = self._resolve_zne_config(job.mitigation_info or {})
-        if not bool(zne_config.get("enabled", False)):
+        resolved = self._resolve_zne_config(job.mitigation_info or {})
+        if resolved is None:
             return
+        zne_config, fail_open = resolved
 
-        fail_open = bool(zne_config.get("fail_open", True))
         if job.job_type != "estimation":
             if fail_open:
                 logger.warning(
@@ -170,12 +170,28 @@ class ZneMitigationStep(Step):
         job.job_info.result.estimation.exp_value = float(post_response.exp_value)
         job.job_info.result.estimation.stds = float(post_response.stds)
 
-    def _resolve_zne_config(self, mitigation_info: dict[str, Any]) -> dict[str, Any]:
+    def _resolve_zne_config(
+        self, mitigation_info: dict[str, Any]
+    ) -> tuple[dict[str, Any], bool] | None:
+        zne_raw = mitigation_info.get("zne")
+        if not isinstance(zne_raw, dict):
+            return None
+
         zne_cfg = dict(self._zne_default_config)
-        req_cfg = mitigation_info.get("zne")
-        if isinstance(req_cfg, dict):
-            zne_cfg.update(req_cfg)
-        return self._to_builtin(zne_cfg)
+        zne_raw_builtin = self._to_builtin(zne_raw)
+        req_params = zne_raw_builtin.get("params")
+
+        # New schema: {"zne": {"params": {...}}}
+        if isinstance(req_params, dict):
+            zne_cfg.update(req_params)
+        else:
+            # Backward compatibility: old flat schema under mitigation_info["zne"].
+            zne_cfg.update(zne_raw_builtin)
+
+        # fail_open is system-controlled and cannot be overridden from user mitigation_info.
+        zne_cfg["fail_open"] = bool(self._zne_default_config.get("fail_open", True))
+        fail_open = bool(zne_cfg["fail_open"])
+        return self._to_builtin(zne_cfg), fail_open
 
     def _to_builtin(self, value: Any) -> Any:
         if OmegaConf.is_config(value):

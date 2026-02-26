@@ -18,7 +18,7 @@ def _build_job() -> Job:
         job_info=JobInfo(program=['OPENQASM 3.0; include "stdgates.inc";']),
         transpiler_info={},
         simulator_info={},
-        mitigation_info={"zne": {"enabled": True, "fail_open": False}},
+        mitigation_info={"zne": {"params": {}}},
         status="ready",
     )
 
@@ -122,7 +122,7 @@ async def test_estimation_with_zne_fail_open_falls_back_to_direct_estimation() -
         "fail_open": True,
     }
     job = _build_job()
-    job.mitigation_info = {"zne": {"enabled": True, "fail_open": True}}
+    job.mitigation_info = {"zne": {"params": {}}}
 
     await step.pre_process(gctx, jctx, job)
 

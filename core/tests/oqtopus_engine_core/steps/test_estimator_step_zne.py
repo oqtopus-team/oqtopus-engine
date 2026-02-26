@@ -40,7 +40,7 @@ async def test_post_process_skips_when_result_is_precomputed() -> None:
         ),
         transpiler_info={},
         simulator_info={},
-        mitigation_info={"zne": {"enabled": True}},
+        mitigation_info={"zne": {"params": {}}},
         status="ready",
     )
 

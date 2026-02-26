@@ -19,7 +19,7 @@ def _build_job(job_type: str = "estimation", fail_open: bool = True) -> Job:
         job_info=JobInfo(program=['OPENQASM 3.0; include "stdgates.inc";']),
         transpiler_info={},
         simulator_info={},
-        mitigation_info={"zne": {"enabled": True, "fail_open": fail_open}},
+        mitigation_info={"zne": {"params": {"fail_open": fail_open}}},
         status="ready",
     )
 
@@ -68,7 +68,7 @@ async def test_sampling_with_zne_is_skipped_when_fail_open_true() -> None:
 
 @pytest.mark.asyncio
 async def test_sampling_with_zne_raises_when_fail_open_false() -> None:
-    step = ZneMitigationStep()
+    step = ZneMitigationStep(zne_default_config={"fail_open": False})
     with pytest.raises(ValueError, match="supported only for estimation"):
         await step.pre_process(
             SimpleNamespace(),
@@ -90,8 +90,9 @@ async def test_grouped_operators_none_behavior() -> None:
     await step.pre_process(SimpleNamespace(), jctx, _build_job(fail_open=True))
     assert "zne_job_info" not in jctx
 
+    step_fail_closed = ZneMitigationStep(zne_default_config={"fail_open": False})
     with pytest.raises(ValueError, match="grouped_operators is None"):
-        await step.pre_process(SimpleNamespace(), jctx, _build_job(fail_open=False))
+        await step_fail_closed.pre_process(SimpleNamespace(), jctx, _build_job(fail_open=False))
 
 
 @pytest.mark.asyncio
@@ -171,7 +172,7 @@ async def test_pre_process_handles_omegaconf_in_default_config() -> None:
         counts_list=None,
     )
     job = _build_job()
-    job.mitigation_info = {}
+    job.mitigation_info = {"zne": {"params": {}}}
 
     await step.pre_process(SimpleNamespace(), jctx, job)
 
@@ -179,3 +180,14 @@ async def test_pre_process_handles_omegaconf_in_default_config() -> None:
     request = step._stub.ReqZnePreProcess.await_args.args[0]
     parsed = json.loads(request.zne_config_json)
     assert parsed["basis_gates"] == ["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"]
+
+
+@pytest.mark.asyncio
+async def test_pre_process_ignores_user_fail_open_and_uses_system_setting() -> None:
+    step = ZneMitigationStep(zne_default_config={"fail_open": False})
+    with pytest.raises(ValueError, match="supported only for estimation"):
+        await step.pre_process(
+            SimpleNamespace(),
+            JobContext(),
+            _build_job(job_type="sampling", fail_open=True),
+        )

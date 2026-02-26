@@ -53,7 +53,7 @@ async def test_post_process_sampling_applies_readout_mitigation() -> None:
         ),
         transpiler_info={},
         simulator_info={},
-        mitigation_info={"ro_error_mitigation": "pseudo_inverse"},
+        mitigation_info={"readout": {"method": "local", "params": {}}},
         status="ready",
     )
 
@@ -94,7 +94,7 @@ async def test_post_process_estimation_applies_readout_mitigation_to_counts_list
         job_info=JobInfo(program=["OPENQASM 3.0; include \"stdgates.inc\";"]),
         transpiler_info={},
         simulator_info={},
-        mitigation_info={"ro_error_mitigation": "pseudo_inverse"},
+        mitigation_info={"readout": {"method": "local", "params": {}}},
         status="ready",
     )
 
@@ -167,7 +167,7 @@ async def test_post_process_estimation_applies_readout_mitigation_to_zne_executi
         job_info=JobInfo(program=["OPENQASM 3.0; include \"stdgates.inc\";"]),
         transpiler_info={},
         simulator_info={},
-        mitigation_info={"ro_error_mitigation": "pseudo_inverse", "zne": {"enabled": True}},
+        mitigation_info={"readout": {"method": "local", "params": {}}, "zne": {"params": {}}},
         status="ready",
     )
 

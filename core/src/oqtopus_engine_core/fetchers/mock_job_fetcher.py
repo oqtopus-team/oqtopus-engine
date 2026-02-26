@@ -93,7 +93,7 @@ class MockJobFetcher(JobFetcher):
                         transpiler_info={},
                         simulator_info={},
                         mitigation_info={
-                            "ro_error_mitigation": "pseudo_inverse",
+                            "readout": {"method": "local", "params": {}},
                         },
                         status="ready",
                     )
