@@ -231,102 +231,29 @@ for example through the Device Gateway interface, for use by the transpiler and 
 
 ## 7. Dependency Injection
 
-External interfaces such as fetchers, buffers, or hooks often need to be swapped depending on the execution environment.
-To support this, OQTOPUS Engine provides a lightweight dependency injection (DI) mechanism based on:
+OQTOPUS Engine allows external components—such as job fetchers, device
+fetchers, buffers, and hooks—to be swapped depending on the execution
+environment. This flexibility is achieved through a lightweight dependency
+injection (DI) system based on configuration files.
 
-- Plain YAML configuration files
-- Environment-variable interpolation (`${VAR}` and `${VAR, default}`)
-- Dynamic class importing via Python's import system
+The core concept is simple:
 
-This approach keeps the configuration simple, explicit, and easy to override across different environments.
+- Each external component is declared in the configuration using a name.
+- The configuration specifies which Python class should be instantiated.
+- The engine resolves and constructs components dynamically at runtime.
+- This mechanism decouples the engine’s internal logic from environment-specific
+  implementations.
 
-### 7.1 Environment Variable Interpolation
+The DI system used by OQTOPUS Engine is intentionally minimal. It avoids large
+frameworks and focuses only on the essential responsibility: mapping
+configuration entries to concrete Python objects in a predictable, testable, and
+extensible manner.
 
-OQTOPUS Engine supports two interpolation formats:
+For detailed specifications—such as `_target_`, `_scope_`, constructor argument
+rules, and environment variable interpolation—refer to the dedicated design
+document:
 
-#### `${VAR, default}` — with a default value
-
-If the environment variable VAR is unset, the string `default` is inserted into the YAML document as-is, and [PyYAML](https://github.com/yaml/pyyaml) automatically determines its type.
-
-Example:
-
-```text
-gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}   # -> string
-interval_seconds: ${FETCHER_INTERVAL, 10}                # -> int
-use_ssl: ${USE_SSL, false}                               # -> bool
-ratio: ${RATIO, 0.75}                                    # -> float
-```
-
-If environment variables are set:
-
-```bash
-export FETCHER_INTERVAL=5
-export USE_SSL=true
-```
-
-The resulting YAML becomes:
-
-```text
-interval_seconds: 5
-use_ssl: true
-```
-
-PyYAML then converts these into the appropriate Python types.
-
-#### `${VAR}` — without a default value
-
-If VAR is unset, it is substituted with an empty string:
-
-```text
-host: ${HOST}     # -> "" if HOST is unset
-```
-
-If VAR is set:
-
-```text
-export HOST="example.com"
-```
-
-The resulting YAML becomes:
-
-```text
-host: example.com
-```
-
-### 7.2 Type Handling
-
-OQTOPUS Engine does not implement custom type conversion.
-All type interpretation is delegated to PyYAML, which performs YAML-compliant type inference.
-
-### 7.3 Specifying DI Targets
-
-Each DI-enabled component is configured with a `_target_` field containing the fully qualified class path.
-All remaining fields are passed directly to the constructor of that class.
-
-Example:
-
-```text
-job_fetcher:
-  _target_: oqtopus_engine_core.fetchers.OqtopusCloudJobFetcher
-  url: ${JOB_FETCHER_URL, "http://localhost:8888"}
-  api_token: ${JOB_FETCHER_API_TOKEN}
-  interval_seconds: ${JOB_FETCHER_INTERVAL, 10}
-  limits: ${JOB_FETCHER_LIMITS, 10}
-```
-
-How it works:
-
-1. `_target_` provides the Python import path for the class to instantiate.
-2. Environment-variable interpolation is applied before YAML parsing.
-3. PyYAML parses the resulting YAML and converts values to appropriate Python types.
-4. The DI container dynamically imports the class.
-5. The constructor is called with the parsed field values.
-
-Running the following code instantiates the class specified in `_target_` with the provided arguments:
-
-```python
-job_fetcher: JobFetcher = instantiate(gctx.config["job_fetcher"])
-```
+See: [Dependency Injection](di.md)
 
 ## 8. Exception Handling
 
