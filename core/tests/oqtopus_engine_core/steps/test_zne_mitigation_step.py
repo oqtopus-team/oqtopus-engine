@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock
 import pytest
 from omegaconf import OmegaConf
 
-from oqtopus_engine_core.framework import Job, JobContext, JobInfo
+from oqtopus_engine_core.framework import Job, JobContext, JobInfo, JobResult
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import mitigator_pb2
-from oqtopus_engine_core.steps.zne_mitigation_step import ZneMitigationStep
+from oqtopus_engine_core.steps.zne_mitigation_step import ZneStep
 
 
 def _build_job(job_type: str = "estimation", fail_open: bool = True) -> Job:
@@ -26,7 +26,7 @@ def _build_job(job_type: str = "estimation", fail_open: bool = True) -> Job:
 
 @pytest.mark.asyncio
 async def test_pre_process_calls_req_zne_pre_process() -> None:
-    step = ZneMitigationStep(mitigator_timeout_seconds=5)
+    step = ZneStep(mitigator_timeout_seconds=5)
     step._stub = AsyncMock()
     step._stub.ReqZnePreProcess = AsyncMock(
         return_value=mitigator_pb2.ReqZnePreProcessResponse(
@@ -58,7 +58,7 @@ async def test_pre_process_calls_req_zne_pre_process() -> None:
 
 @pytest.mark.asyncio
 async def test_sampling_with_zne_is_skipped_when_fail_open_true() -> None:
-    step = ZneMitigationStep()
+    step = ZneStep()
     jctx = JobContext()
 
     await step.pre_process(SimpleNamespace(), jctx, _build_job(job_type="sampling", fail_open=True))
@@ -68,7 +68,7 @@ async def test_sampling_with_zne_is_skipped_when_fail_open_true() -> None:
 
 @pytest.mark.asyncio
 async def test_sampling_with_zne_raises_when_fail_open_false() -> None:
-    step = ZneMitigationStep(zne_default_config={"fail_open": False})
+    step = ZneStep(zne_default_config={"fail_open": False})
     with pytest.raises(ValueError, match="supported only for estimation"):
         await step.pre_process(
             SimpleNamespace(),
@@ -79,7 +79,7 @@ async def test_sampling_with_zne_raises_when_fail_open_false() -> None:
 
 @pytest.mark.asyncio
 async def test_grouped_operators_none_behavior() -> None:
-    step = ZneMitigationStep()
+    step = ZneStep()
     jctx = JobContext()
     jctx["estimation_job_info"] = SimpleNamespace(
         preprocessed_qasms=['OPENQASM 3.0; include "stdgates.inc";'],
@@ -90,14 +90,14 @@ async def test_grouped_operators_none_behavior() -> None:
     await step.pre_process(SimpleNamespace(), jctx, _build_job(fail_open=True))
     assert "zne_job_info" not in jctx
 
-    step_fail_closed = ZneMitigationStep(zne_default_config={"fail_open": False})
+    step_fail_closed = ZneStep(zne_default_config={"fail_open": False})
     with pytest.raises(ValueError, match="grouped_operators is None"):
         await step_fail_closed.pre_process(SimpleNamespace(), jctx, _build_job(fail_open=False))
 
 
 @pytest.mark.asyncio
 async def test_post_process_calls_req_zne_post_process_and_updates_result() -> None:
-    step = ZneMitigationStep(mitigator_timeout_seconds=5)
+    step = ZneStep(mitigator_timeout_seconds=5)
     step._stub = AsyncMock()
     step._stub.ReqZnePostProcess = AsyncMock(
         return_value=mitigator_pb2.ReqZnePostProcessResponse(
@@ -132,11 +132,82 @@ async def test_post_process_calls_req_zne_post_process_and_updates_result() -> N
     assert job.job_info.result.estimation is not None
     assert job.job_info.result.estimation.exp_value == 1.23
     assert job.job_info.result.estimation.stds == 0.45
+    assert job.job_info.result.mitigation_details == {
+        "zne": {
+            "metadata": {"ok": True},
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_post_process_keeps_existing_readout_details_and_adds_zne() -> None:
+    step = ZneStep(mitigator_timeout_seconds=5)
+    step._stub = AsyncMock()
+    step._stub.ReqZnePostProcess = AsyncMock(
+        return_value=mitigator_pb2.ReqZnePostProcessResponse(
+            exp_value=0.5,
+            stds=0.1,
+            metadata_json=json.dumps({"ok": True}),
+        )
+    )
+
+    jctx = JobContext()
+    jctx["zne_job_info"] = {
+        "grouped_operators_json": json.dumps([[['Z']], [[1.0]]]),
+        "zne_config_json": json.dumps({"enabled": True}),
+        "execution_results": [
+            {
+                "scale_factor": 1.0,
+                "repetition": 0,
+                "program_index": 0,
+                "counts": {"0": 95, "1": 5},
+            }
+        ],
+    }
+    job = _build_job()
+    job.job_info.result = JobResult(
+        mitigation_details={
+            "readout": {
+                "method": "local",
+                "zne_execution_results": {
+                    "before": {
+                        "execution_results": [
+                            {
+                                "scale_factor": 1.0,
+                                "repetition": 0,
+                                "program_index": 0,
+                                "counts": {"0": 90, "1": 10},
+                            }
+                        ]
+                    },
+                    "after": {
+                        "execution_results": [
+                            {
+                                "scale_factor": 1.0,
+                                "repetition": 0,
+                                "program_index": 0,
+                                "counts": {"0": 95, "1": 5},
+                            }
+                        ]
+                    },
+                },
+            }
+        }
+    )
+
+    await step.post_process(SimpleNamespace(), jctx, job)
+
+    assert job.job_info.result is not None
+    assert job.job_info.result.mitigation_details is not None
+    assert "readout" in job.job_info.result.mitigation_details
+    assert job.job_info.result.mitigation_details["zne"] == {
+        "metadata": {"ok": True},
+    }
 
 
 @pytest.mark.asyncio
 async def test_pre_process_handles_omegaconf_in_default_config() -> None:
-    step = ZneMitigationStep(
+    step = ZneStep(
         zne_default_config=OmegaConf.create(
             {
                 "enabled": True,
@@ -184,7 +255,7 @@ async def test_pre_process_handles_omegaconf_in_default_config() -> None:
 
 @pytest.mark.asyncio
 async def test_pre_process_ignores_user_fail_open_and_uses_system_setting() -> None:
-    step = ZneMitigationStep(zne_default_config={"fail_open": False})
+    step = ZneStep(zne_default_config={"fail_open": False})
     with pytest.raises(ValueError, match="supported only for estimation"):
         await step.pre_process(
             SimpleNamespace(),
@@ -195,7 +266,7 @@ async def test_pre_process_ignores_user_fail_open_and_uses_system_setting() -> N
 
 @pytest.mark.asyncio
 async def test_pre_process_ignores_user_basis_gates_and_uses_system_setting() -> None:
-    step = ZneMitigationStep(
+    step = ZneStep(
         zne_default_config={
             "basis_gates": ["cx", "rz"],
         }
@@ -232,7 +303,7 @@ async def test_pre_process_ignores_user_basis_gates_and_uses_system_setting() ->
 
 @pytest.mark.asyncio
 async def test_pre_process_skips_legacy_zne_format_without_params() -> None:
-    step = ZneMitigationStep()
+    step = ZneStep()
     step._stub = AsyncMock()
     jctx = JobContext()
     jctx["estimation_job_info"] = SimpleNamespace(

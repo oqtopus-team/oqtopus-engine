@@ -61,7 +61,7 @@ ro_error_mitigation_step:
   mitigator_address: ${oc.env:MITIGATOR_ADDRESS, "localhost:52011"}
   mitigator_timeout_seconds: ${oc.decode:${oc.env:MITIGATOR_TIMEOUT_SECONDS, 120}}
 zne_mitigation_step:
-  _target_: oqtopus_engine_core.steps.ZneMitigationStep
+  _target_: oqtopus_engine_core.steps.ZneStep
   mitigator_address: ${oc.env:MITIGATOR_ADDRESS, "localhost:52011"}
   mitigator_timeout_seconds: ${oc.decode:${oc.env:MITIGATOR_TIMEOUT_SECONDS, 120}}
   zne_default_config:

@@ -54,6 +54,7 @@ class JobResult(BaseModel):
 
     sampling: SamplingResult | None = None
     estimation: EstimationResult | None = None
+    mitigation_details: dict[str, Any] | None = None
 
 
 class JobInfo(BaseModel):

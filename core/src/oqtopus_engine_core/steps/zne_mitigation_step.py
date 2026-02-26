@@ -21,7 +21,7 @@ from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
 logger = logging.getLogger(__name__)
 
 
-class ZneMitigationStep(Step):
+class ZneStep(Step):
     """Prepare ZNE request in pre_process and apply response in post_process."""
 
     def __init__(
@@ -52,7 +52,7 @@ class ZneMitigationStep(Step):
                 resolved_default_config = dict(zne_default_config)
             self._zne_default_config.update(resolved_default_config)
         logger.info(
-            "ZneMitigationStep was initialized",
+            "ZneStep was initialized",
             extra={
                 "mitigator_address": mitigator_address,
                 "mitigator_timeout_seconds": mitigator_timeout_seconds,
@@ -169,6 +169,23 @@ class ZneMitigationStep(Step):
             job.job_info.result.estimation = EstimationResult()
         job.job_info.result.estimation.exp_value = float(post_response.exp_value)
         job.job_info.result.estimation.stds = float(post_response.stds)
+
+        mitigation_details = job.job_info.result.mitigation_details
+        if not isinstance(mitigation_details, dict):
+            mitigation_details = {}
+            job.job_info.result.mitigation_details = mitigation_details
+
+        zne_metadata: dict[str, Any] | str | None = None
+        if post_response.metadata_json:
+            try:
+                parsed = json.loads(post_response.metadata_json)
+                zne_metadata = parsed if isinstance(parsed, dict) else {"value": parsed}
+            except json.JSONDecodeError:
+                zne_metadata = post_response.metadata_json
+
+        mitigation_details["zne"] = {
+            "metadata": zne_metadata,
+        }
 
     def _resolve_zne_config(
         self, mitigation_info: dict[str, Any]

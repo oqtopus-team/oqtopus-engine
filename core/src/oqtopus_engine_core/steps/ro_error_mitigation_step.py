@@ -1,6 +1,8 @@
 import json
 import logging
 import time
+from copy import deepcopy
+from typing import Any
 
 import grpc
 
@@ -8,6 +10,7 @@ from oqtopus_engine_core.framework import (
     GlobalContext,
     Job,
     JobContext,
+    JobResult,
     Step,
 )
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
@@ -199,6 +202,12 @@ class ReadoutErrorMitigationStep(Step):
 
             # Update the job's result with mitigated counts
             job.job_info.result.sampling.counts = mitigated_counts
+            self._record_readout_details(
+                job,
+                target="sampling",
+                before={"counts": deepcopy(orig_counts)},
+                after={"counts": deepcopy(mitigated_counts)},
+            )
             logger.debug(
                 "ro_error_mitigated_counts is %s, original_counts is %s",
                 mitigated_counts,
@@ -214,6 +223,7 @@ class ReadoutErrorMitigationStep(Step):
             estimation_job_info = jctx["estimation_job_info"]
             if estimation_job_info.counts_list is not None:
                 preprocessed_qasms = estimation_job_info.preprocessed_qasms
+                original_counts_list = deepcopy(estimation_job_info.counts_list)
                 mitigated_counts_list = []
 
                 for index, orig_counts in enumerate(estimation_job_info.counts_list):
@@ -263,6 +273,12 @@ class ReadoutErrorMitigationStep(Step):
 
                 # Update counts_list with mitigated results
                 estimation_job_info.counts_list = mitigated_counts_list
+                self._record_readout_details(
+                    job,
+                    target="estimation_counts_list",
+                    before={"counts_list": original_counts_list},
+                    after={"counts_list": deepcopy(mitigated_counts_list)},
+                )
                 return
 
             # If direct estimation counts are absent, apply REM to ZNE execution results.
@@ -276,6 +292,7 @@ class ReadoutErrorMitigationStep(Step):
                 logger.warning("zne execution results/programs are missing for REM")
                 return
 
+            original_execution_results = deepcopy(execution_results)
             program_map = {
                 (
                     float(item.scale_factor),
@@ -327,6 +344,12 @@ class ReadoutErrorMitigationStep(Step):
                     }
                 )
             zne_job_info["execution_results"] = mitigated_execution_results
+            self._record_readout_details(
+                job,
+                target="zne_execution_results",
+                before={"execution_results": original_execution_results},
+                after={"execution_results": deepcopy(mitigated_execution_results)},
+            )
 
     def _resolve_readout_method(self, mitigation_info: dict) -> str | None:
         readout_cfg = mitigation_info.get("readout")
@@ -341,3 +364,28 @@ class ReadoutErrorMitigationStep(Step):
                 "use mitigation_info.readout.method"
             )
         return None
+
+    def _record_readout_details(
+        self,
+        job: Job,
+        target: str,
+        before: dict[str, Any],
+        after: dict[str, Any],
+    ) -> None:
+        if job.job_info.result is None:
+            job.job_info.result = JobResult()
+
+        mitigation_details = job.job_info.result.mitigation_details
+        if not isinstance(mitigation_details, dict):
+            mitigation_details = {}
+            job.job_info.result.mitigation_details = mitigation_details
+
+        readout_details = mitigation_details.get("readout")
+        if not isinstance(readout_details, dict):
+            readout_details = {}
+            mitigation_details["readout"] = readout_details
+
+        readout_details[target] = {
+            "before": before,
+            "after": after,
+        }
