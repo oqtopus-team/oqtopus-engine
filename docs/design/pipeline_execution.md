@@ -214,7 +214,42 @@ This ensures:
 - clear control of job lifecycle,
 - safe aggregation points.
 
-## 8. Exception Handling
+## 8. Detach Execution
+
+Detach steps allow part of a job’s pipeline traversal to continue in a
+separate coroutine.  
+This enables the worker to immediately return to its buffer loop,
+improving throughput while preserving the pipeline’s two-phase semantics.
+
+A step may detach at:
+
+- **pre-process phase** (`DetachOnPreprocess`)
+- **post-process phase** (`DetachOnPostprocess`)
+
+When a detach occurs:
+
+1. The executor spawns a background task that continues traversal from
+   the next (or previous) pipeline index.
+2. The detached task is tracked in `background_tasks` and is cleaned up
+   when finished.
+3. The current worker returns immediately, allowing the buffer to fetch
+   more jobs.
+
+Detach does *not* replace split/join semantics and does not create child
+jobs.  
+It simply moves the remaining traversal of the same job into a new
+coroutine.
+
+Detaching preserves:
+
+- the same JobContext and Job instance,
+- the same two-phase traversal,
+- the same correctness guarantees as non-detached execution.
+
+This mechanism is useful for offloading long-running pipeline segments
+without requiring additional worker threads.
+
+## 9. Exception Handling
 
 Each step is executed in a “safe call” wrapper:
 
@@ -225,14 +260,14 @@ Each step is executed in a “safe call” wrapper:
 
 This prevents inconsistent pipeline states and provides clear diagnostics.
 
-## 9. Step History Tracking
+## 10. Step History Tracking
 
 Each job maintains an execution history stored inside its `JobContext`
 under the field `step_history`.  
 This history records **which step was executed**, **in which phase**, and
 **at which pipeline index** during traversal.
 
-### 9.1 Representation
+### 10.1 Representation
 
 `step_history` is a **list of tuples** of the form: `(phase, cursor)`
 
@@ -256,7 +291,7 @@ jctx.step_history == [
 
 This structure provides a precise trace of the job’s movement through the pipeline.
 
-### 9.2 Parent and Child Jobs
+### 10.2 Parent and Child Jobs
 
 When a split step creates child jobs:
 
@@ -294,7 +329,7 @@ Final accumulated histories:
 - **Children**:  
   `[("pre-process", 2), ("post-process", 2), ("post-process", 1)]`
 
-## 10. Summary
+## 11. Summary
 
 The pipeline execution model supports:
 

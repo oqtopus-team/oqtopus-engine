@@ -16,10 +16,20 @@ from .model import (
     TranspileResult,
 )
 from .pipeline import PipelineExecutor
-from .step import Step
+from .step import (
+    DetachOnPostprocess,
+    DetachOnPreprocess,
+    JoinOnPostprocess,
+    JoinOnPreprocess,
+    SplitOnPostprocess,
+    SplitOnPreprocess,
+    Step,
+)
 
 __all__ = [
     "Buffer",
+    "DetachOnPostprocess",
+    "DetachOnPreprocess",
     "Device",
     "DeviceFetcher",
     "DeviceRepository",
@@ -31,10 +41,14 @@ __all__ = [
     "JobInfo",
     "JobRepository",
     "JobResult",
+    "JoinOnPostprocess",
+    "JoinOnPreprocess",
     "OperatorItem",
     "PipelineExceptionHandler",
     "PipelineExecutor",
     "SamplingResult",
+    "SplitOnPostprocess",
+    "SplitOnPreprocess",
     "Step",
     "TranspileResult",
 ]

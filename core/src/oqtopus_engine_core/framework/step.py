@@ -9,6 +9,65 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
+# Phase-exclusive mixin groups
+# =============================================================================
+# NOTE:
+#   These lists are intentionally initialized as *empty lists*.
+#   They will be populated LATER (at the bottom of this file) *after* all mixin
+#   classes such as SplitOnPreprocess, JoinOnPreprocess, DetachOnPreprocess, etc.
+#   have been defined.
+#
+#   We DO NOT assign the final list here because the classes referenced inside
+#   them are not yet defined at this stage. Instead, we overwrite the contents
+#   of the lists later using slice-assignment (`[:] =`), so the list object
+#   itself remains the same.
+#
+#   Keeping the same list object is safer: if any other module imports these
+#   constants before the end of this file, they will still refer to the same
+#   list object whose contents are updated later.
+#
+#   Therefore:
+#       - Define empty lists here
+#       - Fill their contents later with PREPROCESS_EXCLUSIVE_MIXINS[:] = [...]
+#
+PREPROCESS_EXCLUSIVE_MIXINS: list[type] = []
+POSTPROCESS_EXCLUSIVE_MIXINS: list[type] = []
+
+
+# =============================================================================
+# Shared validation utilities for Step mixins
+# =============================================================================
+
+
+def validate_exclusive_mixins(
+    cls: type,
+    phase_mixins: list[type],
+) -> None:
+    """Ensure that a class does not inherit multiple mixins for the same phase.
+
+    Raises:
+        TypeError: If the class inherits more than one mixin from the specified
+                     phase_mixins list.
+
+    """
+    # Collect mixins of this phase that the class actually inherits
+    inherited = [base for base in cls.__bases__ if base in phase_mixins]
+
+    # If this class itself is a phase mixin, include it
+    if cls in phase_mixins:
+        inherited.append(cls)
+
+    # If two or more phase mixins are present, that's a conflict
+    if len(inherited) > 1:
+        conflict_list = ", ".join(b.__name__ for b in inherited)
+        message = (
+            f"{cls.__name__} cannot inherit multiple mixins from the same phase: "
+            f"{conflict_list}"
+        )
+        raise TypeError(message)
+
+
+# =============================================================================
 # Base Step Class
 # =============================================================================
 
@@ -87,7 +146,10 @@ class SplitOnPreprocess(SplitStepMixin):
     `pre_process`. The executor verifies that this mixin is present and
     performs the fan-out transition after the pre-process phase ends.
 
-    A class inheriting this mixin must NOT also inherit JoinOnPreprocess.
+    A class inheriting this mixin must NOT also inherit any other
+    preprocess-phase transition mixins (JoinOnPreprocess, DetachOnPreprocess,
+    or another SplitOnPreprocess).
+
     The mutual exclusivity is enforced via __init_subclass__.
     """
 
@@ -99,14 +161,7 @@ class SplitOnPreprocess(SplitStepMixin):
 
         """
         super().__init_subclass__(**kwargs)
-
-        # Disallow coexistence with JoinOnPreprocess
-        if any(base is JoinOnPreprocess for base in cls.__bases__):
-            message = (
-                f"{cls.__name__} cannot inherit both "
-                "SplitOnPreprocess and JoinOnPreprocess"
-            )
-            raise TypeError(message)
+        validate_exclusive_mixins(cls, PREPROCESS_EXCLUSIVE_MIXINS)
 
 
 class SplitOnPostprocess(SplitStepMixin):
@@ -118,7 +173,10 @@ class SplitOnPostprocess(SplitStepMixin):
     This is useful when child jobs can only be determined based on the
     results of post-processing or accumulated state.
 
-    A class inheriting this mixin must NOT also inherit JoinOnPostprocess.
+    A class inheriting this mixin must NOT also inherit any other
+    postprocess-phase transition mixins (SplitOnPostprocess,
+    JoinOnPostprocess, or another DetachOnPostprocess).
+
     The mutual exclusivity is enforced via __init_subclass__.
     """
 
@@ -130,14 +188,7 @@ class SplitOnPostprocess(SplitStepMixin):
 
         """
         super().__init_subclass__(**kwargs)
-
-        # Disallow coexistence with JoinOnPostprocess
-        if any(base is JoinOnPostprocess for base in cls.__bases__):
-            message = (
-                f"{cls.__name__} cannot inherit both "
-                "SplitOnPostprocess and JoinOnPostprocess"
-            )
-            raise TypeError(message)
+        validate_exclusive_mixins(cls, POSTPROCESS_EXCLUSIVE_MIXINS)
 
 
 # =============================================================================
@@ -190,7 +241,10 @@ class JoinOnPreprocess(JoinStepMixin):
     This indicates that join behavior should be triggered
     **after `pre_process`** completes, but only for the final child job.
 
-    A class inheriting this mixin must NOT also inherit SplitOnPreprocess.
+    A class inheriting this mixin must NOT also inherit any other
+    preprocess-phase transition mixins (SplitOnPreprocess,
+    JoinOnPreprocess, or another DetachOnPreprocess).
+
     The mutual exclusivity is enforced via __init_subclass__.
     """
 
@@ -202,14 +256,7 @@ class JoinOnPreprocess(JoinStepMixin):
 
         """
         super().__init_subclass__(**kwargs)
-
-        # Disallow coexistence with SplitOnPreprocess
-        if any(base is SplitOnPreprocess for base in cls.__bases__):
-            message = (
-                f"{cls.__name__} cannot inherit both "
-                "JoinOnPreprocess and SplitOnPreprocess"
-            )
-            raise TypeError(message)
+        validate_exclusive_mixins(cls, PREPROCESS_EXCLUSIVE_MIXINS)
 
 
 class JoinOnPostprocess(JoinStepMixin):
@@ -218,7 +265,10 @@ class JoinOnPostprocess(JoinStepMixin):
     This mixin indicates that join behavior should be triggered
     **after `post_process`** completes, but only for the final child job.
 
-    A class inheriting this mixin must NOT also inherit SplitOnPostprocess.
+    A class inheriting this mixin must NOT also inherit any other
+    postprocess-phase transition mixins (SplitOnPostprocess,
+    JoinOnPostprocess, or another DetachOnPostprocess).
+
     The mutual exclusivity is enforced via __init_subclass__.
     """
 
@@ -230,11 +280,127 @@ class JoinOnPostprocess(JoinStepMixin):
 
         """
         super().__init_subclass__(**kwargs)
+        validate_exclusive_mixins(cls, POSTPROCESS_EXCLUSIVE_MIXINS)
 
-        # Disallow coexistence with SplitOnPostprocess
-        if any(base is SplitOnPostprocess for base in cls.__bases__):
-            message = (
-                f"{cls.__name__} cannot inherit both "
-                "JoinOnPostprocess and SplitOnPostprocess"
-            )
-            raise TypeError(message)
+
+# =============================================================================
+# Detach Mixins (Async boundary)
+# =============================================================================
+
+
+class DetachStepMixin:
+    """Mixin marking that a step introduces an async *detach* boundary.
+
+    A detach is an execution boundary: after a specific phase completes,
+    the remaining pipeline progression for the same job is resumed in a
+    separate coroutine.
+
+    This allows the current worker loop to return early (e.g., to fetch
+    another job from a buffer) while the remainder of the pipeline
+    continues asynchronously.
+
+    Notes:
+        - This mixin does not define any abstract methods.
+        - The PipelineExecutor checks for this mixin together with
+          phase-specific markers (DetachOnPreprocess or
+          DetachOnPostprocess).
+        - Detach behavior must be coordinated by the executor;
+          this mixin only serves as a marker.
+
+    """
+
+
+class DetachOnPreprocess(DetachStepMixin):
+    """Marker mixin indicating detach behavior after pre-processing.
+
+    This indicates that the pipeline should be detached into a new coroutine
+    **after `pre_process`** completes.
+
+    The current worker must stop progressing the pipeline further and
+    return control to the worker loop. The executor is responsible for
+    scheduling the continuation of the pipeline from the next step
+    in a separate coroutine.
+
+    A class inheriting this mixin must NOT also inherit any other
+    preprocess-phase transition mixins (SplitOnPreprocess,
+    JoinOnPreprocess, or another DetachOnPreprocess).
+
+    The mutual exclusivity is enforced via __init_subclass__.
+    """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:  # noqa: ANN401
+        """Validate preprocess-phase mutual exclusivity.
+
+        Raises:
+            TypeError:
+                If the subclass inherits multiple preprocess-phase
+                transition mixins simultaneously.
+
+        """
+        super().__init_subclass__(**kwargs)
+        validate_exclusive_mixins(cls, PREPROCESS_EXCLUSIVE_MIXINS)
+
+
+class DetachOnPostprocess(DetachStepMixin):
+    """Marker mixin indicating detach behavior after post-processing.
+
+    This indicates that the pipeline should be detached into a new coroutine
+    **after `post_process`** completes.
+
+    This is useful when a step must complete its post-processing logic
+    synchronously but wishes to allow the remaining pipeline execution
+    to proceed asynchronously.
+
+    A class inheriting this mixin must NOT also inherit any other
+    postprocess-phase transition mixins (SplitOnPostprocess,
+    JoinOnPostprocess, or another DetachOnPostprocess).
+
+    The mutual exclusivity is enforced via __init_subclass__.
+    """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:  # noqa: ANN401
+        """Validate postprocess-phase mutual exclusivity.
+
+        Raises:
+            TypeError:
+                If the subclass inherits multiple postprocess-phase
+                transition mixins simultaneously.
+
+        """
+        super().__init_subclass__(**kwargs)
+        validate_exclusive_mixins(cls, POSTPROCESS_EXCLUSIVE_MIXINS)
+
+
+# =============================================================================
+# Populate phase-exclusive mixin groups
+# =============================================================================
+# NOTE:
+#   At this point in the file, all mixin classes (SplitOnPreprocess,
+#   JoinOnPreprocess, DetachOnPreprocess, etc.) have been defined.
+#
+#   Now we populate the exclusive mixin groups with slice-assignment (`[:] =`).
+#
+#   Why slice-assignment?
+#   - It replaces the *contents* of the existing list object
+#     instead of rebinding the name to a new list.
+#   - This ensures that any external module holding a reference to this
+#     list (via `from step import PREPROCESS_EXCLUSIVE_MIXINS`) will see
+#     the updated contents.
+#
+#   Conceptual example:
+#   - Normal assignment creates a new list object (unsafe)
+#   - Slice assignment (`[:]`) updates the existing list object (safe)
+#
+#   Therefore, we use `[:] =` to preserve object identity and avoid subtle bugs.
+#
+PREPROCESS_EXCLUSIVE_MIXINS[:] = [
+    SplitOnPreprocess,
+    JoinOnPreprocess,
+    DetachOnPreprocess,
+]
+
+POSTPROCESS_EXCLUSIVE_MIXINS[:] = [
+    SplitOnPostprocess,
+    JoinOnPostprocess,
+    DetachOnPostprocess,
+]
