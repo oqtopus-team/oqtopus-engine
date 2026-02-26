@@ -88,9 +88,9 @@ This pipeline architecture resembles the structure of a network protocol stack.
 Similarly, OQTOPUS Engine can be understood as follows:
 
 | Network Protocol Processing | OQTOPUS Engine Processing |
-| -------------------------- | -------------------- |
-| downstream (sending)       | pre-process          |
-| upstream (receiving)         | post-process         |
+| --------------------------- | ------------------------- |
+| downstream (sending)        | pre-process               |
+| upstream (receiving)        | post-process              |
 
 Additionally, pre-process/post-process functions receive the following three arguments.
 This separation allows context information and the job entity to be handled appropriately.
@@ -231,26 +231,29 @@ for example through the Device Gateway interface, for use by the transpiler and 
 
 ## 7. Dependency Injection
 
-External interfaces such as fetchers may need to be swapped depending on the execution environment.
+OQTOPUS Engine allows external components—such as job fetchers, device
+fetchers, buffers, and hooks—to be swapped depending on the execution
+environment. This flexibility is achieved through a lightweight dependency
+injection (DI) system based on configuration files.
 
-To support this, OQTOPUS Engine employs lightweight Dependency Injection (DI) using [Hydra](https://hydra.cc/) and [OmegaConf](https://omegaconf.readthedocs.io/).
+The core concept is simple:
 
-For example, to replace the job fetcher with a custom module, you can specify the following configuration:
+- Each external component is declared in the configuration using a name.
+- The configuration specifies which Python class should be instantiated.
+- The engine resolves and constructs components dynamically at runtime.
+- This mechanism decouples the engine’s internal logic from environment-specific
+  implementations.
 
-```yaml
-job_fetcher:
-  _target_: oqtopus_engine_core.fetcher.OqtopusCloudJobFetcher
-  url: "http://localhost:8888"
-  api_token: ""
-  interval_seconds: 10
-  limits: 10
-```
+The DI system used by OQTOPUS Engine is intentionally minimal. It avoids large
+frameworks and focuses only on the essential responsibility: mapping
+configuration entries to concrete Python objects in a predictable, testable, and
+extensible manner.
 
-Running the following code instantiates the class specified in `_target_` with the provided arguments:
+For detailed specifications—such as `_target_`, `_scope_`, constructor argument
+rules, and environment variable interpolation—refer to the dedicated design
+document:
 
-```python
-job_fetcher: JobFetcher = instantiate(gctx.config["job_fetcher"])
-```
+See: [Dependency Injection](di.md)
 
 ## 8. Exception Handling
 

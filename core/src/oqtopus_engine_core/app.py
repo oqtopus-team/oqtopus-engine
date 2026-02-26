@@ -1,9 +1,8 @@
 import asyncio
 import logging
 
-from hydra.utils import instantiate
-
 from oqtopus_engine_core.framework import (
+    Buffer,
     DeviceFetcher,
     GlobalContext,
     JobFetcher,
@@ -17,6 +16,7 @@ from oqtopus_engine_core.utils import (
     parse_args,
     setup_logging,
 )
+from oqtopus_engine_core.utils.di_container import DiContainer
 
 
 async def main() -> None:
@@ -35,44 +35,47 @@ async def main() -> None:
     gctx = GlobalContext(config=config)
     logger.info("gctx.config=%s", mask_sensitive_info(gctx.config))
 
+    # Initialize the DI container
+    dicon = DiContainer(gctx.config["di_container"]["registry"])
+
     # Initialize the pipeline exception handler
-    exception_handler: PipelineExceptionHandler = instantiate(
-        gctx.config["pipeline_exception_handler"]
+    exception_handler: PipelineExceptionHandler = dicon.get(
+        "pipeline_exception_handler"
     )
 
     # Initialize the pipeline executor
-    job_buffer: Buffer = instantiate(gctx.config["buffer"])
+    job_buffer: Buffer = dicon.get("buffer")
     pipeline = PipelineExecutor(
         pipeline=[
-            # instantiate(gctx.config["debug_step"]),  # noqa: ERA001
-            instantiate(gctx.config["job_repository_update_step"]),
-            instantiate(gctx.config["multi_manual_step"]),
-            instantiate(gctx.config["tranqu_step"]),
-            instantiate(gctx.config["estimator_step"]),
-            instantiate(gctx.config["ro_error_mitigation_step"]),
+            # dicon.get("debug_step"),  # noqa: ERA001
+            dicon.get("job_repository_update_step"),
+            dicon.get("multi_manual_step"),
+            dicon.get("tranqu_step"),
+            dicon.get("estimator_step"),
+            dicon.get("ro_error_mitigation_step"),
             job_buffer,
-            instantiate(gctx.config["sse_step"]), #TODO: pipeline locked during sse step
-            instantiate(gctx.config["device_gateway_step"]),
+            dicon.get("sse_step"),
+            dicon.get("device_gateway_step"),
         ],
         job_buffer=job_buffer,
         exception_handler=exception_handler,
     )
 
     # Initialize the job fetcher
-    job_fetcher: JobFetcher = instantiate(gctx.config["job_fetcher"])
+    job_fetcher: JobFetcher = dicon.get("job_fetcher")
     job_fetcher.gctx = gctx
     job_fetcher.pipeline = pipeline
 
     # Initialize the job repository
-    job_repository: JobRepository = instantiate(gctx.config["job_repository"])
+    job_repository: JobRepository = dicon.get("job_repository")
     gctx.job_repository = job_repository
 
     # Initialize the device fetcher
-    device_fetcher: DeviceFetcher = instantiate(gctx.config["device_fetcher"])
+    device_fetcher: DeviceFetcher = dicon.get("device_fetcher")
     device_fetcher.gctx = gctx
 
     # Initialize the device repository
-    gctx.device_repository = instantiate(gctx.config["device_repository"])
+    gctx.device_repository = dicon.get("device_repository")
 
     # Start the executor, the job fetcher and the device fetcher
     pipeline_task = asyncio.create_task(pipeline.start())

@@ -245,6 +245,16 @@ class PipelineExecutor:
                 if isinstance(node, DetachOnPreprocess):
                     # Continue pipeline asynchronously
                     if next_cursor < len(self._pipeline):
+                        logger.info(
+                            "detach executed",
+                            extra={
+                                "job_id": job.job_id,
+                                "job_type": job.job_type,
+                                "phase": StepPhase.PRE_PROCESS,
+                                "next_cursor": next_cursor,
+                            }
+                        )
+
                         task = asyncio.create_task(
                             self._run_from(
                                 step_phase=StepPhase.PRE_PROCESS,
@@ -302,10 +312,22 @@ class PipelineExecutor:
                     # stop the pipeline for this job if the step failed.
                     return
 
+                next_cursor = cursor - 1
+
                 # ----- detach on POST_PROCESS -----
                 if isinstance(node, DetachOnPostprocess):
                     # Continue pipeline asynchronously
                     if next_cursor < len(self._pipeline):
+                        logger.info(
+                            "detach executed",
+                            extra={
+                                "job_id": job.job_id,
+                                "job_type": job.job_type,
+                                "phase": StepPhase.POST_PROCESS,
+                                "next_cursor": next_cursor,
+                            }
+                        )
+
                         task = asyncio.create_task(
                             self._run_from(
                                 step_phase=StepPhase.POST_PROCESS,
@@ -324,7 +346,7 @@ class PipelineExecutor:
                     await self._handle_join(
                         step=node,
                         step_phase=StepPhase.POST_PROCESS,
-                        next_index=cursor - 1,
+                        next_index=next_cursor,
                         gctx=gctx,
                         jctx=jctx,
                         job=job,
@@ -338,7 +360,7 @@ class PipelineExecutor:
                     await self._handle_split(
                         step=node,
                         step_phase=StepPhase.POST_PROCESS,
-                        next_index=cursor - 1,
+                        next_index=next_cursor,
                         gctx=gctx,
                         jctx=jctx,
                         job=job,

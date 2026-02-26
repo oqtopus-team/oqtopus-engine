@@ -3,7 +3,6 @@ import logging
 import time
 
 import grpc
-from omegaconf import OmegaConf
 
 from oqtopus_engine_core.framework import (
     EstimationResult,
@@ -60,7 +59,7 @@ class EstimatorStep(Step):
         """
         self._channel = grpc.aio.insecure_channel(estimator_address)
         self._stub = estimator_pb2_grpc.EstimatorServiceStub(self._channel)
-        self._basis_gates = OmegaConf.to_container(basis_gates, resolve=True)
+        self._basis_gates = basis_gates
         logger.info(
             "EstimatorStep was initialized",
             extra={

@@ -3,7 +3,6 @@ import logging
 import time
 
 import grpc
-from omegaconf import OmegaConf
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -32,9 +31,7 @@ class TranquStep(Step):
             default_transpiler_info = {}
         self._channel = grpc.aio.insecure_channel(tranqu_address)
         self._stub = tranqu_pb2_grpc.TranspilerServiceStub(self._channel)
-        self._default_transpiler_info = OmegaConf.to_container(
-            default_transpiler_info, resolve=True
-        )
+        self._default_transpiler_info = default_transpiler_info
         logger.info(
             "TranquStep was initialized",
             extra={
