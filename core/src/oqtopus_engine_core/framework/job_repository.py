@@ -28,11 +28,16 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def update_job_status(self, job: Job) -> None:
-        """Update job status.
+    async def update_job_status(
+        self,
+        job: Job,
+        execution_time: float | None = None,
+    ) -> None:
+        """Update job status and status related data.
 
         Args:
             job: The job to update
+            execution_time: The execution time
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -45,80 +50,21 @@ class JobRepository(ABC):
 
     @abstractmethod
     async def update_job_status_nowait(
-        self, job: Job, *, preserve_order: bool = True
-    ) -> None:
-        """Update job status without waiting.
-
-        Args:
-            job: The job to update
-            preserve_order:
-                If ``True`` (default), operations targeting the same ``job_id``
-                are executed sequentially so that updates cannot overtake each
-                other. If ``False``, this ordering guarantee is disabled and the
-                request may run concurrently with other updates for the same job.
-
-        Raises:
-            NotImplementedError: If not implemented in subclass.
-
-        """
-        message = (
-            "`update_job_status_nowait` must be implemented "
-            "in subclasses of JobRepository."
-        )
-        raise NotImplementedError(message)
-
-    @abstractmethod
-    async def update_job_info(
         self,
         job: Job,
-        overwrite_status: str | None = None,
         execution_time: float | None = None,
     ) -> None:
-        """Update job info.
+        """Update job status and status related data.
 
         Args:
             job: The job to update
-            overwrite_status: The status to overwrite in the job info if not None.
-            execution_time: The execution time to overwrite in the job info if not None.
+            execution_time: The execution time
 
         Raises:
             NotImplementedError: If not implemented in subclass.
 
         """
-        message = (
-            "`update_job_info` must be implemented in subclasses of JobRepository."
-        )
-        raise NotImplementedError(message)
-
-    @abstractmethod
-    async def update_job_info_nowait(
-        self,
-        job: Job,
-        overwrite_status: str | None = None,
-        execution_time: float | None = None,
-        *,
-        preserve_order: bool = True,
-    ) -> None:
-        """Update job info.
-
-        Args:
-            job: The job to update
-            overwrite_status: The status to overwrite in the job info if not None.
-            execution_time: The execution time to overwrite in the job info if not None.
-            preserve_order:
-                If ``True`` (default), operations targeting the same ``job_id``
-                are executed sequentially so that updates cannot overtake each
-                other. If ``False``, this ordering guarantee is disabled and the
-                request may run concurrently with other updates for the same job.
-
-        Raises:
-            NotImplementedError: If not implemented in subclass.
-
-        """
-        message = (
-            "`update_job_info_nowait` must be implemented "
-            "in subclasses of JobRepository."
-        )
+        message = "`update_job_status_nowait` must be implemented in subclasses of JobRepository."
         raise NotImplementedError(message)
 
     @abstractmethod
@@ -139,18 +85,11 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def update_job_transpiler_info_nowait(
-        self, job: Job, *, preserve_order: bool = True
-    ) -> None:
+    async def update_job_transpiler_info_nowait(self, job: Job) -> None:
         """Update transpiler info without waiting.
 
         Args:
             job: The job to update
-            preserve_order:
-                If ``True`` (default), operations targeting the same ``job_id``
-                are executed sequentially so that updates cannot overtake each
-                other. If ``False``, this ordering guarantee is disabled and the
-                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -159,61 +98,5 @@ class JobRepository(ABC):
         message = (
             "`update_job_transpiler_info_nowait` must be implemented in subclasses of "
             "JobUpdater."
-        )
-        raise NotImplementedError(message)
-
-    @abstractmethod
-    async def get_ssesrc(self, job_id: str) -> str:
-        """Get SSE source URL for job updates.
-
-        Args:
-            job_id: The job ID.
-
-        Returns:
-            The SSE source URL as a string.
-
-        Raises:
-            NotImplementedError: If not implemented in subclass.
-
-        """
-        message = "`get_ssesrc` must be implemented in subclasses of JobRepository."
-        raise NotImplementedError(message)
-
-    @abstractmethod
-    async def update_sselog(self, job_id: str, sselog: str) -> None:
-        """Update SSE log.
-
-        Args:
-            job_id: The job ID.
-            sselog: The SSE log to update.
-
-        Raises:
-            NotImplementedError: If not implemented in subclass.
-
-        """
-        message = "`update_sselog` must be implemented in subclasses of JobRepository."
-        raise NotImplementedError(message)
-
-    @abstractmethod
-    async def update_sselog_nowait(
-        self, job_id: str, sselog: str, *, preserve_order: bool = True
-    ) -> None:
-        """Update SSE log without waiting.
-
-        Args:
-            job_id: The job ID.
-            sselog: The SSE log to update.
-            preserve_order:
-                If ``True`` (default), operations targeting the same ``job_id``
-                are executed sequentially so that updates cannot overtake each
-                other. If ``False``, this ordering guarantee is disabled and the
-                request may run concurrently with other updates for the same job.
-
-        Raises:
-            NotImplementedError: If not implemented in subclass.
-
-        """
-        message = (
-            "`update_sselog_nowait` must be implemented in subclasses of JobRepository."
         )
         raise NotImplementedError(message)
