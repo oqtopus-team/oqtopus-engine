@@ -87,8 +87,10 @@ class PipelineExecutor:
         """Start pipeline workers and enter a long-running idle loop."""
         for index, node in enumerate(self._pipeline):
             if isinstance(node, Buffer):
-                task = asyncio.create_task(self._worker_loop(node, index))
-                self._workers.append(task)
+                # Spawn one worker per allowed concurrency level.
+                for _ in range(node.max_concurrency):
+                    task = asyncio.create_task(self._worker_loop(node, index))
+                    self._workers.append(task)
 
         # Block forever until stop() is called
         await self._stop_event.wait()

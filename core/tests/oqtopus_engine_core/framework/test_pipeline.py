@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from oqtopus_engine_core.buffers import QueueBuffer
+from oqtopus_engine_core.framework.buffer import Buffer
 from oqtopus_engine_core.framework.context import GlobalContext, JobContext
 from oqtopus_engine_core.framework.model import Job, JobInfo
 from oqtopus_engine_core.framework.pipeline import (
@@ -20,7 +21,6 @@ from oqtopus_engine_core.framework.step import (
 # ---------------------------------------------------------------------------
 # Helper factory functions
 # ---------------------------------------------------------------------------
-
 
 def make_test_job(job_id: str, job_type: str = "root") -> Job:
     """Create a minimal but valid Job instance for pipeline tests."""
@@ -41,11 +41,9 @@ def make_test_global_context() -> GlobalContext:
     """Create a minimal GlobalContext instance for pipeline tests."""
     return GlobalContext(config={})
 
-
 # ---------------------------------------------------------------------------
 # Helper Step Implementations
 # ---------------------------------------------------------------------------
-
 
 class SplitOnPreStep(Step, SplitOnPreprocess):
     """Create two children during pre-process."""
@@ -200,19 +198,54 @@ class ErrorInPostStep(Step):
         raise RuntimeError("post exploded")
 
 
+class SlowPostStep(Step):
+    """Step whose post_process blocks for 1 second.
+
+    This prevents worker threads from re-entering the buffer.get() loop
+    and ensures each worker calls get() exactly once.
+    """
+
+    async def pre_process(self, gctx, jctx, job):
+        pass
+
+    async def post_process(self, gctx, jctx, job):
+        await asyncio.sleep(1.0)
+
 # ---------------------------------------------------------------------------
 # Helper Buffer Implementations
 # ---------------------------------------------------------------------------
-
 
 class DummyBuffer(QueueBuffer):
     """A no-op buffer used to simulate an unexpected buffer in POST_PROCESS."""
 
 
+class FakeBuffer(Buffer):
+    """Buffer-like object with configurable max_concurrency and deterministic get()."""
+
+    def __init__(self, max_concurrency=1):
+        self._queue = asyncio.Queue()
+        self._max_concurrency = max_concurrency
+        self.get_calls = 0
+
+    async def put(self, gctx, jctx, job):
+        await self._queue.put((gctx, jctx, job))
+
+    async def get(self):
+        """Simulate a blocking worker call with short delay."""
+        self.get_calls += 1
+        await asyncio.sleep(0)  # let event loop switch tasks
+        return await self._queue.get()
+
+    def size(self):
+        return self._queue.qsize()
+
+    @property
+    def max_concurrency(self) -> int:
+        return self._max_concurrency
+
 # ---------------------------------------------------------------------------
 # Test Cases
 # ---------------------------------------------------------------------------
-
 
 @pytest.mark.asyncio
 async def test_split_join_parent_resume():
@@ -767,3 +800,65 @@ async def test_split_buffer_split_cascade_cleanup():
 
     # All pending_children must be released.
     assert executor._pending_children == {}
+
+
+@pytest.mark.asyncio
+async def test_executor_respects_buffer_max_concurrency():
+    """
+    start() must spawn exactly buffer.max_concurrency() workers.
+    """
+    buffer = FakeBuffer(max_concurrency=3)
+
+    # Pipeline includes a buffer so that the executor registers worker loops.
+    pipeline = [RecordStep(), buffer, RecordStep()]
+    executor = PipelineExecutor(pipeline, buffer)
+
+    # Prepare one job in the buffer so workers have something to consume.
+    gctx = GlobalContext(config={})
+    jctx = JobContext(initial={})
+    job = make_test_job(job_id="test-job")
+    await buffer.put(gctx, jctx, job)
+
+    # Immediately schedule stop so start() exits after workers are created.
+    executor._stop_event.set()
+
+    await executor.start()
+
+    # Workers created must match max_concurrency.
+    assert len(executor._workers) == 3
+
+
+@pytest.mark.asyncio
+async def test_executor_workers_call_buffer_get():
+    """
+    Test that each worker calls buffer.get() exactly once.
+
+    By using SlowPostStep, each worker becomes blocked in post_process for 1 second.
+    This prevents the PipelineExecutor's worker loop from retrying buffer.get(),
+    ensuring deterministic behavior:
+      - max_concurrency = 2 → 2 workers
+      - each calls get() once → get_calls == 2
+
+    A sleep(1.0) in the test ensures the event loop has enough time to
+    schedule all workers and let them reach SlowPostStep.post_process.
+    """
+
+    buffer = FakeBuffer(max_concurrency=2)
+
+    pipeline = [SlowPostStep(), buffer]
+    executor = PipelineExecutor(pipeline, buffer)
+
+    gctx = GlobalContext(config={})
+    jctx = JobContext(initial={})
+    job = make_test_job(job_id="test-job")
+
+    await buffer.put(gctx, jctx, job)
+
+    # Allow workers to run but not retry.
+    asyncio.create_task(executor.start())
+
+    # Wait for workers to reach SlowPostStep.post_process
+    await asyncio.sleep(1.0)
+
+    # Now workers have called get() exactly once each.
+    assert buffer.get_calls == 2
