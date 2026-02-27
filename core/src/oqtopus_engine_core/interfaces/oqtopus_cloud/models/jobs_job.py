@@ -31,10 +31,10 @@ class JobsJob(object):
         'job_id': 'JobsJobId',
         'name': 'str',
         'description': 'str',
+        'job_type': 'JobsJobType',
         'device_id': 'str',
         'shots': 'int',
-        'job_type': 'JobsJobType',
-        'job_info': 'JobsJobInfo',
+        'input': 'JobsJobInfoDownloadPresignedURL',
         'transpiler_info': 'dict(str, object)',
         'simulator_info': 'dict(str, object)',
         'mitigation_info': 'dict(str, object)',
@@ -50,10 +50,10 @@ class JobsJob(object):
         'job_id': 'job_id',
         'name': 'name',
         'description': 'description',
+        'job_type': 'job_type',
         'device_id': 'device_id',
         'shots': 'shots',
-        'job_type': 'job_type',
-        'job_info': 'job_info',
+        'input': 'input',
         'transpiler_info': 'transpiler_info',
         'simulator_info': 'simulator_info',
         'mitigation_info': 'mitigation_info',
@@ -65,15 +65,15 @@ class JobsJob(object):
         'ended_at': 'ended_at'
     }
 
-    def __init__(self, job_id=None, name=None, description=None, device_id=None, shots=None, job_type=None, job_info=None, transpiler_info=None, simulator_info=None, mitigation_info=None, status=None, execution_time=None, submitted_at=None, ready_at=None, running_at=None, ended_at=None):  # noqa: E501
+    def __init__(self, job_id=None, name=None, description=None, job_type=None, device_id=None, shots=None, input=None, transpiler_info=None, simulator_info=None, mitigation_info=None, status=None, execution_time=None, submitted_at=None, ready_at=None, running_at=None, ended_at=None):  # noqa: E501
         """JobsJob - a model defined in Swagger"""  # noqa: E501
         self._job_id = None
         self._name = None
         self._description = None
+        self._job_type = None
         self._device_id = None
         self._shots = None
-        self._job_type = None
-        self._job_info = None
+        self._input = None
         self._transpiler_info = None
         self._simulator_info = None
         self._mitigation_info = None
@@ -90,14 +90,14 @@ class JobsJob(object):
             self.name = name
         if description is not None:
             self.description = description
+        if job_type is not None:
+            self.job_type = job_type
         if device_id is not None:
             self.device_id = device_id
         if shots is not None:
             self.shots = shots
-        if job_type is not None:
-            self.job_type = job_type
-        if job_info is not None:
-            self.job_info = job_info
+        if input is not None:
+            self.input = input
         if transpiler_info is not None:
             self.transpiler_info = transpiler_info
         if simulator_info is not None:
@@ -181,6 +181,27 @@ class JobsJob(object):
         self._description = description
 
     @property
+    def job_type(self):
+        """Gets the job_type of this JobsJob.  # noqa: E501
+
+
+        :return: The job_type of this JobsJob.  # noqa: E501
+        :rtype: JobsJobType
+        """
+        return self._job_type
+
+    @job_type.setter
+    def job_type(self, job_type):
+        """Sets the job_type of this JobsJob.
+
+
+        :param job_type: The job_type of this JobsJob.  # noqa: E501
+        :type: JobsJobType
+        """
+
+        self._job_type = job_type
+
+    @property
     def device_id(self):
         """Gets the device_id of this JobsJob.  # noqa: E501
 
@@ -223,46 +244,25 @@ class JobsJob(object):
         self._shots = shots
 
     @property
-    def job_type(self):
-        """Gets the job_type of this JobsJob.  # noqa: E501
+    def input(self):
+        """Gets the input of this JobsJob.  # noqa: E501
 
 
-        :return: The job_type of this JobsJob.  # noqa: E501
-        :rtype: JobsJobType
+        :return: The input of this JobsJob.  # noqa: E501
+        :rtype: JobsJobInfoDownloadPresignedURL
         """
-        return self._job_type
+        return self._input
 
-    @job_type.setter
-    def job_type(self, job_type):
-        """Sets the job_type of this JobsJob.
-
-
-        :param job_type: The job_type of this JobsJob.  # noqa: E501
-        :type: JobsJobType
-        """
-
-        self._job_type = job_type
-
-    @property
-    def job_info(self):
-        """Gets the job_info of this JobsJob.  # noqa: E501
+    @input.setter
+    def input(self, input):
+        """Sets the input of this JobsJob.
 
 
-        :return: The job_info of this JobsJob.  # noqa: E501
-        :rtype: JobsJobInfo
-        """
-        return self._job_info
-
-    @job_info.setter
-    def job_info(self, job_info):
-        """Sets the job_info of this JobsJob.
-
-
-        :param job_info: The job_info of this JobsJob.  # noqa: E501
-        :type: JobsJobInfo
+        :param input: The input of this JobsJob.  # noqa: E501
+        :type: JobsJobInfoDownloadPresignedURL
         """
 
-        self._job_info = job_info
+        self._input = input
 
     @property
     def transpiler_info(self):
