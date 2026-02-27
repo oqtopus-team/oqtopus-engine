@@ -35,7 +35,7 @@ class DevicesDeviceDataUpdateResponse(object):
         'message': 'message'
     }
 
-    def __init__(self, message='Device's data updated'):  # noqa: E501
+    def __init__(self, message='Device data updated'):  # noqa: E501
         """DevicesDeviceDataUpdateResponse - a model defined in Swagger"""  # noqa: E501
         self._message = None
         self.discriminator = None
