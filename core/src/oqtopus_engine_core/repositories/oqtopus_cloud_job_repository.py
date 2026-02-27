@@ -14,6 +14,7 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
     JobsJobStatusUpdate,
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
+from oqtopus_engine_core.utils.storage_util import OqtopusStorage
 
 logger = logging.getLogger(__name__)
 
@@ -339,3 +340,50 @@ class OqtopusCloudJobRepository(JobRepository):
             label="PUT /jobs/{job_id}/transpiler_info",
             extra={"job_id": job.job_id, "job_type": job.job_type},
         )
+
+    async def download_job_input(
+        self,
+        job: Job,
+    ) -> dict[str, Any]:
+        """Downloads and extracts job input .zip file form OCTOPUS Cloud S3 storage
+
+        Args:
+            job: The job for input download.
+
+        """
+        def _call() -> dict[str, Any]:
+            return OqtopusStorage.download(
+                presigned_url=job.input
+            )
+
+        extra: dict[str, Any] = {
+            "job_id": job.job_id,
+            "job_type": job.job_type,
+        }
+
+        logger.info(
+            "job input download started",
+            extra={
+                **extra,
+                "presigned_url": job.input,
+            },
+        )
+
+        start = time.perf_counter()
+        response = await self._request_with_error_logging(
+            _call,
+            f"job: {job.job_id} input download",
+            extra,
+        )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        logger.info(
+            "job input download completed",
+            extra={
+                "elapsed_ms": round(elapsed_ms, 3),
+                **extra,
+                "presigned_url": job.input,
+            },
+        )
+
+        return response
