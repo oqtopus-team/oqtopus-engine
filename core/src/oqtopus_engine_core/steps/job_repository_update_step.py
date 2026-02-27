@@ -49,6 +49,6 @@ class JobRepositoryUpdateStep(Step):
 
         """
         job.status = "succeeded"
-        await gctx.job_repository.update_job_info_nowait(
-            job, overwrite_status=job.status, execution_time=job.execution_time
+        await gctx.job_repository.update_job_status_nowait(
+            job, execution_time=job.execution_time
         )
