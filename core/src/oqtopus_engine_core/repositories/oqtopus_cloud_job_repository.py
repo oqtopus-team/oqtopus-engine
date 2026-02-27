@@ -59,7 +59,8 @@ class OqtopusCloudJobRepository(JobRepository):
         # Requests that are sent without waiting for the response
         self._background_requests: set[asyncio.Task[Any]] = set()
 
-        self.storage_op_timeout_seconds = storage_op_timeout_seconds
+        self._proxy = proxy
+        self._storage_op_timeout_seconds = storage_op_timeout_seconds
 
         logger.info(
             "OqtopusCloudJobRepository was initialized",
@@ -354,10 +355,15 @@ class OqtopusCloudJobRepository(JobRepository):
             job: The job for input download.
 
         """
+
         def _call() -> dict[str, Any]:
+            proxies = (
+                {"http": self._proxy, "https": self._proxy} if self._proxy else None
+            )
             return OqtopusStorage.download(
                 presigned_url=job.input,
-                timeout_s=self.storage_op_timeout_seconds
+                proxies=proxies,
+                timeout_s=self._storage_op_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
