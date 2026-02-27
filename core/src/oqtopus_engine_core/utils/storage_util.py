@@ -54,6 +54,7 @@ class OqtopusStorage:
     @staticmethod
     def download(
         presigned_url: str,
+        proxies: dict[str, str] | None = None,
         timeout_s: int = DEFAULT_TIMEOUT_S,
     ) -> dict[str, Any]:
         """Download and extract JSON data from an oqtopus cloud storage .zip file.
@@ -61,6 +62,7 @@ class OqtopusStorage:
         Args:
             presigned_url (str):
                 presigned URL of target .zip file to download
+            proxy: connection proxies to use
             timeout_s: operation timeout in seconds
 
         Returns:
@@ -71,7 +73,7 @@ class OqtopusStorage:
 
         """
         try:
-            resp = requests.get(url=str(presigned_url), timeout=timeout_s)
+            resp = requests.get(url=presigned_url, proxies=proxies, timeout=timeout_s)
             resp.raise_for_status()
             return OqtopusStorage._extract_zip_object(resp.content)
         except RequestException as e:
