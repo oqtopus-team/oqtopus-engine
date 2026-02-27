@@ -2,13 +2,11 @@ import asyncio
 import logging
 
 from oqtopus_engine_core.framework import (
-    Buffer,
     DeviceFetcher,
     GlobalContext,
     JobFetcher,
     JobRepository,
-    PipelineExceptionHandler,
-    PipelineExecutor,
+    PipelineBuilder,
 )
 from oqtopus_engine_core.utils import (
     load_config,
@@ -38,28 +36,8 @@ async def main() -> None:
     # Initialize the DI container
     dicon = DiContainer(gctx.config["di_container"]["registry"])
 
-    # Initialize the pipeline exception handler
-    exception_handler: PipelineExceptionHandler = dicon.get(
-        "pipeline_exception_handler"
-    )
-
-    # Initialize the pipeline executor
-    job_buffer: Buffer = dicon.get("buffer")
-    pipeline = PipelineExecutor(
-        pipeline=[
-            # dicon.get("debug_step"),  # noqa: ERA001
-            dicon.get("job_repository_update_step"),
-            dicon.get("multi_manual_step"),
-            dicon.get("tranqu_step"),
-            dicon.get("estimator_step"),
-            dicon.get("ro_error_mitigation_step"),
-            job_buffer,
-            dicon.get("sse_step"),
-            dicon.get("device_gateway_step"),
-        ],
-        job_buffer=job_buffer,
-        exception_handler=exception_handler,
-    )
+    # Build the pipeline executor using the PipelineBuilder
+    pipeline = PipelineBuilder.build(gctx.config["pipeline_executor"], dicon)
 
     # Initialize the job fetcher
     job_fetcher: JobFetcher = dicon.get("job_fetcher")

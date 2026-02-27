@@ -22,7 +22,73 @@ The pipeline execution model is based on three key principles:
 
 The PipelineExecutor orchestrates all of these behaviors.
 
-## 2. Pipeline Structure
+## 2. Pipeline Construction from `config.yaml`
+
+## 2.1 Defining the Pipeline in `config.yaml`
+
+OQTOPUS Engine Core supports **configuration-driven pipeline construction**.
+A pipeline does not need to be hard-coded in Python—the engine can create a
+`PipelineExecutor` directly from the YAML configuration.
+
+The `pipeline_executor` section defines:
+
+- the ordered list of pipeline elements,
+- which component acts as the job buffer,
+- which component handles exceptions during pipeline execution.
+
+A corresponding entry in `di_container.registry` supplies the concrete
+implementations for each name.
+
+Example:
+
+```yaml
+pipeline_executor:
+  pipeline:
+    - job_repository_update_step
+    - multi_manual_step
+    - tranqu_step
+    - estimator_step
+    - ro_error_mitigation_step
+    - buffer
+    - sse_step
+    - device_gateway_step
+  job_buffer: buffer
+  exception_handler: pipeline_exception_handler
+
+di_container:
+  registry:
+    job_repository_update_step:
+      _target_: oqtopus_engine_core.steps.JobRepositoryUpdateStep
+
+    ...
+```
+
+### 2.2 How the Engine Uses This Configuration
+
+The engine reads `pipeline_executor` and retrieves all components from the dependency-injection container:
+
+- every pipeline element (steps and buffers) is retrieved from the DI registry;
+- the element order in YAML becomes the actual traversal order;
+- the job buffer is assigned to `job_buffer`;
+- the exception handler is assigned to `exception_handler`.
+
+Internally, the engine uses `PipelineBuilder.build()` to construct the executor:
+
+- read the ordered list under `pipeline`;
+- retrieve each component via `dicon.get(name)`;
+- retrieve `job_buffer` and `exception_handler`;
+- create a `PipelineExecutor` with these objects.
+
+This allows:
+
+- fully declarative pipeline definition,
+- environment-specific override via YAML or environment variables,
+- consistent dependency management across all components,
+- a clean separation between "pipeline construction" and "pipeline execution."
+
+The following sections describe **how the constructed pipeline executes jobs** including two-phase traversal, buffers, workers, split/join semantics, detach, and error handling.
+
+## 3. Pipeline Structure
 
 A pipeline consists of an ordered sequence of **elements**:
 
@@ -37,11 +103,11 @@ Step A → Step B → Buffer X → Step C → Step D
 
 Jobs advance through these elements depending on the current phase of execution.
 
-## 3. Two-Phase Traversal
+## 4. Two-Phase Traversal
 
 The executor performs job traversal in two distinct phases:
 
-### 3.1 pre-process Phase (Forward Traversal)
+### 4.1 pre-process Phase (Forward Traversal)
 
 - Traversal starts at index 0.
 - For each step, the executor calls `pre_process(job, jctx)`.
@@ -56,7 +122,7 @@ This phase is responsible for:
 - performing transformations or expansions (e.g., splitting),
 - interacting with external services before execution.
 
-### 3.2 post-process Phase (Backward Traversal)
+### 4.2 post-process Phase (Backward Traversal)
 
 - Traversal starts at the end of the pipeline.
 - For each step, the executor calls `post_process(job, jctx)`.
@@ -72,18 +138,18 @@ The backward phase is typically used for:
 - applying final transforms,
 - merging metadata into the job.
 
-## 4. Buffers and Worker Tasks
+## 5. Buffers and Worker Tasks
 
 Buffers create asynchronous execution boundaries.
 
-### 4.1 Enqueuing and Halting
+### 5.1 Enqueuing and Halting
 
 During pre-process traversal:
 
 - when a job hits a buffer, the executor posts it into the buffer queue;
 - the executor returns control immediately without traversing downstream elements.
 
-### 4.2 Worker Execution
+### 5.2 Worker Execution
 
 Each buffer has a dedicated worker, started when the pipeline begins.  
 A worker performs:
@@ -98,14 +164,14 @@ This design allows:
 - natural backpressure (queue length control),
 - asynchronous decoupling between pipeline segments.
 
-### 4.3 Buffers in post-process Phase
+### 5.3 Buffers in post-process Phase
 
 Buffers are ignored during backward traversal.  
 Jobs do **not** stop or queue in the post-process phase.
 
-## 5. Split Execution
+## 6. Split Execution
 
-### 5.1 Purpose of Split Steps
+### 6.1 Purpose of Split Steps
 
 A split step divides one job into multiple independent child jobs.  
 This enables functionalities such as:
@@ -115,7 +181,7 @@ This enables functionalities such as:
 - job replication for sampling or batching,
 - custom branching logic.
 
-### 5.2 How Splitting Works
+### 6.2 How Splitting Works
 
 Depending on the type of step:
 
@@ -137,7 +203,7 @@ The executor automatically manages:
 - tracking of remaining children,
 - dispatching each child into the pipeline.
 
-### 5.3 Child Job Independence
+### 6.3 Child Job Independence
 
 Each child job:
 
@@ -149,9 +215,9 @@ Each child job:
 
 This creates a full job tree.
 
-## 6. Join Execution
+## 7. Join Execution
 
-### 6.1 Purpose of Join Steps
+### 7.1 Purpose of Join Steps
 
 Join steps re-synchronize parallel execution paths.  
 They aggregate child results to resume the parent job.
@@ -163,7 +229,7 @@ Typical use cases:
 - collecting metadata or logs,
 - post-processing on aggregated outputs.
 
-### 6.2 How Join Works
+### 7.2 How Join Works
 
 A join step is executed when the **last** living child job reaches it.
 
@@ -188,7 +254,7 @@ This ensures:
 - no duplicate join invocations,
 - safe synchronization before parent continues.
 
-### 6.3 Join During Forward vs Backward Traversal
+### 7.3 Join During Forward vs Backward Traversal
 
 Join steps may live in the pipeline during pre-process or post-process phases:
 
@@ -197,7 +263,7 @@ Join steps may live in the pipeline during pre-process or post-process phases:
 
 This enables expressive control-flow patterns.
 
-## 7. Composite Job Trees and Structured Concurrency
+## 8. Composite Job Trees and Structured Concurrency
 
 Split/Join semantics create a structured execution pattern analogous to classical fork/join models:
 
@@ -214,7 +280,7 @@ This ensures:
 - clear control of job lifecycle,
 - safe aggregation points.
 
-## 8. Detach Execution
+## 9. Detach Execution
 
 Detach steps allow part of a job’s pipeline traversal to continue in a
 separate coroutine.  
@@ -249,7 +315,7 @@ Detaching preserves:
 This mechanism is useful for offloading long-running pipeline segments
 without requiring additional worker threads.
 
-## 9. Exception Handling
+## 10. Exception Handling
 
 Each step is executed in a “safe call” wrapper:
 
@@ -260,14 +326,14 @@ Each step is executed in a “safe call” wrapper:
 
 This prevents inconsistent pipeline states and provides clear diagnostics.
 
-## 10. Step History Tracking
+## 11. Step History Tracking
 
 Each job maintains an execution history stored inside its `JobContext`
 under the field `step_history`.  
 This history records **which step was executed**, **in which phase**, and
 **at which pipeline index** during traversal.
 
-### 10.1 Representation
+### 11.1 Representation
 
 `step_history` is a **list of tuples** of the form: `(phase, cursor)`
 
@@ -291,7 +357,7 @@ jctx.step_history == [
 
 This structure provides a precise trace of the job’s movement through the pipeline.
 
-### 10.2 Parent and Child Jobs
+### 11.2 Parent and Child Jobs
 
 When a split step creates child jobs:
 
@@ -329,7 +395,7 @@ Final accumulated histories:
 - **Children**:  
   `[("pre-process", 2), ("post-process", 2), ("post-process", 1)]`
 
-## 11. Summary
+## 12. Summary
 
 The pipeline execution model supports:
 
