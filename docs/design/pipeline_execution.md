@@ -199,10 +199,9 @@ pipeline_executor:
 di_container:
   registry:
     buffer:
-      class: oqtopus_engine_core.buffers.QueueBuffer
-      kwargs:
-        maxsize: 0           # optional, unlimited queue
-        max_concurrency: 3   # spawn 3 workers for this buffer
+      _target_: oqtopus_engine_core.buffers.QueueBuffer
+      maxsize: 0           # optional, unlimited queue
+      max_concurrency: 3   # spawn 3 workers for this buffer
 ```
 
 ## 6. Split Execution
