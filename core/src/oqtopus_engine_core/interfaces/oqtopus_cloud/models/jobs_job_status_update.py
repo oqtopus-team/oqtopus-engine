@@ -28,18 +28,33 @@ class JobsJobStatusUpdate(object):
                             and the value is json key in definition.
     """
     swagger_types = {
-        'status': 'str'
+        'status': 'str',
+        'output_files': 'list[str]',
+        'message': 'str',
+        'execution_time': 'float'
     }
 
     attribute_map = {
-        'status': 'status'
+        'status': 'status',
+        'output_files': 'output_files',
+        'message': 'message',
+        'execution_time': 'execution_time'
     }
 
-    def __init__(self, status=None):  # noqa: E501
+    def __init__(self, status=None, output_files=None, message=None, execution_time=None):  # noqa: E501
         """JobsJobStatusUpdate - a model defined in Swagger"""  # noqa: E501
         self._status = None
+        self._output_files = None
+        self._message = None
+        self._execution_time = None
         self.discriminator = None
         self.status = status
+        if output_files is not None:
+            self.output_files = output_files
+        if message is not None:
+            self.message = message
+        if execution_time is not None:
+            self.execution_time = execution_time
 
     @property
     def status(self):
@@ -61,7 +76,7 @@ class JobsJobStatusUpdate(object):
         """
         if status is None:
             raise ValueError("Invalid value for `status`, must not be `None`")  # noqa: E501
-        allowed_values = ["running"]  # noqa: E501
+        allowed_values = ["running", "succeeded", "failed", "cancelled"]  # noqa: E501
         if status not in allowed_values:
             raise ValueError(
                 "Invalid value for `status` ({0}), must be one of {1}"  # noqa: E501
@@ -69,6 +84,73 @@ class JobsJobStatusUpdate(object):
             )
 
         self._status = status
+
+    @property
+    def output_files(self):
+        """Gets the output_files of this JobsJobStatusUpdate.  # noqa: E501
+
+        List of all S3 file keys uploaded by provider during job execution.  # noqa: E501
+
+        :return: The output_files of this JobsJobStatusUpdate.  # noqa: E501
+        :rtype: list[str]
+        """
+        return self._output_files
+
+    @output_files.setter
+    def output_files(self, output_files):
+        """Sets the output_files of this JobsJobStatusUpdate.
+
+        List of all S3 file keys uploaded by provider during job execution.  # noqa: E501
+
+        :param output_files: The output_files of this JobsJobStatusUpdate.  # noqa: E501
+        :type: list[str]
+        """
+
+        self._output_files = output_files
+
+    @property
+    def message(self):
+        """Gets the message of this JobsJobStatusUpdate.  # noqa: E501
+
+
+        :return: The message of this JobsJobStatusUpdate.  # noqa: E501
+        :rtype: str
+        """
+        return self._message
+
+    @message.setter
+    def message(self, message):
+        """Sets the message of this JobsJobStatusUpdate.
+
+
+        :param message: The message of this JobsJobStatusUpdate.  # noqa: E501
+        :type: str
+        """
+
+        self._message = message
+
+    @property
+    def execution_time(self):
+        """Gets the execution_time of this JobsJobStatusUpdate.  # noqa: E501
+
+        Execution time for quantum computation. Specify the time in seconds, including up to milliseconds.  # noqa: E501
+
+        :return: The execution_time of this JobsJobStatusUpdate.  # noqa: E501
+        :rtype: float
+        """
+        return self._execution_time
+
+    @execution_time.setter
+    def execution_time(self, execution_time):
+        """Sets the execution_time of this JobsJobStatusUpdate.
+
+        Execution time for quantum computation. Specify the time in seconds, including up to milliseconds.  # noqa: E501
+
+        :param execution_time: The execution_time of this JobsJobStatusUpdate.  # noqa: E501
+        :type: float
+        """
+
+        self._execution_time = execution_time
 
     def to_dict(self):
         """Returns the model properties as a dict"""
