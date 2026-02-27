@@ -16,6 +16,7 @@ from .model import (
     TranspileResult,
 )
 from .pipeline import PipelineExecutor
+from .pipeline_builder import PipelineBuilder
 from .step import (
     DetachOnPostprocess,
     DetachOnPreprocess,
@@ -44,6 +45,7 @@ __all__ = [
     "JoinOnPostprocess",
     "JoinOnPreprocess",
     "OperatorItem",
+    "PipelineBuilder",
     "PipelineExceptionHandler",
     "PipelineExecutor",
     "SamplingResult",

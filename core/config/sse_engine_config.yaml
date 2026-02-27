@@ -1,3 +1,18 @@
+# Pipeline Executor Configuration (get instances from DI container)
+pipeline_executor:
+  pipeline:
+    - job_repository_update_step
+    - multi_manual_step
+    - tranqu_step
+    - estimator_step
+    - ro_error_mitigation_step
+    - buffer
+    - sse_step
+    - device_gateway_step
+  job_buffer: buffer
+  exception_handler: pipeline_exception_handler
+
+# Dependency Injection Container Configuration
 di_container:
   registry:
     # fetcher configurations
