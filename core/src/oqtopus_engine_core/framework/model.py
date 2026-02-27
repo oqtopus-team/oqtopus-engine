@@ -67,6 +67,11 @@ class JobResult(BaseModel):
 #     message: str | None = None
 
 
+class JobInput(BaseModel):
+    program: list[str]
+    operator: list[OperatorItem] | None = None
+
+
 class Job(BaseModel):
     """Job model."""
 
@@ -79,6 +84,8 @@ class Job(BaseModel):
     shots: int
     job_type: str
     input: str
+    program: list[str] | None = None
+    operator: list[OperatorItem] | None = None
     transpiler_info: dict[str, Any]
     simulator_info: dict[str, Any]
     mitigation_info: dict[str, Any]

@@ -1,6 +1,6 @@
 import logging
 
-from oqtopus_engine_core.framework import GlobalContext, Job, JobContext, Step
+from oqtopus_engine_core.framework import GlobalContext, Job, JobContext, JobInput, Step
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,15 @@ class JobRepositoryUpdateStep(Step):
             job: The job object.
 
         """
+        input = await gctx.job_repository.download_job_input(
+            job,
+        )
+
+        # use pydantic for final validation
+        validated_input = JobInput(**input)
+
+        job.program = validated_input.program
+        job.operator = validated_input.operator
 
     async def post_process(  # noqa: PLR6301
         self,
@@ -49,6 +58,4 @@ class JobRepositoryUpdateStep(Step):
 
         """
         job.status = "succeeded"
-        await gctx.job_repository.update_job_status_nowait(
-            job, execution_time=job.execution_time
-        )
+        await gctx.job_repository.update_job_status_nowait(job)
