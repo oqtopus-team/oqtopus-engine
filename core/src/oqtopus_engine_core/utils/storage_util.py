@@ -7,7 +7,7 @@ from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 import requests
 from requests.exceptions import RequestException
 
-from quri_parts_oqtopus.rest import (
+from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     JobsJobInfoUploadPresignedURL,
 )
 
