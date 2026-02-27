@@ -19,11 +19,14 @@ class QueueBuffer(Buffer):
     Args:
         maxsize: Maximum number of elements allowed in the queue.
             A value of 0 indicates unlimited capacity.
+        max_concurrency: Maximum number of worker tasks allowed to consume
+            from this buffer concurrently. Defaults to 1.
 
     """
 
-    def __init__(self, maxsize: int = 0) -> None:
+    def __init__(self, maxsize: int = 0, max_concurrency: int = 1) -> None:
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
+        self._max_concurrency = max_concurrency
 
     async def put(self, gctx: GlobalContext, jctx: JobContext, job: Job) -> None:
         """Insert a tuple into the buffer.
@@ -59,3 +62,8 @@ class QueueBuffer(Buffer):
 
         """
         return self._queue.qsize()
+
+    @property
+    def max_concurrency(self) -> int:
+        """Return the maximum worker concurrency for this buffer."""
+        return self._max_concurrency

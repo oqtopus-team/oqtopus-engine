@@ -58,3 +58,17 @@ class Buffer(ABC):
         """
         message = "`size` must be implemented in subclasses of Buffer."
         raise NotImplementedError(message)
+
+    @property
+    def max_concurrency(self) -> int:
+        """Return the maximum number of worker tasks.
+
+        This value specifies how many concurrent workers may consume items
+        from the buffer. Subclasses may override this to implement custom
+        concurrency settings.
+
+        Returns:
+            The maximum number of concurrent worker tasks. Defaults to 1.
+
+        """
+        return 1

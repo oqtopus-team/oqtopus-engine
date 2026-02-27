@@ -140,34 +140,70 @@ The backward phase is typically used for:
 
 ## 5. Buffers and Worker Tasks
 
-Buffers create asynchronous execution boundaries.
+Buffers create asynchronous execution boundaries allowing controlled parallelism.
 
 ### 5.1 Enqueuing and Halting
 
-During pre-process traversal:
+During the **pre-process phase**, when a job reaches a buffer:
 
-- when a job hits a buffer, the executor posts it into the buffer queue;
-- the executor returns control immediately without traversing downstream elements.
+- the executor enqueues `(gctx, jctx, job)` into the buffer, and
+- **the current pre-process traversal for that job stops at the buffer**.
 
-### 5.2 Worker Execution
+The remaining pre-process steps **are not executed in the same traversal call**.  
+Instead, the pipeline will resume pre-process traversal for that job later,
+driven by one of the buffer workers (see next section).
 
-Each buffer has a dedicated worker, started when the pipeline begins.  
-A worker performs:
+The pipeline as a whole continues running:  
+other jobs may proceed, other buffers may activate workers, and detached steps
+may continue to run in the background.
 
-1. `job = buffer.get()`
-2. resumes pipeline traversal from *after the buffer* in the pre-process phase.
+### 5.2 Worker Execution and Concurrency
 
-This design allows:
+Each buffer exposes a `max_concurrency` property.
 
-- controlled concurrency (multiple buffers = multiple workers),
+- `max_concurrency` defines how many worker tasks may consume jobs
+  from this buffer concurrently.
+- When the pipeline starts, the executor spawns exactly
+  `buffer.max_concurrency` workers per buffer.
+
+Each worker repeatedly performs:
+
+1. `gctx, jctx, job = await buffer.get()`
+2. resumes **pre-process traversal** starting from the element *after the buffer*.
+
+Workers continue this loop until the executor is stopped.
+
+If a step implements `DetachOnPreprocess` or `DetachOnPostprocess`,
+the caller regains control immediately while the detached coroutine continues
+in the background, but the buffer consumption pattern (get → resume pre-process)
+remains unchanged.
+
+This design provides:
+
+- configurable parallelism per buffer,
 - scalable throughput,
-- natural backpressure (queue length control),
-- asynchronous decoupling between pipeline segments.
+- queue-based backpressure,
+- asynchronous decoupling inside the pre-process phase.
 
-### 5.3 Buffers in post-process Phase
+### 5.3 Configuration (QueueBuffer Example)
 
-Buffers are ignored during backward traversal.  
-Jobs do **not** stop or queue in the post-process phase.
+When using `QueueBuffer`, its concurrency can be configured in `config.yaml`:
+
+```yaml
+pipeline_executor:
+  pipeline:
+    - buffer          # refers to the entry below
+
+  job_buffer: buffer
+
+di_container:
+  registry:
+    buffer:
+      class: oqtopus_engine_core.buffers.QueueBuffer
+      kwargs:
+        maxsize: 0           # optional, unlimited queue
+        max_concurrency: 3   # spawn 3 workers for this buffer
+```
 
 ## 6. Split Execution
 
