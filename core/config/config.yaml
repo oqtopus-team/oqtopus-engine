@@ -26,6 +26,7 @@ job_repository:
   url: ${oc.env:JOB_REPOSITORY_URL, "http://localhost:8888"}
   api_key: ${oc.env:JOB_REPOSITORY_API_KEY, ""}
   workers: ${oc.decode:${oc.env:JOB_REPOSITORY_WORKERS, 10}}
+  storage_op_timeout_seconds: ${oc.decode:${oc.env:STORAGE_OP_TIMEOUT_SECONDS, 60}}
 _device_repository:
   _target_: oqtopus_engine_core.repositories.NullDeviceRepository
 device_repository:

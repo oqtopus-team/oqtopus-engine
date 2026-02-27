@@ -30,6 +30,7 @@ class OqtopusCloudJobRepository(JobRepository):
         api_key: str = "",
         proxy: str | None = None,
         workers: int = 5,
+        storage_op_timeout_seconds: int = 60,
     ) -> None:
         """Initialize the job repository with the API URL and interval.
 
@@ -57,6 +58,8 @@ class OqtopusCloudJobRepository(JobRepository):
         # Background request tasks:
         # Requests that are sent without waiting for the response
         self._background_requests: set[asyncio.Task[Any]] = set()
+
+        self.storage_op_timeout_seconds = storage_op_timeout_seconds
 
         logger.info(
             "OqtopusCloudJobRepository was initialized",
@@ -353,7 +356,8 @@ class OqtopusCloudJobRepository(JobRepository):
         """
         def _call() -> dict[str, Any]:
             return OqtopusStorage.download(
-                presigned_url=job.input
+                presigned_url=job.input,
+                timeout_s=self.storage_op_timeout_seconds
             )
 
         extra: dict[str, Any] = {
