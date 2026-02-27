@@ -31,13 +31,11 @@ class JobRepository(ABC):
     async def update_job_status(
         self,
         job: Job,
-        execution_time: float | None = None,
     ) -> None:
         """Update job status and status related data.
 
         Args:
             job: The job to update
-            execution_time: The execution time
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -52,13 +50,11 @@ class JobRepository(ABC):
     async def update_job_status_nowait(
         self,
         job: Job,
-        execution_time: float | None = None,
     ) -> None:
         """Update job status and status related data.
 
         Args:
             job: The job to update
-            execution_time: The execution time
 
         Raises:
             NotImplementedError: If not implemented in subclass.
