@@ -83,6 +83,7 @@ class Job(BaseModel):
     simulator_info: dict[str, Any]
     mitigation_info: dict[str, Any]
     status: str
+    message: str | None = None
     execution_time: float | None = None
     submitted_at: datetime | None = None
     ready_at: datetime | None = None

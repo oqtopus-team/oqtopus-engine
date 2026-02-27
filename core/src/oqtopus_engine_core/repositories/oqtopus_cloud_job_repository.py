@@ -204,21 +204,19 @@ class OqtopusCloudJobRepository(JobRepository):
     async def update_job_status(
         self,
         job: Job,
-        execution_time: float | None = None,
     ) -> None:
         """Send a PATCH request to update the job status and status related data and wait for the response.
 
         Args:
             job: The job to patch
-            execution_time: The execution time
 
         """
         body = JobsJobStatusUpdate(
             status=job.status,
-            # TODO: add output_files & message
+            # TODO: add output_files
             output_files=None,
-            message=None,
-            execution_time=execution_time,
+            message=job.message,
+            execution_time=job.execution_time,
         )
 
         def _call() -> tuple[object, int, dict]:
@@ -258,19 +256,16 @@ class OqtopusCloudJobRepository(JobRepository):
     async def update_job_status_nowait(
         self,
         job: Job,
-        execution_time: float | None = None,
     ) -> None:
         """Send a PATCH request to update the job status and status related data without waiting.
 
         Args:
             job: The job to patch
-            execution_time: The execution time
 
         """
         task = asyncio.create_task(
             self.update_job_status(
                 job,
-                execution_time=execution_time,
             )
         )
         self._track_background_request(
