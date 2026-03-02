@@ -54,7 +54,10 @@ class JobRepository(ABC):
             NotImplementedError: If not implemented in subclass.
 
         """
-        message = "`update_job_status_nowait` must be implemented in subclasses of JobRepository."
+        message = (
+            "`update_job_status_nowait` must be implemented "
+            "in subclasses of JobRepository."
+        )
         raise NotImplementedError(message)
 
     @abstractmethod
@@ -98,7 +101,10 @@ class JobRepository(ABC):
             NotImplementedError: If not implemented in subclass.
 
         """
-        message = "`update_job_info_nowait` must be implemented in subclasses of JobRepository."
+        message = (
+            "`update_job_info_nowait` must be implemented "
+            "in subclasses of JobRepository."
+        )
         raise NotImplementedError(message)
 
     @abstractmethod

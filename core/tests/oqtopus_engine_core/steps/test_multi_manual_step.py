@@ -120,7 +120,7 @@ def test_divide_result(
         },
         estimation=None,
     )
-    jd = Job(
+    job = Job(
         device_id="test_device",
         job_type="test_type",
         shots=1024,
@@ -144,11 +144,11 @@ def test_divide_result(
     # Convert vpm_raw to a proper virtual physical mapping
     if error:
         with pytest.raises(ValueError) as e:
-            divide_result(jd=jd, jctx=jctx, virtual_physical_mapping=vpm_raw)
+            divide_result(job=job, jctx=jctx, virtual_physical_mapping=vpm_raw)
         assert error in str(e.value)
     else:
         divided_counts = divide_result(
-            jd=jd, jctx=jctx, virtual_physical_mapping=vpm_raw
+            job=job, jctx=jctx, virtual_physical_mapping=vpm_raw
         )
-        assert jd.job_info.result.sampling.counts == expected_counts
+        assert job.job_info.result.sampling.counts == expected_counts
         assert divided_counts == expected_divided
