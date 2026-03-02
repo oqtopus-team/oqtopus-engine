@@ -83,6 +83,16 @@ class PipelineExecutor:
             },
         )
 
+    @property
+    def job_buffer(self) -> Buffer:
+        """Get the job buffer (read-only).
+
+        Returns:
+            The Buffer instance used for job scheduling.
+
+        """
+        return self._job_buffer
+
     async def start(self) -> None:
         """Start pipeline workers and enter a long-running idle loop."""
         for index, node in enumerate(self._pipeline):
@@ -137,7 +147,7 @@ class PipelineExecutor:
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_from(  # noqa: C901, PLR0911, PLR0912
+    async def _run_from(  # noqa: C901, PLR0911, PLR0912, PLR0915
         self,
         step_phase: StepPhase,
         index: int,

@@ -88,7 +88,8 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         """Call an API in a worker thread with logging and error handling.
 
         Args:
-            call: Callable that performs the HTTP request and returns (data, status, headers).
+            call: Callable that performs the HTTP request and returns
+                (data, status, headers).
             label: Log label like 'PATCH /devices/{device_id}'.
             extra: Extra fields to log on error.
 

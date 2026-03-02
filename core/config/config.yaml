@@ -10,7 +10,7 @@ pipeline_executor:
     - sse_step
     - device_gateway_step
   job_buffer: buffer
-  exception_handler: exception_handler
+  exception_handler: pipeline_exception_handler
 
 # Dependency Injection Container Configuration
 di_container:

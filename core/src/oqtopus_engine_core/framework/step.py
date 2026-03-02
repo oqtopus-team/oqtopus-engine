@@ -159,7 +159,7 @@ class SplitOnPreprocess(SplitStepMixin):
         Raises:
             TypeError: If the subclass also inherits JoinOnPreprocess.
 
-        """
+        """  # noqa: DOC502
         super().__init_subclass__(**kwargs)
         validate_exclusive_mixins(cls, PREPROCESS_EXCLUSIVE_MIXINS)
 
@@ -186,7 +186,7 @@ class SplitOnPostprocess(SplitStepMixin):
         Raises:
             TypeError: If the subclass also inherits JoinOnPostprocess.
 
-        """
+        """  # noqa: DOC502
         super().__init_subclass__(**kwargs)
         validate_exclusive_mixins(cls, POSTPROCESS_EXCLUSIVE_MIXINS)
 
@@ -254,7 +254,7 @@ class JoinOnPreprocess(JoinStepMixin):
         Raises:
             TypeError: If the subclass also inherits SplitOnPreprocess.
 
-        """
+        """  # noqa: DOC502
         super().__init_subclass__(**kwargs)
         validate_exclusive_mixins(cls, PREPROCESS_EXCLUSIVE_MIXINS)
 
@@ -278,7 +278,7 @@ class JoinOnPostprocess(JoinStepMixin):
         Raises:
             TypeError: If the subclass also inherits SplitOnPostprocess.
 
-        """
+        """  # noqa: DOC502
         super().__init_subclass__(**kwargs)
         validate_exclusive_mixins(cls, POSTPROCESS_EXCLUSIVE_MIXINS)
 
@@ -336,7 +336,7 @@ class DetachOnPreprocess(DetachStepMixin):
                 If the subclass inherits multiple preprocess-phase
                 transition mixins simultaneously.
 
-        """
+        """  # noqa: DOC502
         super().__init_subclass__(**kwargs)
         validate_exclusive_mixins(cls, PREPROCESS_EXCLUSIVE_MIXINS)
 
@@ -366,7 +366,7 @@ class DetachOnPostprocess(DetachStepMixin):
                 If the subclass inherits multiple postprocess-phase
                 transition mixins simultaneously.
 
-        """
+        """  # noqa: DOC502
         super().__init_subclass__(**kwargs)
         validate_exclusive_mixins(cls, POSTPROCESS_EXCLUSIVE_MIXINS)
 

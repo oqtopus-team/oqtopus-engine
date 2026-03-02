@@ -109,7 +109,7 @@ class Job(BaseModel):
             elif key not in {"parent", "children"}:
                 # Use direct value instead of !r to avoid quotes
                 attrs.append(f"{key}={value}")
-        
+
         return f"{self.__class__.__name__}({', '.join(attrs)})"
 
     def __str__(self) -> str:
