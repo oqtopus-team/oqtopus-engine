@@ -1,4 +1,5 @@
 import importlib
+import threading
 from typing import Any
 
 
@@ -40,7 +41,10 @@ class DiContainer:
 
         """
         self._config = config
-        self._instances: dict[str, Any] = {}  # cache for singletons
+        # Initialize a lock for thread-safe instance creation
+        self._lock = threading.Lock()
+        # cache for singletons
+        self._singleton_instances: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -73,18 +77,28 @@ class DiContainer:
             message = f"Unknown dependency: {name}"
             raise KeyError(message)
 
-        # Singleton cache check
-        if name in self._instances:
-            return self._instances[name]
+        # First check (no lock)
+        instance = self._singleton_instances.get(name)
+        if instance is not None:
+            return instance
 
-        instance = self._create_instance(name)
-
-        # Cache only if singleton
         scope = self._config[name].get("_scope_", "singleton")
-        if scope == "singleton":
-            self._instances[name] = instance
 
-        return instance
+        # If prototype, no locking needed for cache
+        if scope == "prototype":
+            return self._create_instance(name)
+
+        # Double-Checked Locking section
+        with self._lock:
+            # Second check (after acquiring lock)
+            instance = self._singleton_instances.get(name)
+            if instance is not None:
+                return instance
+
+            # Create and cache
+            instance = self._create_instance(name)
+            self._singleton_instances[name] = instance
+            return instance
 
     # ------------------------------------------------------------------
     # Internal helpers
