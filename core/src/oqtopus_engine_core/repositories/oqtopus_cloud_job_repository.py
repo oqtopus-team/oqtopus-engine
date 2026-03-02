@@ -11,6 +11,7 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     JobsApi,
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
+    JobsJobInfoUploadPresignedURL,
     JobsJobStatusUpdate,
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
@@ -201,6 +202,55 @@ class OqtopusCloudJobRepository(JobRepository):
             job = Job(**job_oas.to_dict())  # type: ignore[call-arg]
             jobs.append(job)
         return jobs
+
+    async def get_job_upload_url(
+        self, job: Job, items: list[str]
+    ) -> list[JobsJobInfoUploadPresignedURL]:
+        """Fetch presigned URLs for job information items upload to Oqtopus Cloud storage.
+
+        Args:
+            job: The job to upload
+            items: The list of job information items to upload. Available job information items are: `combined_program`, `transpile_result`, `result`, `sse_log`.
+
+        Returns:
+            A list of presigned URL data for upload, arranged in the order specified by the `items` parameter.
+
+        """
+
+        def _call() -> list[JobsJobInfoUploadPresignedURL]:
+            return self._jobs_api.get_upload_with_http_info(
+                job_id=job.job_id, items=",".join(items)
+            )
+
+        extra: dict[str, Any] = {
+            "job_id": job.job_id,
+            "job_type": job.job_type,
+            "items": items,
+        }
+        logger.info(
+            "GET /jobs/{job_id}/upload: request",
+            extra={**extra},
+        )
+
+        start = time.perf_counter()
+        response, status_code, _ = await self._request_with_error_logging(
+            _call,
+            "GET /jobs/{job_id}/upload",
+            extra,
+        )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        logger.info(
+            "GET /jobs/{job_id}/upload: response",
+            extra={
+                "status_code": status_code,
+                "elapsed_ms": round(elapsed_ms, 3),
+                **extra,
+                "len(body)": len(response) if response is not None else 0,
+            },
+        )
+
+        return response
 
     async def update_job_status(
         self,

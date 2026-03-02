@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 from .model import Job
+from ..interfaces.oqtopus_cloud import JobsJobInfoUploadPresignedURL
 
 
 class JobRepository(ABC):
@@ -25,6 +26,28 @@ class JobRepository(ABC):
 
         """
         message = "`get_jobs` must be implemented in subclasses of JobRepository."
+        raise NotImplementedError(message)
+
+    @abstractmethod
+    async def get_job_upload_url(
+        self, job: Job, items: list[str]
+    ) -> list[JobsJobInfoUploadPresignedURL]:
+        """Fetch presigned URLs for job information items upload to Oqtopus Cloud storage.
+
+        Args:
+            job: The job to upload
+            items: The list of job information items to upload. Available job information items are: `combined_program`, `transpile_result`, `result`, `sse_log`.
+
+        Returns:
+            A list of presigned URL data for upload, arranged in the order specified by the `items` parameter.
+
+        Raises:
+            NotImplementedError: If not implemented in subclass.
+
+        """
+        message = (
+            "`get_job_upload_url` must be implemented in subclasses of JobRepository."
+        )
         raise NotImplementedError(message)
 
     @abstractmethod
