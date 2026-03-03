@@ -92,7 +92,7 @@ def test_var_without_default_env_missing(temp_config_file):
 
     cfg = load_config(temp_config_file)
 
-    assert cfg["host"] == ""             # empty string as designed
+    assert cfg["host"] == None
 
 
 def test_var_without_default_env_present(temp_config_file):
@@ -158,5 +158,46 @@ def test_mixed_env_and_default(temp_config_file):
     cfg = load_config(temp_config_file)
 
     assert cfg["timeout"] == 50
-    assert cfg["host"] == ""
+    assert cfg["host"] is None
     assert cfg["debug"] is False
+
+
+def test_config_with_env_variations(temp_config_file):
+    """
+    Test various edge cases for environment variable interpolation:
+    1. Empty string from environment variable.
+    2. Default value as an empty string (quoted or literal).
+    3. Undefined environment variable with no default (should be None).
+    4. Default value with whitespace.
+    """
+    write_config(
+        temp_config_file,
+        """
+        env_empty: ${VAR_EMPTY, "default"}
+        default_empty: ${VAR_UNDEFINED_1, ""}
+        default_none: ${VAR_UNDEFINED_2}
+        default_whitespace: ${VAR_UNDEFINED_3,  }
+        """
+    )
+
+    # 1. Environment variable is explicitly set to an empty string
+    os.environ["VAR_EMPTY"] = ""
+    # Ensure other variables are not in the environment
+    os.environ.pop("VAR_UNDEFINED_1", None)
+    os.environ.pop("VAR_UNDEFINED_2", None)
+    os.environ.pop("VAR_UNDEFINED_3", None)
+
+    cfg = load_config(temp_config_file)
+
+    # env_empty should be "" because the env var exists and is empty
+    assert cfg["env_empty"] == ""
+
+    # default_empty should be "" because the default part was specified as ""
+    assert cfg["default_empty"] == ""
+
+    # default_none should be None because no env var and no default provided
+    assert cfg["default_none"] is None
+
+    # default_whitespace: depending on your .strip() implementation,
+    # this usually should be treated as an empty string ""
+    assert cfg["default_whitespace"] is None
