@@ -443,3 +443,61 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         return response
+
+    async def upload_job_output(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any],
+    ) -> None:
+        """Uploads job output data as .zip file to OCTOPUS Cloud S3 storage
+
+        Args:
+            job: The job for output upload.
+            presigned_url: Presigned URL for upload.
+            data: Data to be uploaded.
+
+        """
+
+        def _call() -> None:
+            proxies = (
+                {"http": self._proxy, "https": self._proxy} if self._proxy else None
+            )
+            return OqtopusStorage.upload(
+                presigned_url=presigned_url,
+                data=data,
+                proxies=proxies,
+                timeout_s=self._storage_op_timeout_seconds,
+            )
+
+        extra: dict[str, Any] = {
+            "job_id": job.job_id,
+            "job_type": job.job_type,
+        }
+
+        logger.info(
+            "job output upload started",
+            extra={
+                **extra,
+                "url": presigned_url.url,
+                "key": presigned_url.fields.key
+            },
+        )
+
+        start = time.perf_counter()
+        await self._request_with_error_logging(
+            _call,
+            f"job: {job.job_id} output upload",
+            extra,
+        )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        logger.info(
+            "job output upload completed",
+            extra={
+                "elapsed_ms": round(elapsed_ms, 3),
+                **extra,
+                "url": presigned_url.url,
+                "key": presigned_url.fields.key
+            },
+        )

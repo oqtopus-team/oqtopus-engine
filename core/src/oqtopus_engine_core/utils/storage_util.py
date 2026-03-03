@@ -62,7 +62,7 @@ class OqtopusStorage:
         Args:
             presigned_url (str):
                 presigned URL of target .zip file to download
-            proxy: connection proxies to use
+            proxies: connection proxies to use
             timeout_s: operation timeout in seconds
 
         Returns:
@@ -84,6 +84,7 @@ class OqtopusStorage:
     def upload(
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any],
+        proxies: dict[str, str] | None = None,
         timeout_s: int = DEFAULT_TIMEOUT_S,
     ) -> None:
         """Upload data to oqtopus cloud storage as .zip file.
@@ -91,6 +92,7 @@ class OqtopusStorage:
         Args:
             presigned_url (JobsJobInfoUploadPresignedURL): presigned URL for upload
             data (dict[str, Any]): data to upload
+            proxies: connection proxies to use
             timeout_s: operation timeout in seconds
 
         Raises:
@@ -119,6 +121,7 @@ class OqtopusStorage:
                             "application/zip",
                         )
                     },
+                    proxies=proxies,
                     timeout=timeout_s,
                 )
                 resp.raise_for_status()
