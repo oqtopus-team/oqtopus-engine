@@ -77,16 +77,24 @@ def _replace_env(match: re.Match) -> str:
     var_name = match.group(1)
     default_raw = match.group(2)
 
-    # Environment variable exists → use it directly
+    # Environment variable exists
     if var_name in os.environ:
-        return os.environ[var_name]
+        env_val = os.environ[var_name]
+        # If the environment variable is an empty string,
+        # return it as a quoted string literal to ensure YAML parses it as ""
+        if not env_val:
+            return '""'
+        return env_val
 
-    # No env → default exists
+    # No env variable, but a default value was provided
     if default_raw is not None:
+        # If the default part was ${VAR, ""}, default_raw might be empty
+        if not default_raw:
+            return '""'
         return default_raw
 
-    # No env and no default → empty string
-    return '""'  # Valid YAML string literal
+    # No env and no default provided
+    return "null"
 
 
 def load_config(config_path: str) -> dict[str, Any]:
