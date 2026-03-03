@@ -400,6 +400,9 @@ class OqtopusCloudJobRepository(JobRepository):
         Args:
             job: The job for input download.
 
+        Returns:
+            A dictionary containing downloaded and extracted job input items.
+
         """
 
         def _call() -> dict[str, Any]:
@@ -480,7 +483,7 @@ class OqtopusCloudJobRepository(JobRepository):
             extra={
                 **extra,
                 "url": presigned_url.url,
-                "key": presigned_url.fields.key
+                "key": presigned_url.fields.key,
             },
         )
 
@@ -498,6 +501,6 @@ class OqtopusCloudJobRepository(JobRepository):
                 "elapsed_ms": round(elapsed_ms, 3),
                 **extra,
                 "url": presigned_url.url,
-                "key": presigned_url.fields.key
+                "key": presigned_url.fields.key,
             },
         )
