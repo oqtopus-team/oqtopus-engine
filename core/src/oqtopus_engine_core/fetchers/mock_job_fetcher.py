@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from oqtopus_engine_core.framework import Job, JobContext, JobFetcher
+from oqtopus_engine_core.framework import Job, JobContext, JobFetcher, OperatorItem
 from oqtopus_engine_core.framework.job_fetcher import wait_until_fetchable
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,9 @@ class MockJobFetcher(JobFetcher):
                         shots=1000,
                         job_type="sampling",
                         input=f"{count}-{index}/input.zip",
+                        program=[
+                            program,
+                        ],
                         transpiler_info={
                             "transpiler_lib": "qiskit",
                             "transpiler_options": {"optimization_level": 2},
@@ -90,6 +93,9 @@ class MockJobFetcher(JobFetcher):
                         shots=1000,
                         job_type="sampling",
                         input=f"{count}-{index}/input.zip",
+                        program=[
+                            program,
+                        ],
                         transpiler_info={},
                         simulator_info={},
                         mitigation_info={
@@ -106,6 +112,13 @@ class MockJobFetcher(JobFetcher):
                         shots=1000,
                         job_type="estimation",
                         input=f"{count}-{index}/input.zip",
+                        program=[
+                            program,
+                        ],
+                        operator=[
+                            OperatorItem(pauli="X0 X1", coeff=1.0),
+                            OperatorItem(pauli="Z0 Z1", coeff=1.0),
+                        ],
                         transpiler_info={},
                         simulator_info={},
                         mitigation_info={},
@@ -120,6 +133,10 @@ class MockJobFetcher(JobFetcher):
                         shots=1000,
                         job_type="multi_manual",
                         input=f"{count}-{index}/input.zip",
+                        program=[
+                            program,
+                            program,
+                        ],
                         transpiler_info={},
                         simulator_info={},
                         mitigation_info={},
