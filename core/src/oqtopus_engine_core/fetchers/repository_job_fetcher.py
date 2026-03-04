@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from oqtopus_engine_core.framework import JobContext, JobFetcher
+from oqtopus_engine_core.framework import JobContext, JobInput, JobFetcher
 from oqtopus_engine_core.framework.job_fetcher import wait_until_fetchable
 
 logger = logging.getLogger(__name__)
@@ -61,10 +61,56 @@ class RepositoryJobFetcher(JobFetcher):
                     extra={"job_count": len(jobs)},
                 )
 
-                for job in jobs:
-                    # Send job to pipeline
-                    jctx = JobContext()
-                    await pipeline.execute_pipeline(gctx, jctx, job)
+                if jobs:
+                    # Create a list of awaitable tasks for downloading job inputs
+                    job_download_tasks = [
+                        gctx.job_repository.download_job_input(job) for job in jobs
+                    ]
+                    # Run all download tasks concurrently
+                    job_inputs = await asyncio.gather(
+                        *job_download_tasks, return_exceptions=True
+                    )
+                    success_count = sum(
+                        1 for i in job_inputs if not isinstance(i, Exception)
+                    )
+                    logger.info(
+                        "jobs downloaded",
+                        extra={
+                            "success": success_count,
+                            "failed": len(jobs) - success_count,
+                        },
+                    )
+
+                    for i, job in enumerate(jobs):
+                        if not isinstance(job_inputs[i], Exception):
+                            # use pydantic for final validation
+                            validated_input = JobInput(**job_inputs[i])
+
+                            job.program = validated_input.program
+                            job.operator = validated_input.operator
+
+                            # Send job to pipeline
+                            jctx = JobContext()
+                            await pipeline.execute_pipeline(gctx, jctx, job)
+                        else:
+                            # Fail the job
+                            # TODO: refactor to avoid this copy/paste of FailJobRepositoryHandler
+                            try:
+                                job.status = "failed"
+                                job.message = (
+                                    f"Job input download failed: {str(job_inputs[i])}"
+                                )
+                                await gctx.job_repository.update_job_status(
+                                    job=job,
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "failed to update job status to 'failed' in the repository",
+                                    extra={
+                                        "job_id": job.job_id,
+                                        "job_type": job.job_type,
+                                    },
+                                )
 
                 # Sleep if fewer jobs than the fetch limit were returned
                 if len(jobs) < self._limit:
