@@ -37,8 +37,8 @@ def req_transpile_and_exec(
         BackendError: If the job execution fails.
 
     """
-    # get gRPC server port from environment variables
-    grpc_sse_engine_port = os.environ.get("GRPC_SSE_ENGINE_PORT", "5001")
+    # get gRPC server address from environment variables
+    grpc_sse_engine_address = os.environ.get("SSE_ENGINE_ADDRESS", "localhost:52014")
 
     # get job data from environment variable
     job_json = os.environ.get("JOB_JSON")
@@ -46,9 +46,7 @@ def req_transpile_and_exec(
         msg = "Could not get job data"
         raise OSError(msg)
 
-    with grpc.insecure_channel(
-        f"host.docker.internal:{grpc_sse_engine_port}"
-    ) as channel:
+    with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
         created = datetime.datetime.now(tz=datetime.UTC) \
                                     .strftime("%Y-%m-%d %H:%M:%S")
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
@@ -87,6 +85,9 @@ def _make_job_def(
     result_dict = json.loads(response.job_json or "{}")
     result_dict["name"] = result_dict["name"] or ""
 
+    # Filter out unsupported fields to ensure compatibility with JobsJobDef
+    for key in ["parent", "children"]:
+        result_dict.pop(key, None)
     # Convert to JobsJobDef
     job = JobsJobDef(**result_dict)
     # Convert job_info and its nested objects

@@ -103,7 +103,7 @@ di_container:
     sse_step:
       _target_: oqtopus_engine_core.steps.sse_step.SseStep
       runner_settings:
-        sse_engine_port: ${SSE_GATEWAY_ROUTER_LISTEN_PORT, 52014}
+        sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:52014"}
         host_work_path: ${SSE_HOST_WORK_PATH, "/sse_work"}
         delete_host_temp_dirs: ${SSE_DELETE_HOST_TEMP_DIRS, true}
         container_work_path: ${SSE_CONTAINER_PATH, "/sse"}
@@ -114,6 +114,9 @@ di_container:
         container_disk_quota: ${SSE_CONTAINER_DISK_QUOTA, 67108864}
         container_memory: ${SSE_CONTAINER_MEMORY, 268435456}
         container_cpu_set: ${SSE_CONTAINER_CPU_SET, "0"}
+        container_network: ${SSE_CONTAINER_NETWORK, "context_app_net"}
+        container_extra_hosts:
+          - sse_engine: ${SSE_ENGINE_IP, "localhost"}
         timeout: ${SSE_TIMEOUT, 600}
         max_file_size: ${SSE_MAX_FILE_SIZE, 10485760}
 

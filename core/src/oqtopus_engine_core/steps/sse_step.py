@@ -463,7 +463,8 @@ class SseRunner:
                 "initializing SSE container",
                 extra={"job_id": self._job_id},
             )
-            cmd = f'sh -c "/root/init.sh {self._config["sse_engine_port"]}"'
+            port = self._config["sse_engine_address"].split(":")[-1]
+            cmd = f'sh -c "/root/init.sh {port}"'
             await self._exec_in_container(
                 user="root",
                 privileged=True,
@@ -611,7 +612,7 @@ class SseRunner:
             f"JOB_JSON={self._job.model_dump_json()}",
             f"IN_PATH={self._container_work_path['in']}",
             f"OUT_PATH={self._container_work_path['out']}",
-            f"GRPC_SSE_ENGINE_PORT={self._config['sse_engine_port']}",
+            f"SSE_ENGINE_ADDRESS={self._config['sse_engine_address']}",
             "TERM=dumb",  # to drop ANSI escape codes in logs
         ]
 
@@ -626,7 +627,8 @@ class SseRunner:
             mounts=[tmpfs],
             mem_limit=self._config.get("container_memory", 256 * 1024 * 1024),
             cpuset_cpus=self._config.get("container_cpu_set", "0"),
-            extra_hosts={"host.docker.internal": "host-gateway"},
+            network=self._config.get("container_network", None),
+            extra_hosts=self._config.get("container_extra_hosts", None),
         )
         logger.debug(
             "started SSE container successfully",
