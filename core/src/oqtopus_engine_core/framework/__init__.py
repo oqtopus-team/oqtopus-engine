@@ -2,6 +2,7 @@ from .buffer import Buffer
 from .context import GlobalContext, JobContext
 from .device_fetcher import DeviceFetcher
 from .device_repository import DeviceRepository
+from .engine import Engine
 from .exception_handler import PipelineExceptionHandler
 from .job_fetcher import JobFetcher
 from .job_repository import JobRepository
@@ -34,6 +35,7 @@ __all__ = [
     "Device",
     "DeviceFetcher",
     "DeviceRepository",
+    "Engine",
     "EstimationResult",
     "GlobalContext",
     "Job",

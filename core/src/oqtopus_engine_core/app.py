@@ -1,20 +1,11 @@
 import asyncio
-import logging
 
-from oqtopus_engine_core.framework import (
-    DeviceFetcher,
-    GlobalContext,
-    JobFetcher,
-    JobRepository,
-    PipelineBuilder,
-)
+from oqtopus_engine_core.framework.engine import Engine
 from oqtopus_engine_core.utils import (
     load_config,
-    mask_sensitive_info,
     parse_args,
     setup_logging,
 )
-from oqtopus_engine_core.utils.di_container import DiContainer
 
 
 async def main() -> None:
@@ -26,40 +17,10 @@ async def main() -> None:
     # Setup logging
     logging_config = load_config(args.logging)
     setup_logging(logging_config)
-    logger = logging.getLogger("oqtopus_engine_core")
 
-    # Show the configuration
-    logger.info("starting OQTOPUS Engine")
-    gctx = GlobalContext(config=config)
-    logger.info("gctx.config=%s", mask_sensitive_info(gctx.config))
-
-    # Initialize the DI container
-    dicon = DiContainer(gctx.config["di_container"]["registry"])
-
-    # Build the pipeline executor using the PipelineBuilder
-    pipeline = PipelineBuilder.build(gctx.config["pipeline_executor"], dicon)
-
-    # Initialize the job fetcher
-    job_fetcher: JobFetcher = dicon.get("job_fetcher")
-    job_fetcher.gctx = gctx
-    job_fetcher.pipeline = pipeline
-
-    # Initialize the job repository
-    job_repository: JobRepository = dicon.get("job_repository")
-    gctx.job_repository = job_repository
-
-    # Initialize the device fetcher
-    device_fetcher: DeviceFetcher = dicon.get("device_fetcher")
-    device_fetcher.gctx = gctx
-
-    # Initialize the device repository
-    gctx.device_repository = dicon.get("device_repository")
-
-    # Start the executor, the job fetcher and the device fetcher
-    pipeline_task = asyncio.create_task(pipeline.start())
-    job_fetcher_task = asyncio.create_task(job_fetcher.start())
-    device_fetcher_task = asyncio.create_task(device_fetcher.start())
-    await asyncio.gather(pipeline_task, job_fetcher_task, device_fetcher_task)
+    # Initialize the Engine
+    engine = Engine(config=config)
+    await engine.start()
 
 
 if __name__ == "__main__":
