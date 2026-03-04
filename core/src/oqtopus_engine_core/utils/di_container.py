@@ -28,19 +28,19 @@ class DiContainer:
 
     Example usage:
 
-        dicon = DiContainer(config)
+        dicon = DiContainer(registry_config)
         job_fetcher = dicon.get("job_fetcher")
     """
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, registry: dict[str, Any]) -> None:
         """Initialize the DI container.
 
         Args:
-            config: Configuration dictionary produced by load_config().
+            registry: Configuration dictionary for the dependency registry.
                    Top-level keys represent dependency names.
 
         """
-        self._config = config
+        self._registry_config = registry
         # Initialize a lock for thread-safe instance creation
         self._lock = threading.Lock()
         # cache for singletons
@@ -73,7 +73,7 @@ class DiContainer:
             TypeError: If constructor arguments mismatch.
 
         """  # noqa: DOC502
-        if name not in self._config:
+        if name not in self._registry_config:
             message = f"Unknown dependency: {name}"
             raise KeyError(message)
 
@@ -82,7 +82,7 @@ class DiContainer:
         if instance is not None:
             return instance
 
-        scope = self._config[name].get("_scope_", "singleton")
+        scope = self._registry_config[name].get("_scope_", "singleton")
 
         # If prototype, no locking needed for cache
         if scope == "prototype":
@@ -120,7 +120,7 @@ class DiContainer:
             TypeError: If constructor arguments do not match.
 
         """
-        cfg = self._config[name]
+        cfg = self._registry_config[name]
 
         if "_target_" not in cfg:
             message = f"Missing _target_ for dependency {name}"

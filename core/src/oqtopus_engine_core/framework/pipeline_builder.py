@@ -1,14 +1,13 @@
 from typing import TYPE_CHECKING, Any
 
-from oqtopus_engine_core.framework import (
-    Buffer,
-    PipelineExceptionHandler,
-    PipelineExecutor,
-)
 from oqtopus_engine_core.utils.di_container import DiContainer
 
+from .pipeline import PipelineExecutor
+
 if TYPE_CHECKING:
-    from oqtopus_engine_core.framework.step import Step
+    from .buffer import Buffer
+    from .exception_handler import PipelineExceptionHandler
+    from .step import Step
 
 
 class PipelineBuilder:
