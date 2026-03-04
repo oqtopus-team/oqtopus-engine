@@ -360,19 +360,6 @@ wheels = [
 ]
 
 [[package]]
-name = "omegaconf"
-version = "2.3.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "antlr4-python3-runtime" },
-    { name = "pyyaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/09/48/6388f1bb9da707110532cb70ec4d2822858ddfb44f1cdf1233c20a80ea4b/omegaconf-2.3.0.tar.gz", hash = "sha256:d5d4b6d29955cc50ad50c46dc269bcd92c6e00f5f90d23ab5fee7bfca4ba4cc7", size = 3298120, upload-time = "2022-12-08T20:59:22.753Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/e3/94/1843518e420fa3ed6919835845df698c7e27e183cb997394e4a670973a65/omegaconf-2.3.0-py3-none-any.whl", hash = "sha256:7b4df175cdb08ba400f45cae3bdcae7ba8365db4d165fc65fd04b050ab63b46b", size = 79500, upload-time = "2022-12-08T20:59:19.686Z" },
-]
-
-[[package]]
 name = "openqasm3"
 version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
@@ -394,7 +381,6 @@ dependencies = [
     { name = "certifi" },
     { name = "docker" },
     { name = "grpcio" },
-    { name = "omegaconf" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "python-json-logger" },
@@ -420,7 +406,6 @@ requires-dist = [
     { name = "certifi", specifier = ">=2025.11.12" },
     { name = "docker", specifier = ">=7.1.0" },
     { name = "grpcio", specifier = ">=1.76.0" },
-    { name = "omegaconf", specifier = ">=2.3.0" },
     { name = "protobuf", specifier = ">=6.33.2" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "python-json-logger", specifier = ">=4.0.0" },

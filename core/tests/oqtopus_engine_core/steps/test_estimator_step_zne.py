@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from omegaconf import OmegaConf
 
 from oqtopus_engine_core.framework import (
     EstimationResult,
@@ -17,9 +16,7 @@ from oqtopus_engine_core.steps.estimator_step import EstimatorStep
 @pytest.mark.asyncio
 async def test_post_process_skips_when_result_is_precomputed() -> None:
     step = EstimatorStep(
-        basis_gates=OmegaConf.create(
-            ["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"]
-        )
+        basis_gates=["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"]
     )
     step._stub = AsyncMock()
     step._stub.ReqEstimationPostProcess = AsyncMock()

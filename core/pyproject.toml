@@ -22,7 +22,6 @@ dependencies = [
   "certifi>=2025.11.12",
   "docker>=7.1.0",
   "grpcio>=1.76.0",
-  "omegaconf>=2.3.0",
   "protobuf>=6.33.2",
   "pydantic>=2.12.5",
   "python-json-logger>=4.0.0",

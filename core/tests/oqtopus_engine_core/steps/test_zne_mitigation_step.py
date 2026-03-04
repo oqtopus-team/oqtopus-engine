@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from omegaconf import OmegaConf
 
 from oqtopus_engine_core.framework import Job, JobContext, JobInfo, JobResult
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import mitigator_pb2
@@ -216,20 +215,18 @@ async def test_post_process_keeps_existing_readout_details_and_adds_zne() -> Non
 
 
 @pytest.mark.asyncio
-async def test_pre_process_handles_omegaconf_in_default_config() -> None:
+async def test_pre_process_handles_dict_in_default_config() -> None:
     step = ZneStep(
-        zne_default_config=OmegaConf.create(
-            {
-                "enabled": True,
-                "scale_factors": [1.0, 2.0, 3.0],
-                "factory": "richardson",
-                "folding": "global",
-                "num_to_average": 1,
-                "fail_open": True,
-                "poly_order": 2,
-                "basis_gates": ["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"],
-            }
-        )
+        zne_default_config={
+            "enabled": True,
+            "scale_factors": [1.0, 2.0, 3.0],
+            "factory": "richardson",
+            "folding": "global",
+            "num_to_average": 1,
+            "fail_open": True,
+            "poly_order": 2,
+            "basis_gates": ["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"],
+        }
     )
     step._stub = AsyncMock()
     step._stub.ReqZnePreProcess = AsyncMock(
