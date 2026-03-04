@@ -42,15 +42,13 @@ class ReadoutErrorMitigationStep(Step):
         self,
         mitigator_address: str = "localhost:52011",
         mitigator_timeout_seconds: float = 120.0,
-        zne_default_config: dict | None = None,
     ) -> None:
         """Initialize the ReadoutErrorMitigationStep with mitigator service address.
 
         Args:
             mitigator_address: Address of the gRPC mitigator service
                 (e.g., "localhost:52011").
-            mitigator_timeout_seconds: Backward-compatible parameter.
-            zne_default_config: Backward-compatible parameter.
+            mitigator_timeout_seconds: Request timeout in seconds.
 
         """
         self._channel = grpc.aio.insecure_channel(mitigator_address)
@@ -61,7 +59,6 @@ class ReadoutErrorMitigationStep(Step):
             extra={
                 "mitigator_address": mitigator_address,
                 "mitigator_timeout_seconds": mitigator_timeout_seconds,
-                "zne_default_config": zne_default_config,
             },
         )
 
@@ -365,11 +362,6 @@ class ReadoutErrorMitigationStep(Step):
             if method is None:
                 return None
             return str(method).lower()
-        if mitigation_info.get("ro_error_mitigation") is not None:
-            logger.warning(
-                "legacy mitigation_info.ro_error_mitigation is no longer supported; "
-                "use mitigation_info.readout.method"
-            )
         return None
 
     def _record_readout_details(
