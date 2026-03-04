@@ -61,7 +61,7 @@ class RepositoryJobFetcher(JobFetcher):
                     extra={"job_count": len(jobs)},
                 )
 
-                if jobs:
+                if len(jobs):
                     # Create a list of awaitable tasks for downloading job inputs
                     job_download_tasks = [
                         gctx.job_repository.download_job_input(job) for job in jobs
