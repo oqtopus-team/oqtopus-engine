@@ -1,6 +1,8 @@
 import logging
+from typing import Any
 
 from oqtopus_engine_core.framework import Job, JobRepository
+from oqtopus_engine_core.interfaces.oqtopus_cloud import JobsJobInfoUploadPresignedURL
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,11 @@ class NullJobRepository(JobRepository):
     ) -> list[Job]:
         """No-op implementation."""
 
+    async def get_job_upload_url(
+        self, job: Job, items: list[str]
+    ) -> list[JobsJobInfoUploadPresignedURL]:
+        """No-op implementation."""
+
     async def update_job_status(
         self,
         job: Job,
@@ -44,4 +51,18 @@ class NullJobRepository(JobRepository):
         """No-op implementation."""
 
     async def update_job_transpiler_info_nowait(self, job: Job) -> None:
+        """No-op implementation."""
+
+    async def download_job_input(
+        self,
+        job: Job,
+    ) -> dict[str, Any]:
+        """No-op implementation."""
+
+    async def upload_job_output(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any],
+    ) -> None:
         """No-op implementation."""
