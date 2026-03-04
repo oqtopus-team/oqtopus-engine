@@ -108,7 +108,9 @@ def test_divide_string_by_lengths(input_str, lengths, expected, error):
         ({}, [], {}, None, "inconsistent qubit property"),
     ],
 )
-def test_divide_result(counts, combined_qubits_list, expected_counts, expected_divided, error):
+def test_divide_result(
+    counts, combined_qubits_list, expected_counts, expected_divided, error
+):
     job_result = JobResult(
         sampling={
             "counts": counts,
@@ -116,7 +118,7 @@ def test_divide_result(counts, combined_qubits_list, expected_counts, expected_d
         },
         estimation=None,
     )
-    jd = Job(
+    job = Job(
         device_id="test_device",
         job_type="test_type",
         shots=1024,
@@ -139,9 +141,9 @@ def test_divide_result(counts, combined_qubits_list, expected_counts, expected_d
     jctx = {"combined_qubits_list": combined_qubits_list}
     if error:
         with pytest.raises(ValueError) as e:
-            divide_result(job=jd, jctx=jctx)
+            divide_result(job=job, jctx=jctx)
         assert error in str(e.value)
     else:
-        divided_counts = divide_result(job=jd, jctx=jctx)
-        assert jd.job_info.result.sampling.counts == expected_counts
+        divided_counts = divide_result(job=job, jctx=jctx)
+        assert job.job_info.result.sampling.counts == expected_counts
         assert divided_counts == expected_divided

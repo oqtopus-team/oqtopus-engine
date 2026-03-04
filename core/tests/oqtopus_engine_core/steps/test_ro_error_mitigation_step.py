@@ -21,8 +21,18 @@ def _build_gctx() -> SimpleNamespace:
             device_info=json.dumps(
                 {
                     "qubits": [
-                        {"meas_error": {"prob_meas1_prep0": 0.01, "prob_meas0_prep1": 0.02}},
-                        {"meas_error": {"prob_meas1_prep0": 0.03, "prob_meas0_prep1": 0.04}},
+                        {
+                            "meas_error": {
+                                "prob_meas1_prep0": 0.01,
+                                "prob_meas0_prep1": 0.02,
+                            }
+                        },
+                        {
+                            "meas_error": {
+                                "prob_meas1_prep0": 0.03,
+                                "prob_meas0_prep1": 0.04,
+                            }
+                        },
                     ]
                 }
             )
@@ -48,7 +58,9 @@ async def test_post_process_sampling_applies_readout_mitigation() -> None:
         job_info=JobInfo(
             program=["OPENQASM 3.0; include \"stdgates.inc\";"],
             result=JobResult(
-                sampling=SamplingResult(counts={"00": 500, "01": 300, "10": 150, "11": 50})
+                sampling=SamplingResult(
+                    counts={"00": 500, "01": 300, "10": 150, "11": 50}
+                )
             ),
         ),
         transpiler_info={},
@@ -106,7 +118,10 @@ async def test_post_process_estimation_applies_readout_mitigation_to_counts_list
     await step.post_process(_build_gctx(), jctx, job)
 
     assert step._stub.ReqMitigation.await_count == 2
-    assert jctx["estimation_job_info"].counts_list == [{"0": 90, "1": 10}, {"0": 40, "1": 60}]
+    assert jctx["estimation_job_info"].counts_list == [
+        {"0": 90, "1": 10},
+        {"0": 40, "1": 60},
+    ]
     assert job.job_info.result is not None
     assert job.job_info.result.mitigation_details == {
         "readout": {

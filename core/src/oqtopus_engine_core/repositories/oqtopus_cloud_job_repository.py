@@ -78,7 +78,8 @@ class OqtopusCloudJobRepository(JobRepository):
         """Call an API in a worker thread with logging and error handling.
 
         Args:
-            call: Callable that performs the HTTP request and returns (data, status, headers).
+            call: Callable that performs the HTTP request and returns
+                (data, status, headers).
             label: Log label like 'PATCH /jobs/{job_id}/job_info'.
             extra: Extra fields to log on error.
 
@@ -446,7 +447,7 @@ class OqtopusCloudJobRepository(JobRepository):
         start = time.perf_counter()
         response, status_code, _ = await self._request_with_error_logging(
             _call,
-            "GET /jobs/{job_id}/ssesrc",
+            "GET /jobs/{job_id}/ssesrc",  # noqa: RUF027
             extra,
         )
         elapsed_ms = (time.perf_counter() - start) * 1000.0
@@ -493,7 +494,7 @@ class OqtopusCloudJobRepository(JobRepository):
         start = time.perf_counter()
         response, status_code, _ = await self._request_with_error_logging(
             _call,
-            "PATCH /jobs/{job_id}/sselog",
+            "PATCH /jobs/{job_id}/sselog",  # noqa: RUF027
             extra,
         )
         elapsed_ms = (time.perf_counter() - start) * 1000.0

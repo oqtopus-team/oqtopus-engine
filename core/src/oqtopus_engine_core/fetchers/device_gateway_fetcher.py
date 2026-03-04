@@ -31,7 +31,7 @@ def service_status_to_label(status: int) -> str:
 class DeviceGatewayFetcher(DeviceFetcher):
     """Periodically fetch device info and service status from the device gateway."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         gateway_address: str,
         initial_interval_seconds: float = 10.0,
@@ -111,6 +111,44 @@ class DeviceGatewayFetcher(DeviceFetcher):
         """
         logger.info("DeviceGatewayFetcher was started")
 
+        # 1. Initial fetch device info once at startup
+        await self._run_initial_fetch_loop()
+
+        # 2. Main periodic fetch loop
+        logger.info("starting device fetch loop")
+        current_backoff = self._loop_interval_seconds
+        consecutive_errors = 0
+
+        while True:
+            try:
+                device = await self._fetch_device()
+
+                # Reset backoff and error count on success
+                consecutive_errors = 0
+                current_backoff = self._loop_interval_seconds
+
+                # Compare and update specific fields if changed
+                await self._update_if_changed(device)
+
+                await asyncio.sleep(current_backoff)
+
+            except Exception:
+                self.gctx.device.is_connected = False
+                consecutive_errors += 1
+                logger.exception(
+                    "failed to fetch device, will retry with backoff",
+                    extra={
+                        "sleep_seconds": current_backoff,
+                        "consecutive_errors": consecutive_errors,
+                    },
+                )
+                await asyncio.sleep(current_backoff)
+                current_backoff = min(
+                    current_backoff * 2, self._loop_backoff_max_seconds
+                )
+
+    async def _run_initial_fetch_loop(self) -> None:
+        """Fetch device info once at startup with exponential backoff."""
         # fetch device info once at startup
         current_backoff = self._initial_interval_seconds
         while True:
@@ -140,108 +178,61 @@ class DeviceGatewayFetcher(DeviceFetcher):
                     current_backoff * 2, self._initial_backoff_max_seconds
                 )
 
-        # After initialization, fetch periodically
-        logger.info("starting device fetch loop")
-        current_backoff = self._loop_interval_seconds
-        consecutive_errors = 0
-        while True:
-            try:
-                # Fetch device
-                device = await self._fetch_device()
+    async def _update_if_changed(self, device: Device) -> None:
+        """Compare current device state with global context and update if necessary."""
+        # Check is_connected
+        if device.is_connected != self.gctx.device.is_connected:
+            logger.info(
+                "device is_connected changed",
+                extra={
+                    "device_id": device.device_id,
+                    "prev_is_connected": self.gctx.device.is_connected,
+                    "curr_is_connected": device.is_connected,
+                },
+            )
+            self.gctx.device.is_connected = device.is_connected
 
-                # Reset backoff on success
-                consecutive_errors = 0
-                current_backoff = self._loop_interval_seconds
+        # Check n_qubits
+        if device.n_qubits != self.gctx.device.n_qubits:
+            logger.info(
+                "device n_qubits changed",
+                extra={
+                    "device_id": device.device_id,
+                    "prev_n_qubits": self.gctx.device.n_qubits,
+                    "curr_n_qubits": device.n_qubits,
+                },
+            )
+            self.gctx.device.n_qubits = device.n_qubits
+            await self.gctx.device_repository.update_device(device)
 
-                # Current values
-                curr_device_info = device.device_info
-                curr_calibrated_at = device.calibrated_at
-                curr_n_qubits = device.n_qubits
-                curr_status = device.status
-                curr_is_connected = device.is_connected
+        # Check device_info and calibrated_at
+        if (device.device_info != self.gctx.device.device_info) or (
+            device.calibrated_at != self.gctx.device.calibrated_at
+        ):
+            device_info_changed = (device.device_info != self.gctx.device.device_info)
+            logger.info(
+                "device info/calibrated_at changed",
+                extra={
+                    "device_id": device.device_id,
+                    "device_info_changed": device_info_changed,
+                    "prev_calibrated_at": self.gctx.device.calibrated_at,
+                    "curr_calibrated_at": device.calibrated_at,
+                },
+            )
+            self.gctx.device.device_info = device.device_info
+            self.gctx.device.calibrated_at = device.calibrated_at
+            if self._enable_device_info_update:
+                await self.gctx.device_repository.update_device_info(device)
 
-                # Compare and update if is_connected changed
-                prev_is_connected = self.gctx.device.is_connected
-                if curr_is_connected != prev_is_connected:
-                    logger.info(
-                        "device is_connected changed",
-                        extra={
-                            "device_id": device.device_id,
-                            "prev_is_connected": prev_is_connected,
-                            "curr_is_connected": curr_is_connected,
-                        },
-                    )
-                    # Update global context
-                    self.gctx.device.is_connected = curr_is_connected
-
-                # Compare and update if n_qubits changed
-                prev_n_qubits = self.gctx.device.n_qubits
-                if curr_n_qubits != prev_n_qubits:
-                    logger.info(
-                        "device n_qubits changed",
-                        extra={
-                            "device_id": device.device_id,
-                            "prev_n_qubits": prev_n_qubits,
-                            "curr_n_qubits": curr_n_qubits,
-                        },
-                    )
-                    # Update global context
-                    self.gctx.device.n_qubits = curr_n_qubits
-                    # Update device repository
-                    await self.gctx.device_repository.update_device(device)
-
-                # Compare and update if device_info changed
-                prev_device_info = self.gctx.device.device_info
-                prev_calibrated_at = self.gctx.device.calibrated_at
-                if (curr_device_info != prev_device_info) or (
-                    curr_calibrated_at != prev_calibrated_at
-                ):
-                    logger.info(
-                        "device info/calibrated_at changed",
-                        extra={
-                            "device_id": device.device_id,
-                            "device_info_changed": curr_device_info != prev_device_info,
-                            "prev_calibrated_at": prev_calibrated_at,
-                            "curr_calibrated_at": curr_calibrated_at,
-                        },
-                    )
-                    # Update global context
-                    self.gctx.device.device_info = curr_device_info
-                    self.gctx.device.calibrated_at = curr_calibrated_at
-                    # Update device repository
-                    if self._enable_device_info_update:
-                        await self.gctx.device_repository.update_device_info(device)
-
-                # Compare and update if status changed
-                prev_status = self.gctx.device.status
-                if curr_status != prev_status:
-                    logger.info(
-                        "device status changed",
-                        extra={
-                            "device_id": device.device_id,
-                            "prev_status": prev_status,
-                            "curr_status": curr_status,
-                        },
-                    )
-                    # Update global context
-                    self.gctx.device.status = curr_status
-                    # Update device repository
-                    await self.gctx.device_repository.update_device_status(device)
-
-                await asyncio.sleep(current_backoff)
-                continue
-
-            except Exception:
-                self.gctx.device.is_connected = False
-                consecutive_errors += 1
-                logger.exception(
-                    "failed to fetch device, will retry with backoff",
-                    extra={
-                        "sleep_seconds": current_backoff,
-                        "consecutive_errors": consecutive_errors,
-                    },
-                )
-                await asyncio.sleep(current_backoff)
-                current_backoff = min(
-                    current_backoff * 2, self._loop_backoff_max_seconds
-                )
+        # Check status
+        if device.status != self.gctx.device.status:
+            logger.info(
+                "device status changed",
+                extra={
+                    "device_id": device.device_id,
+                    "prev_status": self.gctx.device.status,
+                    "curr_status": device.status,
+                },
+            )
+            self.gctx.device.status = device.status
+            await self.gctx.device_repository.update_device_status(device)

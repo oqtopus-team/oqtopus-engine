@@ -1,3 +1,4 @@
+from .buffer import Buffer
 from .context import GlobalContext, JobContext
 from .device_fetcher import DeviceFetcher
 from .device_repository import DeviceRepository
@@ -15,9 +16,21 @@ from .model import (
     TranspileResult,
 )
 from .pipeline import PipelineExecutor
-from .step import Step
+from .pipeline_builder import PipelineBuilder
+from .step import (
+    DetachOnPostprocess,
+    DetachOnPreprocess,
+    JoinOnPostprocess,
+    JoinOnPreprocess,
+    SplitOnPostprocess,
+    SplitOnPreprocess,
+    Step,
+)
 
 __all__ = [
+    "Buffer",
+    "DetachOnPostprocess",
+    "DetachOnPreprocess",
     "Device",
     "DeviceFetcher",
     "DeviceRepository",
@@ -29,10 +42,15 @@ __all__ = [
     "JobInfo",
     "JobRepository",
     "JobResult",
+    "JoinOnPostprocess",
+    "JoinOnPreprocess",
     "OperatorItem",
+    "PipelineBuilder",
     "PipelineExceptionHandler",
     "PipelineExecutor",
     "SamplingResult",
+    "SplitOnPostprocess",
+    "SplitOnPreprocess",
     "Step",
     "TranspileResult",
 ]

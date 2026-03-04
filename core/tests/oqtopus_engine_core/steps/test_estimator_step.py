@@ -73,13 +73,37 @@ async def test_pre_process_calls_grpc_and_sets_estimation_job_info() -> None:
 
     assert step._stub.ReqEstimationPreProcess.await_count == 1
     request = step._stub.ReqEstimationPreProcess.await_args.args[0]
-    assert request.basis_gates == ["cx", "rz", "measure"]
-    assert request.mapping_list == []
+    assert list(request.basis_gates) == ["cx", "rz", "measure"]
+    assert list(request.mapping_list) == []
     assert "Z 0" in request.operators
 
     assert "estimation_job_info" in jctx
     assert jctx["estimation_job_info"].preprocessed_qasms
     assert jctx["estimation_job_info"].grouped_operators == [[['Z']], [[1.0]]]
+
+
+@pytest.mark.asyncio
+async def test_pre_process_uses_transpile_mapping_in_sorted_order() -> None:
+    step = EstimatorStep(basis_gates=["cx", "rz", "measure"])
+    step._stub = AsyncMock()
+    step._stub.ReqEstimationPreProcess = AsyncMock(
+        return_value=estimator_pb2.ReqEstimationPreProcessResponse(
+            qasm_codes=["TRANSPILED"],
+            grouped_operators=json.dumps([[['Z']], [[1.0]]]),
+        )
+    )
+
+    jctx = JobContext()
+    job = _build_job()
+    job.job_info.transpile_result = SimpleNamespace(
+        transpiled_program="TRANSPILED",
+        virtual_physical_mapping={"qubit_mapping": {"1": 0, "0": 2}},
+    )
+
+    await step.pre_process(SimpleNamespace(), jctx, job)
+
+    request = step._stub.ReqEstimationPreProcess.await_args.args[0]
+    assert list(request.mapping_list) == [2, 0]
 
 
 @pytest.mark.asyncio

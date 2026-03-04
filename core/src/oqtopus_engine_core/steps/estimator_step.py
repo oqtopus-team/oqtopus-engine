@@ -57,6 +57,7 @@ class EstimatorStep(Step):
 
         Args:
             estimator_address: Address of the gRPC estimator server.
+            basis_gates: List of basis gates to be used for estimation.
 
         """
         self._channel = grpc.aio.insecure_channel(estimator_address)
@@ -84,14 +85,17 @@ class EstimatorStep(Step):
     ) -> None:
         """Pre-process the job by sending a request to estimator.
 
-        This method prepares an estimation job by processing the QASM code and operators.
-        It updates the job context with preprocessed QASMs and grouped operators needed for estimation.
+        This method prepares an estimation job by processing the QASM code and
+        operators. It updates the job context with preprocessed QASMs and grouped
+        operators needed for estimation.
 
         Notes:
-            - For estimation job types, it extracts the QASM code from either the original program
-              or the transpiled result.
-            - It handles virtual-to-physical qubit mapping if available from transpilation.
-            - The preprocessing groups operators and prepares QASMs for the estimation step.
+            - For estimation job types, it extracts the QASM code from either
+              the original program or the transpiled result.
+            - It handles virtual-to-physical qubit mapping if available from
+              transpilation.
+            - The preprocessing groups operators and prepares QASMs for the estimation
+              step.
             - Results are stored in the job context under 'estimation_job_info'.
 
         Args:
