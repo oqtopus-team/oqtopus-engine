@@ -56,17 +56,6 @@ class JobResult(BaseModel):
     estimation: EstimationResult | None = None
 
 
-# class JobInfo(BaseModel):
-#     """Job detail information model."""
-
-#     program: list[str]
-#     combined_program: str | None = None
-#     operator: list[OperatorItem] | None = None
-#     result: JobResult | None = None
-#     transpile_result: TranspileResult | None = None
-#     message: str | None = None
-
-
 class JobInput(BaseModel):
     program: list[str]
     operator: list[OperatorItem] | None = None
