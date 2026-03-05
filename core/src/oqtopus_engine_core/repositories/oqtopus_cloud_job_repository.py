@@ -264,8 +264,7 @@ class OqtopusCloudJobRepository(JobRepository):
         """
         body = JobsJobStatusUpdate(
             status=job.status,
-            # TODO: add output_files
-            output_files=None,
+            output_files=job.output_files,
             message=job.message,
             execution_time=job.execution_time,
         )
