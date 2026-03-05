@@ -86,6 +86,11 @@ class Job(BaseModel):
     input: str
     program: list[str] | None = None
     operator: list[OperatorItem] | None = None
+    combined_program: str | None = None
+    transpile_result: TranspileResult | None = None
+    result: JobResult | None = None
+    sse_log: str | None = None
+    output_files: list[str] = []
     transpiler_info: dict[str, Any]
     simulator_info: dict[str, Any]
     mitigation_info: dict[str, Any]
