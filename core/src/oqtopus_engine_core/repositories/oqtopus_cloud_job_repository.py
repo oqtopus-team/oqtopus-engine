@@ -504,3 +504,5 @@ class OqtopusCloudJobRepository(JobRepository):
                 "key": presigned_url.fields.key,
             },
         )
+
+        job.output_files.append(presigned_url.fields.key)
