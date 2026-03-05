@@ -216,7 +216,7 @@ class MultiManualStep(Step):
         await gctx.job_repository.upload_job_output(
             job=job,
             presigned_url=urls[0],
-            data=job.combined_program
+            data=job.combined_program,
         )
 
     async def post_process(  # noqa: PLR6301

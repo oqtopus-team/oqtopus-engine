@@ -150,7 +150,7 @@ class TranquStep(Step):
         await gctx.job_repository.upload_job_output(
             job=job,
             presigned_url=urls[0],
-            data=job.transpile_result.model_dump()
+            data=job.transpile_result.model_dump(),
         )
 
     async def post_process(
