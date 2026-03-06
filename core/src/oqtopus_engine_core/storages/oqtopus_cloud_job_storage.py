@@ -240,3 +240,31 @@ class OqtopusCloudJobStorage(JobStorage):
         )
 
         job.output_files.append(presigned_url.fields.key)
+
+    async def upload_job_output_nowait(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any],
+    ) -> None:
+        """Uploads job output data as .zip file to OCTOPUS Cloud S3 storage without waiting
+
+        Args:
+            job: The job for output upload.
+            presigned_url: Presigned URL for upload.
+            data: Data to be uploaded.
+
+        """
+
+        task = asyncio.create_task(
+            self.upload_job_output(
+                job,
+                presigned_url,
+                data
+            )
+        )
+        self._track_background_request(
+            task,
+            label="job output upload",
+            extra={"job_id": job.job_id, "job_type": job.job_type},
+        )
