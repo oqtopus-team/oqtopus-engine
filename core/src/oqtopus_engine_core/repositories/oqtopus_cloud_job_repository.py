@@ -8,14 +8,14 @@ from oqtopus_engine_core.framework import Job, JobRepository
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     ApiClient,
     Configuration,
-    JobApi,
     JobsApi,
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
+    JobsJobInfoUploadPresignedURL,
     JobsJobStatusUpdate,
-    JobsUpdateJobInfoRequest,
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
+from oqtopus_engine_core.utils.storage_util import OqtopusStorage
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ class OqtopusCloudJobRepository(JobRepository):
         api_key: str = "",
         proxy: str | None = None,
         workers: int = 5,
+        storage_op_timeout_seconds: int = 60,
     ) -> None:
         """Initialize the job repository with the API URL and interval.
 
@@ -52,13 +53,15 @@ class OqtopusCloudJobRepository(JobRepository):
             header_name="x-api-key",
             header_value=api_key,
         )
-        self._job_api = JobApi(api_client=api_client)  # for sse
         self._jobs_api = JobsApi(api_client=api_client)
         self._sem = asyncio.Semaphore(workers)
 
         # Background request tasks:
         # Requests that are sent without waiting for the response
         self._background_requests: set[asyncio.Task[Any]] = set()
+
+        self._proxy = proxy
+        self._storage_op_timeout_seconds = storage_op_timeout_seconds
 
         logger.info(
             "OqtopusCloudJobRepository was initialized",
@@ -80,7 +83,7 @@ class OqtopusCloudJobRepository(JobRepository):
         Args:
             call: Callable that performs the HTTP request and returns
                 (data, status, headers).
-            label: Log label like 'PATCH /jobs/{job_id}/job_info'.
+            label: Log label like 'PATCH /jobs/{job_id}/status'.
             extra: Extra fields to log on error.
 
         Returns:
@@ -200,14 +203,71 @@ class OqtopusCloudJobRepository(JobRepository):
             jobs.append(job)
         return jobs
 
-    async def update_job_status(self, job: Job) -> None:
-        """Send a PATCH request to update the job status and wait for the response.
+    async def get_job_upload_url(
+        self, job: Job, items: list[str]
+    ) -> list[JobsJobInfoUploadPresignedURL]:
+        """Fetch presigned URLs for job information items upload to Oqtopus Cloud storage.
 
         Args:
-            job: The job whose status will be updated
+            job: The job to upload
+            items: The list of job information items to upload. Available job information items are: `combined_program`, `transpile_result`, `result`, `sse_log`.
+
+        Returns:
+            A list of presigned URL data for upload, arranged in the order specified by the `items` parameter.
 
         """
-        body = JobsJobStatusUpdate(status=job.status)
+
+        def _call() -> list[JobsJobInfoUploadPresignedURL]:
+            return self._jobs_api.get_upload_with_http_info(
+                job_id=job.job_id, items=",".join(items)
+            )
+
+        extra: dict[str, Any] = {
+            "job_id": job.job_id,
+            "job_type": job.job_type,
+            "items": items,
+        }
+        logger.info(
+            "GET /jobs/{job_id}/upload: request",
+            extra={**extra},
+        )
+
+        start = time.perf_counter()
+        response, status_code, _ = await self._request_with_error_logging(
+            _call,
+            "GET /jobs/{job_id}/upload",
+            extra,
+        )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        logger.info(
+            "GET /jobs/{job_id}/upload: response",
+            extra={
+                "status_code": status_code,
+                "elapsed_ms": round(elapsed_ms, 3),
+                **extra,
+                "len(body)": len(response) if response is not None else 0,
+            },
+        )
+
+        return response
+
+    async def update_job_status(
+        self,
+        job: Job,
+    ) -> None:
+        """Send a PATCH request to update the job status and status related data and wait for the response.
+
+        Args:
+            job: The job to patch
+
+        """
+        body = JobsJobStatusUpdate(
+            status=job.status,
+            output_files=job.output_files,
+            message=job.message,
+            execution_time=job.execution_time,
+        )
 
         def _call() -> tuple[object, int, dict]:
             return self._jobs_api.patch_job_with_http_info(
@@ -222,10 +282,7 @@ class OqtopusCloudJobRepository(JobRepository):
 
         logger.info(
             "PATCH /jobs/{job_id}/status: request",
-            extra={
-                **extra,
-                "body": body,
-            },
+            extra={**extra, "body": body},
         )
 
         start = time.perf_counter()
@@ -246,112 +303,24 @@ class OqtopusCloudJobRepository(JobRepository):
             },
         )
 
-    async def update_job_status_nowait(self, job: Job) -> None:
-        """Send a PATCH request to update the job status without waiting.
-
-        Args:
-            job: The job whose status will be updated
-
-        """
-        task = asyncio.create_task(self.update_job_status(job))
-        self._track_background_request(
-            task,
-            label="PATCH /jobs/{job_id}/status",
-            extra={"job_id": job.job_id, "job_type": job.job_type},
-        )
-
-    async def update_job_info(
+    async def update_job_status_nowait(
         self,
         job: Job,
-        overwrite_status: str | None = None,
-        execution_time: float | None = None,
     ) -> None:
-        """Send a PATCH request update job info and wait for the response.
+        """Send a PATCH request to update the job status and status related data without waiting.
 
         Args:
             job: The job to patch
-            overwrite_status: The status to overwrite in the job info if not None.
-            execution_time: The execution time to overwrite in the job info if not None.
-
-        """
-        job_info = {
-            "combined_program": job.job_info.combined_program,
-            "transpile_result": (
-                job.job_info.transpile_result.model_dump(exclude_none=True)
-                if job.job_info.transpile_result is not None
-                else None
-            ),
-            "result": (
-                job.job_info.result.model_dump(exclude_none=True)
-                if job.job_info.result is not None
-                else None
-            ),
-            "message": job.job_info.message,
-        }
-        body = JobsUpdateJobInfoRequest(
-            overwrite_status=overwrite_status,
-            execution_time=execution_time,
-            job_info=job_info,
-        )
-
-        def _call() -> tuple[object, int, dict]:
-            return self._jobs_api.patch_job_info_with_http_info(
-                job_id=job.job_id,
-                body=body,
-            )
-
-        extra: dict[str, Any] = {
-            "job_id": job.job_id,
-            "job_type": job.job_type,
-        }
-
-        logger.info(
-            "PATCH /jobs/{job_id}/job_info: request",
-            extra={**extra, "body": body},
-        )
-
-        start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
-            _call,
-            "PATCH /jobs/{job_id}/job_info",
-            extra,
-        )
-        elapsed_ms = (time.perf_counter() - start) * 1000.0
-
-        logger.info(
-            "PATCH /jobs/{job_id}/job_info: response",
-            extra={
-                "status_code": status_code,
-                "elapsed_ms": round(elapsed_ms, 3),
-                **extra,
-                "body": response,
-            },
-        )
-
-    async def update_job_info_nowait(
-        self,
-        job: Job,
-        overwrite_status: str | None = None,
-        execution_time: float | None = None,
-    ) -> None:
-        """Send a PATCH request update job info without waiting.
-
-        Args:
-            job: The job to patch
-            overwrite_status: The status to overwrite in the job info if not None.
-            execution_time: The execution time to overwrite in the job info if not None.
 
         """
         task = asyncio.create_task(
-            self.update_job_info(
+            self.update_job_status(
                 job,
-                overwrite_status=overwrite_status,
-                execution_time=execution_time,
             )
         )
         self._track_background_request(
             task,
-            label="PATCH /jobs/{job_id}/job_info",
+            label="PATCH /jobs/{job_id}/status",
             extra={"job_id": job.job_id, "job_type": job.job_type},
         )
 
@@ -421,108 +390,118 @@ class OqtopusCloudJobRepository(JobRepository):
             extra={"job_id": job.job_id, "job_type": job.job_type},
         )
 
-    async def get_ssesrc(self, job_id: str) -> str:
-        """GET SSE program source file from Oqtopus Cloud.
+    async def download_job_input(
+        self,
+        job: Job,
+    ) -> dict[str, Any]:
+        """Downloads and extracts job input .zip file form OCTOPUS Cloud S3 storage
 
         Args:
-            job_id: Job identifier.
+            job: The job for input download.
 
         Returns:
-            SSE program source as string.
+            A dictionary containing downloaded and extracted job input items.
 
         """
 
-        def _call() -> tuple[str, int, dict]:
-            return self._job_api.get_ssesrc_with_http_info(job_id=job_id)
+        def _call() -> dict[str, Any]:
+            proxies = (
+                {"http": self._proxy, "https": self._proxy} if self._proxy else None
+            )
+            return OqtopusStorage.download(
+                presigned_url=job.input,
+                proxies=proxies,
+                timeout_s=self._storage_op_timeout_seconds,
+            )
 
         extra: dict[str, Any] = {
-            "job_id": job_id,
+            "job_id": job.job_id,
+            "job_type": job.job_type,
         }
 
         logger.info(
-            "GET /jobs/{job_id}/ssesrc: request",
-            extra={**extra},
+            "job input download started",
+            extra={
+                **extra,
+                "presigned_url": job.input,
+            },
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        response = await self._request_with_error_logging(
             _call,
-            "GET /jobs/{job_id}/ssesrc",  # noqa: RUF027
+            f"job: {job.job_id} input download",
             extra,
         )
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
-            "GET /jobs/{job_id}/ssesrc: response",
+            "job input download completed",
             extra={
-                "status_code": status_code,
                 "elapsed_ms": round(elapsed_ms, 3),
                 **extra,
-                "len(body)": len(response) if response is not None else 0,
+                "presigned_url": job.input,
             },
         )
 
         return response
 
-    async def update_sselog(self, job_id: str, sselog: str) -> None:
-        """Send a PATCH request to update SSE log file and wait for the response.
+    async def upload_job_output(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any],
+    ) -> None:
+        """Uploads job output data as .zip file to OCTOPUS Cloud S3 storage
 
         Args:
-            job_id: Job identifier.
-            sselog: SSE log content as string.
+            job: The job for output upload.
+            presigned_url: Presigned URL for upload.
+            data: Data to be uploaded.
 
         """
 
-        def _call() -> tuple[object, int, dict]:
-            return self._job_api.patch_sselog_with_http_info(
-                job_id=job_id,
-                file=sselog,
+        def _call() -> None:
+            proxies = (
+                {"http": self._proxy, "https": self._proxy} if self._proxy else None
+            )
+            return OqtopusStorage.upload(
+                presigned_url=presigned_url,
+                data=data,
+                proxies=proxies,
+                timeout_s=self._storage_op_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
-            "job_id": job_id,
+            "job_id": job.job_id,
+            "job_type": job.job_type,
         }
 
         logger.info(
-            "PATCH /jobs/{job_id}/sselog: request",
+            "job output upload started",
             extra={
                 **extra,
-                "len(body)": len(sselog) if sselog is not None else 0,
+                "url": presigned_url.url,
+                "key": presigned_url.fields.key,
             },
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        await self._request_with_error_logging(
             _call,
-            "PATCH /jobs/{job_id}/sselog",  # noqa: RUF027
+            f"job: {job.job_id} output upload",
             extra,
         )
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
-            "PATCH /jobs/{job_id}/sselog: response",
+            "job output upload completed",
             extra={
-                "status_code": status_code,
                 "elapsed_ms": round(elapsed_ms, 3),
                 **extra,
-                "body": response,
+                "url": presigned_url.url,
+                "key": presigned_url.fields.key,
             },
         )
 
-    async def update_sselog_nowait(self, job_id: str, sselog: str) -> None:
-        """Send a PATCH request to update SSE log file without waiting.
-
-        Args:
-            job_id: Job identifier.
-            sselog: SSE log content as string.
-
-        """
-        task = asyncio.create_task(self.update_sselog(job_id, sselog))
-        self._track_background_request(
-            task,
-            label="PATCH /jobs/{job_id}/sselog",  # noqa: RUF027
-            extra={
-                "job_id": job_id,
-                "len(body)": len(sselog) if sselog is not None else 0,
-            },
-        )
+        job.output_files.append(presigned_url.fields.key)

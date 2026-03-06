@@ -48,7 +48,19 @@ class JobRepositoryUpdateStep(Step):
             job: The job object.
 
         """
-        job.status = "succeeded"
-        await gctx.job_repository.update_job_info_nowait(
-            job, overwrite_status=job.status, execution_time=job.execution_time
+
+        # Upload to storage
+        urls = await gctx.job_repository.get_job_upload_url(
+            job=job,
+            items=["result"],
         )
+        await gctx.job_repository.upload_job_output(
+            job=job,
+            presigned_url=urls[0],
+            data=job.result.model_dump(),
+        )
+
+        # TODO: add sse log for sse jobs's, when sse_step is updated
+
+        job.status = "succeeded"
+        await gctx.job_repository.update_job_status_nowait(job)
