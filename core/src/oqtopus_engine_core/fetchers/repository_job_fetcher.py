@@ -64,7 +64,7 @@ class RepositoryJobFetcher(JobFetcher):
                 if len(jobs):
                     # Create a list of awaitable tasks for downloading job inputs
                     job_download_tasks = [
-                        gctx.job_repository.download_job_input(job) for job in jobs
+                        gctx.job_storage.download_job_input(job) for job in jobs
                     ]
                     # Run all download tasks concurrently
                     job_inputs = await asyncio.gather(
