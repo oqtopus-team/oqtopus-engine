@@ -52,17 +52,3 @@ class NullJobRepository(JobRepository):
 
     async def update_job_transpiler_info_nowait(self, job: Job) -> None:
         """No-op implementation."""
-
-    async def download_job_input(
-        self,
-        job: Job,
-    ) -> dict[str, Any]:
-        """No-op implementation."""
-
-    async def upload_job_output(
-        self,
-        job: Job,
-        presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any],
-    ) -> None:
-        """No-op implementation."""

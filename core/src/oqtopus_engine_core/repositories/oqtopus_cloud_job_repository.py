@@ -15,7 +15,6 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
     JobsJobStatusUpdate,
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
-from oqtopus_engine_core.utils.storage_util import OqtopusStorage
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +30,6 @@ class OqtopusCloudJobRepository(JobRepository):
         api_key: str = "",
         proxy: str | None = None,
         workers: int = 5,
-        storage_op_timeout_seconds: int = 60,
     ) -> None:
         """Initialize the job repository with the API URL and interval.
 
@@ -61,7 +59,6 @@ class OqtopusCloudJobRepository(JobRepository):
         self._background_requests: set[asyncio.Task[Any]] = set()
 
         self._proxy = proxy
-        self._storage_op_timeout_seconds = storage_op_timeout_seconds
 
         logger.info(
             "OqtopusCloudJobRepository was initialized",
@@ -217,7 +214,7 @@ class OqtopusCloudJobRepository(JobRepository):
 
         """
 
-        def _call() -> list[JobsJobInfoUploadPresignedURL]:
+        def _call() -> tuple[list[JobsJobInfoUploadPresignedURL], int, dict]:
             return self._jobs_api.get_upload_with_http_info(
                 job_id=job.job_id, items=",".join(items)
             )
@@ -389,119 +386,3 @@ class OqtopusCloudJobRepository(JobRepository):
             label="PUT /jobs/{job_id}/transpiler_info",
             extra={"job_id": job.job_id, "job_type": job.job_type},
         )
-
-    async def download_job_input(
-        self,
-        job: Job,
-    ) -> dict[str, Any]:
-        """Downloads and extracts job input .zip file form OCTOPUS Cloud S3 storage
-
-        Args:
-            job: The job for input download.
-
-        Returns:
-            A dictionary containing downloaded and extracted job input items.
-
-        """
-
-        def _call() -> dict[str, Any]:
-            proxies = (
-                {"http": self._proxy, "https": self._proxy} if self._proxy else None
-            )
-            return OqtopusStorage.download(
-                presigned_url=job.input,
-                proxies=proxies,
-                timeout_s=self._storage_op_timeout_seconds,
-            )
-
-        extra: dict[str, Any] = {
-            "job_id": job.job_id,
-            "job_type": job.job_type,
-        }
-
-        logger.info(
-            "job input download started",
-            extra={
-                **extra,
-                "presigned_url": job.input,
-            },
-        )
-
-        start = time.perf_counter()
-        response = await self._request_with_error_logging(
-            _call,
-            f"job: {job.job_id} input download",
-            extra,
-        )
-        elapsed_ms = (time.perf_counter() - start) * 1000.0
-
-        logger.info(
-            "job input download completed",
-            extra={
-                "elapsed_ms": round(elapsed_ms, 3),
-                **extra,
-                "presigned_url": job.input,
-            },
-        )
-
-        return response
-
-    async def upload_job_output(
-        self,
-        job: Job,
-        presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any],
-    ) -> None:
-        """Uploads job output data as .zip file to OCTOPUS Cloud S3 storage
-
-        Args:
-            job: The job for output upload.
-            presigned_url: Presigned URL for upload.
-            data: Data to be uploaded.
-
-        """
-
-        def _call() -> None:
-            proxies = (
-                {"http": self._proxy, "https": self._proxy} if self._proxy else None
-            )
-            return OqtopusStorage.upload(
-                presigned_url=presigned_url,
-                data=data,
-                proxies=proxies,
-                timeout_s=self._storage_op_timeout_seconds,
-            )
-
-        extra: dict[str, Any] = {
-            "job_id": job.job_id,
-            "job_type": job.job_type,
-        }
-
-        logger.info(
-            "job output upload started",
-            extra={
-                **extra,
-                "url": presigned_url.url,
-                "key": presigned_url.fields.key,
-            },
-        )
-
-        start = time.perf_counter()
-        await self._request_with_error_logging(
-            _call,
-            f"job: {job.job_id} output upload",
-            extra,
-        )
-        elapsed_ms = (time.perf_counter() - start) * 1000.0
-
-        logger.info(
-            "job output upload completed",
-            extra={
-                "elapsed_ms": round(elapsed_ms, 3),
-                **extra,
-                "url": presigned_url.url,
-                "key": presigned_url.fields.key,
-            },
-        )
-
-        job.output_files.append(presigned_url.fields.key)
