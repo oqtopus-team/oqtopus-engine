@@ -75,7 +75,7 @@ class OqtopusCloudJobStorage(JobStorage):
         async with self._sem:
             try:
                 return await asyncio.to_thread(call)
-            except OqtopusStorageError:
+            except OqtopusStorageError as ex:
                 # Note:
                 # - Logged at INFO level because the caller performs the actual
                 #   error handling at a higher layer
@@ -83,7 +83,10 @@ class OqtopusCloudJobStorage(JobStorage):
                 logger.info(
                     "%s: storage error",
                     label,
-                    extra=extra
+                    extra={
+                        "error": str(ex),
+                        **extra,
+                    }
                 )
                 raise
             except Exception:
@@ -162,7 +165,7 @@ class OqtopusCloudJobStorage(JobStorage):
         start = time.perf_counter()
         response = await self._request_with_error_logging(
             _call,
-            f"job: {job.job_id} input download",
+            f"job input download",
             extra,
         )
         elapsed_ms = (time.perf_counter() - start) * 1000.0
@@ -221,7 +224,7 @@ class OqtopusCloudJobStorage(JobStorage):
         start = time.perf_counter()
         await self._request_with_error_logging(
             _call,
-            f"job: {job.job_id} output upload",
+            f"job output upload",
             extra,
         )
         elapsed_ms = (time.perf_counter() - start) * 1000.0
