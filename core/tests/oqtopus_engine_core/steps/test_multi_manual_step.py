@@ -144,8 +144,6 @@ def test_divide_result(
             divide_result(job=job, jctx=jctx)
         assert error in str(e.value)
     else:
-        divided_counts = divide_result(
-            job=job, jctx=jctx
-        )
+        divided_counts = divide_result(job=job, jctx=jctx)
         assert job.job_info.result.sampling.counts == expected_counts
         assert divided_counts == expected_divided

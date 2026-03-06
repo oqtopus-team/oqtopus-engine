@@ -20,6 +20,21 @@ class MitigatorServiceStub(object):
                 request_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqMitigationRequest.SerializeToString,
                 response_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqMitigationResponse.FromString,
                 _registered_method=True)
+        self.ReqZneMitigation = channel.unary_unary(
+                '/mitigator_interface.v1.MitigatorService/ReqZneMitigation',
+                request_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZneMitigationRequest.SerializeToString,
+                response_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZneMitigationResponse.FromString,
+                _registered_method=True)
+        self.ReqZnePreProcess = channel.unary_unary(
+                '/mitigator_interface.v1.MitigatorService/ReqZnePreProcess',
+                request_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePreProcessRequest.SerializeToString,
+                response_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePreProcessResponse.FromString,
+                _registered_method=True)
+        self.ReqZnePostProcess = channel.unary_unary(
+                '/mitigator_interface.v1.MitigatorService/ReqZnePostProcess',
+                request_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePostProcessRequest.SerializeToString,
+                response_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePostProcessResponse.FromString,
+                _registered_method=True)
 
 
 class MitigatorServiceServicer(object):
@@ -32,6 +47,24 @@ class MitigatorServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ReqZneMitigation(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReqZnePreProcess(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReqZnePostProcess(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_MitigatorServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -39,6 +72,21 @@ def add_MitigatorServiceServicer_to_server(servicer, server):
                     servicer.ReqMitigation,
                     request_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqMitigationRequest.FromString,
                     response_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqMitigationResponse.SerializeToString,
+            ),
+            'ReqZneMitigation': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReqZneMitigation,
+                    request_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZneMitigationRequest.FromString,
+                    response_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZneMitigationResponse.SerializeToString,
+            ),
+            'ReqZnePreProcess': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReqZnePreProcess,
+                    request_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePreProcessRequest.FromString,
+                    response_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePreProcessResponse.SerializeToString,
+            ),
+            'ReqZnePostProcess': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReqZnePostProcess,
+                    request_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePostProcessRequest.FromString,
+                    response_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePostProcessResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -69,6 +117,87 @@ class MitigatorService(object):
             '/mitigator_interface.v1.MitigatorService/ReqMitigation',
             oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqMitigationRequest.SerializeToString,
             oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqMitigationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReqZneMitigation(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mitigator_interface.v1.MitigatorService/ReqZneMitigation',
+            oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZneMitigationRequest.SerializeToString,
+            oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZneMitigationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReqZnePreProcess(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mitigator_interface.v1.MitigatorService/ReqZnePreProcess',
+            oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePreProcessRequest.SerializeToString,
+            oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePreProcessResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReqZnePostProcess(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mitigator_interface.v1.MitigatorService/ReqZnePostProcess',
+            oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePostProcessRequest.SerializeToString,
+            oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqZnePostProcessResponse.FromString,
             options,
             channel_credentials,
             insecure,
