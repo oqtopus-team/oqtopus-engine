@@ -88,6 +88,7 @@ class RepositoryJobFetcher(JobFetcher):
 
                             job.program = validated_input.program
                             job.operator = validated_input.operator
+                            job.sse_program = validated_input.sse_program
 
                             # Send job to pipeline
                             jctx = JobContext()
