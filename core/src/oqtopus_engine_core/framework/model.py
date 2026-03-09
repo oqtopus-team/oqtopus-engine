@@ -59,6 +59,7 @@ class JobResult(BaseModel):
 class JobInput(BaseModel):
     program: list[str]
     operator: list[OperatorItem] | None = None
+    sse_program: str | None = None
 
 
 class Job(BaseModel):
@@ -75,6 +76,7 @@ class Job(BaseModel):
     input: str
     program: list[str] | None = None
     operator: list[OperatorItem] | None = None
+    sse_program: str | None = None
     combined_program: str | None = None
     transpile_result: TranspileResult | None = None
     result: JobResult | None = None
