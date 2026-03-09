@@ -29,22 +29,27 @@ class JobsS3SubmitJobInfo(object):
     """
     swagger_types = {
         'program': 'list[str]',
-        'operator': 'list[JobsS3OperatorItem]'
+        'operator': 'list[JobsS3OperatorItem]',
+        'sse_program': 'str'
     }
 
     attribute_map = {
         'program': 'program',
-        'operator': 'operator'
+        'operator': 'operator',
+        'sse_program': 'sse_program'
     }
 
-    def __init__(self, program=None, operator=None):  # noqa: E501
+    def __init__(self, program=None, operator=None, sse_program=None):  # noqa: E501
         """JobsS3SubmitJobInfo - a model defined in Swagger"""  # noqa: E501
         self._program = None
         self._operator = None
+        self._sse_program = None
         self.discriminator = None
         self.program = program
         if operator is not None:
             self.operator = operator
+        if sse_program is not None:
+            self.sse_program = sse_program
 
     @property
     def program(self):
@@ -91,6 +96,29 @@ class JobsS3SubmitJobInfo(object):
         """
 
         self._operator = operator
+
+    @property
+    def sse_program(self):
+        """Gets the sse_program of this JobsS3SubmitJobInfo.  # noqa: E501
+
+        SSE user program  # noqa: E501
+
+        :return: The sse_program of this JobsS3SubmitJobInfo.  # noqa: E501
+        :rtype: str
+        """
+        return self._sse_program
+
+    @sse_program.setter
+    def sse_program(self, sse_program):
+        """Sets the sse_program of this JobsS3SubmitJobInfo.
+
+        SSE user program  # noqa: E501
+
+        :param sse_program: The sse_program of this JobsS3SubmitJobInfo.  # noqa: E501
+        :type: str
+        """
+
+        self._sse_program = sse_program
 
     def to_dict(self):
         """Returns the model properties as a dict"""

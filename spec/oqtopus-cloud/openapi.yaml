@@ -461,6 +461,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/jobs.S3OperatorItem'
+        sse_program:
+          type: string
+          description: SSE user program
       required:
         - program
     jobs.S3JobResult:
