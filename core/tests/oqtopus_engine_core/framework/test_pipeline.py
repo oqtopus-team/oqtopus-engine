@@ -5,7 +5,7 @@ import pytest
 from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.framework.buffer import Buffer
 from oqtopus_engine_core.framework.context import GlobalContext, JobContext, PipelineDirective, link_parent_and_children
-from oqtopus_engine_core.framework.model import Job, JobInfo
+from oqtopus_engine_core.framework.model import Job
 from oqtopus_engine_core.framework.pipeline import PipelineExecutor, StepPhase
 from oqtopus_engine_core.framework.step import (
     JoinOnPostprocess,
@@ -26,7 +26,8 @@ def make_test_job(job_id: str, job_type: str = "root") -> Job:
         job_type=job_type,
         device_id="test-device",
         shots=100,
-        job_info=JobInfo(program=[]),
+        input="test-input",
+        program=[],
         transpiler_info={},
         simulator_info={},
         mitigation_info={},
@@ -1346,7 +1347,6 @@ async def test_obs_failed_when_child_post_process_fails():
 # ---------------------------------------------------------------------------
 # Pipeline directive (IGNORE_SPLIT_TRACKING) tests
 # ---------------------------------------------------------------------------
-
 @pytest.mark.asyncio
 async def test_ignore_split_tracking_skips_pending_children():
     """

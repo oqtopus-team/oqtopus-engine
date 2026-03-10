@@ -3,7 +3,7 @@ import pytest
 
 from oqtopus_engine_core.buffers.queue_buffer import QueueBuffer
 from oqtopus_engine_core.framework.context import GlobalContext, JobContext
-from oqtopus_engine_core.framework.model import JobInfo, Job
+from oqtopus_engine_core.framework.model import Job
 
 
 # ---------------------------------------------------------------------------
@@ -17,7 +17,8 @@ def make_buffer_test_job(job_id: str) -> Job:
         job_type="test",
         device_id="test-device",
         shots=1,
-        job_info=JobInfo(program=[]),
+        input="test-input",
+        program=[],
         transpiler_info={},
         simulator_info={},
         mitigation_info={},
