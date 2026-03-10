@@ -63,6 +63,7 @@ class JobRepositoryUpdateStep(Step):
             job=job,
             presigned_url=urls[0],
             data=job.result.model_dump(),
+            arcname_ext=".json"
         )
 
         if job.job_type == "sse":
@@ -73,6 +74,7 @@ class JobRepositoryUpdateStep(Step):
                 job=job,
                 presigned_url=urls[1],
                 data=job.sse_log,
+                arcname_ext=".log"
             )
 
         job.status = "succeeded"
