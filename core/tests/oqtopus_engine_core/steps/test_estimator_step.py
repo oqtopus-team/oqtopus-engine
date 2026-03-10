@@ -26,9 +26,9 @@ async def test_pre_process_calls_grpc_and_updates_jctx(
     job = MagicMock()
     job.job_id = "job-1"
     job.job_type = "estimation"
-    job.job_info.transpile_result = None
-    job.job_info.program = ["OPENQASM 3.0;\n"]
-    job.job_info.operator = [OperatorItem(pauli="X 0", coeff=1.0)]
+    job.transpile_result = None
+    job.program = ["OPENQASM 3.0;\n"]
+    job.operator = [OperatorItem(pauli="X 0", coeff=1.0)]
 
     estimator_step_instance._stub.ReqEstimationPreProcess.return_value = SimpleNamespace(
         qasm_codes=["preprocessed-qasm"],
@@ -60,9 +60,9 @@ async def test_pre_process_uses_transpile_mapping_in_sorted_order(
     job = MagicMock()
     job.job_id = "job-2"
     job.job_type = "estimation"
-    job.job_info.program = ["unused"]
-    job.job_info.operator = [OperatorItem(pauli="Z 1", coeff=2.0)]
-    job.job_info.transpile_result = SimpleNamespace(
+    job.program = ["unused"]
+    job.operator = [OperatorItem(pauli="Z 1", coeff=2.0)]
+    job.transpile_result = SimpleNamespace(
         transpiled_program="TRANSPILED",
         virtual_physical_mapping={"qubit_mapping": {"1": 0, "0": 2}},
     )
@@ -88,9 +88,9 @@ async def test_pre_process_raises_when_operator_missing(
     job = MagicMock()
     job.job_id = "job-3"
     job.job_type = "estimation"
-    job.job_info.transpile_result = None
-    job.job_info.program = ["OPENQASM 3.0;\n"]
-    job.job_info.operator = None
+    job.transpile_result = None
+    job.program = ["OPENQASM 3.0;\n"]
+    job.operator = None
 
     with pytest.raises(ValueError, match="operator is not specified"):
         await estimator_step_instance.pre_process(gctx, jctx, job)
@@ -104,7 +104,7 @@ async def test_post_process_calls_grpc_and_updates_job_result(
     job = MagicMock()
     job.job_id = "job-4"
     job.job_type = "estimation"
-    job.job_info.result = None
+    job.result = None
 
     jctx = {
         "estimation_job_info": SimpleNamespace(
@@ -126,10 +126,10 @@ async def test_post_process_calls_grpc_and_updates_job_result(
     assert dict(request.counts[0].counts) == {"00": 10, "11": 20}
     assert json.loads(request.grouped_operators) == [[["ZZ"]], [[1.0]]]
 
-    assert job.job_info.result is not None
-    assert job.job_info.result.estimation is not None
-    assert job.job_info.result.estimation.exp_value == 0.25
-    assert job.job_info.result.estimation.stds == 0.05
+    assert job.result is not None
+    assert job.result.estimation is not None
+    assert job.result.estimation.exp_value == 0.25
+    assert job.result.estimation.stds == 0.05
 
 
 @pytest.mark.asyncio
