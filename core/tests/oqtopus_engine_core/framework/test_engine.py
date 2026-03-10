@@ -34,6 +34,10 @@ class DummyRepository:
     pass
 
 
+class DummyStorage:
+    pass
+
+
 class DummyDiContainer:
     def __init__(self, mapping):
         self.mapping = mapping
@@ -54,7 +58,7 @@ async def test_engine_start_initializes_components():
 
     - inject gctx into job_fetcher and device_fetcher
     - inject pipeline into job_fetcher
-    - set job_repository and device_repository in gctx
+    - set job_repository, device_repository and job_storage in gctx
     - start pipeline, job_fetcher, and device_fetcher
     """
 
@@ -65,12 +69,15 @@ async def test_engine_start_initializes_components():
     job_repo = DummyRepository()
     device_repo = DummyRepository()
 
+    job_storage = DummyStorage()
+
     dicon = DummyDiContainer(
         {
             "job_fetcher": job_fetcher,
             "job_repository": job_repo,
             "device_fetcher": device_fetcher,
             "device_repository": device_repo,
+            "job_storage": job_storage,
         }
     )
 
@@ -91,6 +98,8 @@ async def test_engine_start_initializes_components():
 
     assert gctx.job_repository is job_repo
     assert gctx.device_repository is device_repo
+
+    assert gctx.job_storage is job_storage
 
     assert pipeline.started
     assert job_fetcher.started
