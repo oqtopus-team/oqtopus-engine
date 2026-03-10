@@ -118,7 +118,6 @@ di_container:
         container_work_path: ${SSE_CONTAINER_PATH, "/sse"}
         userprogram_name: ${SSE_USER_PROGRAM_NAME, "userprogram.py"}
         result_file_name: ${SSE_RESULT_NAME, "result.json"}
-        log_file_name: ${SSE_LOG_NAME, "sse_runtime.log"}
         container_image: ${SSE_CONTAINER_IMAGE, "sse-v2/python3.13:latest"}
         container_disk_quota: ${SSE_CONTAINER_DISK_QUOTA, 67108864}
         container_memory: ${SSE_CONTAINER_MEMORY, 268435456}
