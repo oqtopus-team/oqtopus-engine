@@ -70,21 +70,19 @@ class SseStep(Step):
         # Make tmp dir
         temp_dirs = self._make_tmpdir(job.job_id, config["host_work_path"])
 
+        if job.sse_program is None:
+            message = "the sse_program is not specified in the job."
+            raise ValueError(message)
+
         try:
             # save python program to the temporary directory
             logger.debug(
                 "preparing user program file",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-
-            if job.sse_program is None:
-                message = "the sse_program is not specified in the job."
-                raise ValueError(message)
-
             await self._make_userprogram_file(
                 job.sse_program, temp_dirs["in"], config["userprogram_name"]
             )
-
             # Run SSE - Start container, execute user program, get result and log
             await self._run_sse(job, gctx, config, temp_dirs)
         except RuntimeError:
@@ -500,7 +498,7 @@ class SseRunner:
                     extra={"job_id": self._job_id, "container_log": logs_content},
                 )
 
-            self.result_job = logs_content
+            self.result_job.sse_log = logs_content
 
         except Exception:
             logger.exception(
