@@ -48,13 +48,17 @@ class JobRepositoryUpdateStep(Step):
             job: The job object.
 
         """
+        items = ["result"]
+        if job.job_type == "sse":
+            items.append("sse_log")
+        urls = await gctx.job_repository.get_job_upload_url(
+            job=job,
+            items=items,
+        )
+
         if (job.result is None):
             message = "job result is None"
             raise ValueError(message)
-        urls = await gctx.job_repository.get_job_upload_url(
-            job=job,
-            items=["result"],
-        )
         await gctx.job_storage.upload_job_output(
             job=job,
             presigned_url=urls[0],
@@ -65,14 +69,10 @@ class JobRepositoryUpdateStep(Step):
             if (job.sse_log is None):
                 message = "job sse_log is None"
                 raise ValueError(message)
-            urls = await gctx.job_repository.get_job_upload_url(
-                job=job,
-                items=["sse_log"],
-            )
             await gctx.job_storage.upload_job_output(
                 job=job,
-                presigned_url=urls[0],
-                data=job.sse_log.model_dump(),
+                presigned_url=urls[1],
+                data=job.sse_log,
             )
 
         job.status = "succeeded"
