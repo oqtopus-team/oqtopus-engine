@@ -185,7 +185,8 @@ class OqtopusCloudJobStorage(JobStorage):
         self,
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any],
+        data: dict[str, Any] | str,
+        arcname_ext: str = ""
     ) -> None:
         """Uploads job output data as .zip file to OCTOPUS Cloud S3 storage
 
@@ -193,6 +194,7 @@ class OqtopusCloudJobStorage(JobStorage):
             job: The job for output upload.
             presigned_url: Presigned URL for upload.
             data: Data to be uploaded.
+            arcname_ext: data file extension to be zipped e.g. `.json`.
 
         """
 
@@ -203,6 +205,7 @@ class OqtopusCloudJobStorage(JobStorage):
             return OqtopusStorage.upload(
                 presigned_url=presigned_url,
                 data=data,
+                arcname_ext=arcname_ext,
                 proxies=proxies,
                 timeout_s=self._storage_op_timeout_seconds,
             )
@@ -245,7 +248,8 @@ class OqtopusCloudJobStorage(JobStorage):
         self,
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any],
+        data: dict[str, Any] | str,
+        arcname_ext: str = ""
     ) -> None:
         """Uploads job output data as .zip file to OCTOPUS Cloud S3 storage without waiting
 
@@ -253,6 +257,7 @@ class OqtopusCloudJobStorage(JobStorage):
             job: The job for output upload.
             presigned_url: Presigned URL for upload.
             data: Data to be uploaded.
+            arcname_ext: data file extension to be zipped e.g. `.json`.
 
         """
 
@@ -260,7 +265,8 @@ class OqtopusCloudJobStorage(JobStorage):
             self.upload_job_output(
                 job,
                 presigned_url,
-                data
+                data,
+                arcname_ext,
             )
         )
         self._track_background_request(

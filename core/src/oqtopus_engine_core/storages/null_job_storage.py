@@ -33,6 +33,16 @@ class NullJobStorage(JobStorage):
         self,
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any],
+        data: dict[str, Any] | str,
+        arcname_ext: str = ""
+    ) -> None:
+        """No-op implementation."""
+
+    async def upload_job_output_nowait(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any] | str,
+        arcname_ext: str = ""
     ) -> None:
         """No-op implementation."""

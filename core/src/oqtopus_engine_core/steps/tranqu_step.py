@@ -151,6 +151,7 @@ class TranquStep(Step):
             job=job,
             presigned_url=urls[0],
             data=job.transpile_result.model_dump(),
+            arcname_ext=".json"
         )
 
     async def post_process(
