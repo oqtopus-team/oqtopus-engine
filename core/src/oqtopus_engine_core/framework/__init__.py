@@ -6,11 +6,12 @@ from .engine import Engine
 from .exception_handler import PipelineExceptionHandler
 from .job_fetcher import JobFetcher
 from .job_repository import JobRepository
+from .job_storage import JobStorage
 from .model import (
     Device,
     EstimationResult,
     Job,
-    JobInfo,
+    JobInput,
     JobResult,
     OperatorItem,
     SamplingResult,
@@ -39,11 +40,12 @@ __all__ = [
     "EstimationResult",
     "GlobalContext",
     "Job",
+    "JobInput",
     "JobContext",
     "JobFetcher",
-    "JobInfo",
     "JobRepository",
     "JobResult",
+    "JobStorage",
     "JoinOnPostprocess",
     "JoinOnPreprocess",
     "OperatorItem",

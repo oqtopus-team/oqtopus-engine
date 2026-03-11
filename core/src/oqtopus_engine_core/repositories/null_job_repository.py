@@ -1,6 +1,8 @@
 import logging
+from typing import Any
 
 from oqtopus_engine_core.framework import Job, JobRepository
+from oqtopus_engine_core.interfaces.oqtopus_cloud import JobsJobInfoUploadPresignedURL
 
 logger = logging.getLogger(__name__)
 
@@ -26,24 +28,21 @@ class NullJobRepository(JobRepository):
     ) -> list[Job]:
         """No-op implementation."""
 
-    async def update_job_status(self, job: Job) -> None:
+    async def get_job_upload_url(
+        self, job: Job, items: list[str]
+    ) -> list[JobsJobInfoUploadPresignedURL]:
         """No-op implementation."""
 
-    async def update_job_status_nowait(self, job: Job) -> None:
-        """No-op implementation."""
-
-    async def update_job_info(
+    async def update_job_status(
         self,
         job: Job,
-        overwrite_status: str | None = None,
         execution_time: float | None = None,
     ) -> None:
         """No-op implementation."""
 
-    async def update_job_info_nowait(
+    async def update_job_status_nowait(
         self,
         job: Job,
-        overwrite_status: str | None = None,
         execution_time: float | None = None,
     ) -> None:
         """No-op implementation."""
@@ -52,13 +51,4 @@ class NullJobRepository(JobRepository):
         """No-op implementation."""
 
     async def update_job_transpiler_info_nowait(self, job: Job) -> None:
-        """No-op implementation."""
-
-    async def get_ssesrc(self, job_id: str) -> str:
-        """No-op implementation."""
-
-    async def update_sselog(self, job_id: str, sselog: str) -> None:
-        """No-op implementation."""
-
-    async def update_sselog_nowait(self, job_id: str, sselog: str) -> None:
         """No-op implementation."""

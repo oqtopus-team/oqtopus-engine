@@ -110,21 +110,21 @@ class EstimatorStep(Step):
         jctx["estimation_job_info"] = EstimationJobInfo()
 
         # Call estimator
-        if job.job_info.transpile_result is None:
-            qasm_code = job.job_info.program[0]
+        if job.transpile_result is None:
+            qasm_code = job.program[0]
             virtual_physical_mapping = None
         else:
-            qasm_code = job.job_info.transpile_result.transpiled_program
+            qasm_code = job.transpile_result.transpiled_program
             virtual_physical_mapping = (
-                job.job_info.transpile_result.virtual_physical_mapping["qubit_mapping"]
+                job.transpile_result.virtual_physical_mapping["qubit_mapping"]
             )
 
-        if job.job_info.operator is None:
+        if job.operator is None:
             message = "the operator is not specified in the job."
             raise ValueError(message)
 
         # Convert operators to string format for gRPC
-        operators_str = str([(op.pauli, op.coeff) for op in job.job_info.operator])
+        operators_str = str([(op.pauli, op.coeff) for op in job.operator])
 
         # Prepare mapping list
         if virtual_physical_mapping is not None:
@@ -241,9 +241,9 @@ class EstimatorStep(Step):
         stds = response.stds
 
         # Update job
-        if job.job_info.result is None:
-            job.job_info.result = JobResult()
-        if job.job_info.result.estimation is None:
-            job.job_info.result.estimation = EstimationResult()
-        job.job_info.result.estimation.exp_value = float(expval)
-        job.job_info.result.estimation.stds = float(stds)
+        if job.result is None:
+            job.result = JobResult()
+        if job.result.estimation is None:
+            job.result.estimation = EstimationResult()
+        job.result.estimation.exp_value = float(expval)
+        job.result.estimation.stds = float(stds)

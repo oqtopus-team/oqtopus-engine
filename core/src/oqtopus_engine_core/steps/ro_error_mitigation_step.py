@@ -131,31 +131,31 @@ class ReadoutErrorMitigationStep(Step):
             # Process based on job type
             if job.job_type == "sampling":
                 # For sampling jobs, process single counts result
-                if job.job_info.result is None:  # pragma: no cover
+                if job.result is None:  # pragma: no cover
                     message = (
-                        "job.job_info.result is None. "
+                        "job.result is None. "
                         "Cannot perform readout error mitigation."
                     )
                     raise ValueError(message)
-                if job.job_info.result.sampling is None:  # pragma: no cover
+                if job.result.sampling is None:  # pragma: no cover
                     message = (
-                        "job.job_info.result.sampling is None. "
+                        "job.result.sampling is None. "
                         "Cannot perform readout error mitigation."
                     )
                     raise ValueError(message)
-                if job.job_info.result.sampling.counts is None:  # pragma: no cover
+                if job.result.sampling.counts is None:  # pragma: no cover
                     message = (
-                        "job.job_info.result.sampling.counts is None. "
+                        "job.result.sampling.counts is None. "
                         "Cannot perform readout error mitigation."
                     )
                     raise ValueError(message)
-                orig_counts = job.job_info.result.sampling.counts
+                orig_counts = job.result.sampling.counts
 
                 # Call gRPC mitigator service
                 request = mitigator_pb2.ReqMitigationRequest(
                     device_topology=device_topology,
                     counts=orig_counts,
-                    program=job.job_info.program[0],
+                    program=job.program[0],
                 )
                 logger.info(
                     "ReqMitigation request",
@@ -182,7 +182,7 @@ class ReadoutErrorMitigationStep(Step):
                 mitigated_counts = dict(response.counts)
 
                 # Update the job's result with mitigated counts
-                job.job_info.result.sampling.counts = mitigated_counts
+                job.result.sampling.counts = mitigated_counts
                 logger.debug(
                     "ro_error_mitigated_counts is %s, original_counts is %s",
                     mitigated_counts,
@@ -210,7 +210,7 @@ class ReadoutErrorMitigationStep(Step):
                     program = (
                         preprocessed_qasms[index]
                         if preprocessed_qasms and index < len(preprocessed_qasms)
-                        else job.job_info.program[0]
+                        else job.program[0]
                     )
 
                     # Prepare request

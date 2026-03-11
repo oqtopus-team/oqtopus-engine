@@ -58,7 +58,8 @@ def divide_string_by_lengths(input_str: str, lengths: list[int]) -> list[str]:
 
 
 def divide_result(
-    job: Job, jctx: dict,
+    job: Job,
+    jctx: dict,
 ) -> dict[int, dict[str, int]]:
     """Divide the job result into multiple results based on combined qubits list.
 
@@ -73,7 +74,7 @@ def divide_result(
         ValueError: If the job result counts are inconsistent.
 
     """
-    if not job.job_info.result.sampling.counts:
+    if not job.result.sampling.counts:
         message = "inconsistent qubit property"
         logger.error(message, extra={"job_id": job.job_id})
         raise ValueError(message)
@@ -82,7 +83,7 @@ def divide_result(
     # Divide results
     divided_job_result: dict[int, dict[str, int]] = {}
 
-    for key, value in job.job_info.result.sampling.counts.items():
+    for key, value in job.result.sampling.counts.items():
         try:
             divided_keys = divide_string_by_lengths(key, combined_qubits_list)
             logger.debug(
@@ -155,7 +156,7 @@ class MultiManualStep(Step):
         max_qubits = len(device_info["qubits"])
 
         # Call combiner
-        qasm_array = json.dumps(job.job_info.program)
+        qasm_array = json.dumps(job.program)
         qasm_array = qasm_array.replace("\\n", "")
         qasm_array = qasm_array.replace('\\"', '\\\\"')
         request = combiner_pb2.CombineRequest(
@@ -201,12 +202,22 @@ class MultiManualStep(Step):
             raise RuntimeError(message)
 
         # Update job object
-        job.job_info.combined_program = response.combined_qasm
+        job.combined_program = response.combined_qasm
         jctx[COMBINED_QUBITS_LIST_KEY] = response.combined_qubits_list
         jctx["max_qubits"] = max_qubits
         jctx["combined_program"] = response.combined_qasm
-        # Update job repository
-        await gctx.job_repository.update_job_info_nowait(job)
+
+        # Upload to storage
+        urls = await gctx.job_repository.get_job_upload_url(
+            job=job,
+            items=["combined_program"],
+        )
+
+        await gctx.job_storage.upload_job_output(
+            job=job,
+            presigned_url=urls[0],
+            data=job.combined_program,
+        )
 
     async def post_process(  # noqa: PLR6301
         self,
@@ -233,10 +244,10 @@ class MultiManualStep(Step):
             return
 
         try:
-            job.job_info.result.sampling.divided_counts = divide_result(job, jctx)
+            job.result.sampling.divided_counts = divide_result(job, jctx)
         except Exception:
             logger.exception(
                 "failed to divide result",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            job.job_info.result.sampling.divided_counts = {}
+            job.result.sampling.divided_counts = {}

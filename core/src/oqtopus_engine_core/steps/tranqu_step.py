@@ -99,9 +99,9 @@ class TranquStep(Step):
 
         # Call tranqu
         if job.job_type == "multi_manual":
-            program_to_transpile = job.job_info.combined_program
+            program_to_transpile = job.combined_program
         else:
-            program_to_transpile = job.job_info.program[0]
+            program_to_transpile = job.program[0]
         request = tranqu_pb2.TranspileRequest(
             request_id="id",
             program=program_to_transpile,
@@ -135,14 +135,24 @@ class TranquStep(Step):
         )
 
         # Update job object
-        job.job_info.transpile_result = TranspileResult(
+        job.transpile_result = TranspileResult(
             transpiled_program=response.transpiled_program,
             stats=json.loads(response.stats),
             virtual_physical_mapping=json.loads(response.virtual_physical_mapping),
         )
 
-        # Update job repository
-        await gctx.job_repository.update_job_info_nowait(job)
+        # Upload to storage
+        urls = await gctx.job_repository.get_job_upload_url(
+            job=job,
+            items=["transpile_result"],
+        )
+
+        await gctx.job_storage.upload_job_output(
+            job=job,
+            presigned_url=urls[0],
+            data=job.transpile_result.model_dump(),
+            arcname_ext=".json"
+        )
 
     async def post_process(
         self,

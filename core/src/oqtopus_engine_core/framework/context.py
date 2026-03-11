@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 
 from .device_repository import DeviceRepository  # noqa: TC001
 from .job_repository import JobRepository  # noqa: TC001
+from .job_storage import JobStorage  # noqa: TC001
 from .model import Device  # noqa: TC001
 
 
@@ -18,6 +19,7 @@ class GlobalContext(BaseModel):
     config: dict[str, Any]
     device: Device | None = None
     job_repository: JobRepository | None = None
+    job_storage: JobStorage | None = None
     device_repository: DeviceRepository | None = None
 
 
