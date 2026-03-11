@@ -122,7 +122,11 @@ class SseStep(Step):
         """
 
     async def _run_sse(
-        self, job: Job, gctx: GlobalContext, config: dict, temp_dirs: dict,
+        self,
+        job: Job,
+        gctx: GlobalContext,
+        config: dict,
+        temp_dirs: dict,
     ) -> None:
 
         # Initialize SseRunner
@@ -480,26 +484,13 @@ class SseRunner:
                 extra={"job_id": self._job_id},
             )
             logs = self._container.logs(stdout=True, stderr=True, follow=False)
-            if len(logs) > int(self._config["max_file_size"]):
-                logger.error(
-                    "The size of the file is larger than the max file size",
-                    extra={
-                        "job_id": self._job_id,
-                        "max_file_size": int(self._config["max_file_size"]),
-                    },
-                )
-                msg = "file size exceeds the maximum limit"
-                raise ValueError(msg)
-
             logs_content = logs.decode("utf-8", errors="ignore")
             if not exec_is_success:
                 logger.info(
                     "container log",
                     extra={"job_id": self._job_id, "container_log": logs_content},
                 )
-
             self.result_job.sse_log = logs_content
-
         except Exception:
             logger.exception(
                 "failed to get container log",

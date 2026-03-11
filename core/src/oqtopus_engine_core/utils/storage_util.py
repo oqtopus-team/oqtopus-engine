@@ -85,6 +85,7 @@ class OqtopusStorage:
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any],
         arcname_ext: str = "",
+        max_size: int | None = None,
         proxies: dict[str, str] | None = None,
         timeout_s: int = DEFAULT_TIMEOUT_S,
     ) -> None:
@@ -94,6 +95,7 @@ class OqtopusStorage:
             presigned_url (JobsJobInfoUploadPresignedURL): presigned URL for upload
             data (dict[str, Any]): data to upload
             arcname_ext: data file extension to be zipped e.g. `.json`
+            max_size: maximum size of the .zip file in bytes
             proxies: connection proxies to use
             timeout_s: operation timeout in seconds
 
@@ -112,6 +114,12 @@ class OqtopusStorage:
                         data=json.dumps(data),
                     )
                 zip_buffer.seek(0)
+
+                if max_size is not None:
+                    zipped_file_size = len(zip_buffer.getvalue())
+                    if zipped_file_size > max_size:
+                        msg = f"{zip_buffer.name} size: {zipped_file_size}B is larger than the max file size {max_size}B"
+                        raise OqtopusStorageError(msg)
 
                 # swagger-codegen generates JobsJobInfoUploadPresignedURLFields class
                 # and changes fields names e.g. AWSAccessKeyId -> aws_access_key_id
