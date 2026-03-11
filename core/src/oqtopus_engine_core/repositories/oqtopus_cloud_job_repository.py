@@ -152,7 +152,7 @@ class OqtopusCloudJobRepository(JobRepository):
     async def _enqueue_and_run(
         self,
         job_id: str,
-        coro: Any,
+        coroutine: Any,
     ) -> None:
         """Enqueue a coroutine for the given job ID and run queued tasks in order.
 
@@ -162,14 +162,14 @@ class OqtopusCloudJobRepository(JobRepository):
 
         Args:
             job_id: The job identifier used as the queue key.
-            coro: The coroutine to enqueue and eventually await.
+            coroutine: The coroutine to enqueue and eventually await.
 
         """
         async with self._job_queues_lock:
             if job_id not in self._job_queues:
                 self._job_queues[job_id] = asyncio.Queue()
             queue = self._job_queues[job_id]
-            await queue.put(coro)
+            await queue.put(coroutine)
 
         while True:
             async with self._job_queues_lock:
@@ -178,9 +178,9 @@ class OqtopusCloudJobRepository(JobRepository):
                     # (another coroutine may have already deleted it)
                     self._job_queues.pop(job_id, None)
                     break
-                current_coro = await queue.get()
+                current_coroutine = await queue.get()
 
-            await current_coro
+            await current_coroutine
 
     async def get_jobs(
         self, device_id: str, status: str = "submitted", limit: int = 10
@@ -395,15 +395,15 @@ class OqtopusCloudJobRepository(JobRepository):
                 is executed immediately.
 
         """
-        coro = self.update_job_info(
+        coroutine = self.update_job_info(
             job,
             overwrite_status=overwrite_status,
             execution_time=execution_time,
         )
         if use_job_queue:
-            task = asyncio.create_task(self._enqueue_and_run(job.job_id, coro))
+            task = asyncio.create_task(self._enqueue_and_run(job.job_id, coroutine))
         else:
-            task = asyncio.create_task(coro)
+            task = asyncio.create_task(coroutine)
         self._track_background_request(
             task,
             label="PATCH /jobs/{job_id}/job_info",

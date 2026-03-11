@@ -29,10 +29,10 @@ def make_test_job(job_id: str = "job-1") -> Job:
     )
 
 
-def _close_coro(coro: object) -> None:
+def _close_coroutine(coroutine: object) -> None:
     """Close a coroutine to suppress 'was never awaited' ResourceWarnings."""
-    if hasattr(coro, "close"):
-        coro.close()  # type: ignore[union-attr]
+    if hasattr(coroutine, "close"):
+        coroutine.close()  # type: ignore[union-attr]
 
 
 def make_repo() -> OqtopusCloudJobRepository:
@@ -126,10 +126,10 @@ async def test_update_job_status_nowait_uses_queue_by_default():
 
     enqueued: list[str] = []
 
-    async def fake_enqueue(job_id: str, coro: object) -> None:
+    async def fake_enqueue(job_id: str, coroutine: object) -> None:
         enqueued.append(job_id)
         # Close the coroutine to avoid ResourceWarning about it never being awaited
-        _close_coro(coro)
+        _close_coroutine(coroutine)
 
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
 
@@ -154,7 +154,7 @@ async def test_update_job_status_nowait_bypasses_queue_when_false():
 
     enqueued: list[str] = []
 
-    async def fake_enqueue(job_id: str, coro: object) -> None:
+    async def fake_enqueue(job_id: str, coroutine: object) -> None:
         enqueued.append(job_id)
 
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
@@ -182,9 +182,9 @@ async def test_update_job_info_nowait_uses_queue_by_default():
 
     enqueued: list[str] = []
 
-    async def fake_enqueue(job_id: str, coro: object) -> None:
+    async def fake_enqueue(job_id: str, coroutine: object) -> None:
         enqueued.append(job_id)
-        _close_coro(coro)
+        _close_coroutine(coroutine)
 
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
 
@@ -208,7 +208,7 @@ async def test_update_job_info_nowait_bypasses_queue_when_false():
 
     enqueued: list[str] = []
 
-    async def fake_enqueue(job_id: str, coro: object) -> None:
+    async def fake_enqueue(job_id: str, coroutine: object) -> None:
         enqueued.append(job_id)
 
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
@@ -237,9 +237,9 @@ async def test_update_job_transpiler_info_nowait_uses_queue_by_default():
 
     enqueued: list[str] = []
 
-    async def fake_enqueue(job_id: str, coro: object) -> None:
+    async def fake_enqueue(job_id: str, coroutine: object) -> None:
         enqueued.append(job_id)
-        _close_coro(coro)
+        _close_coroutine(coroutine)
 
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
 
@@ -263,7 +263,7 @@ async def test_update_job_transpiler_info_nowait_bypasses_queue_when_false():
 
     enqueued: list[str] = []
 
-    async def fake_enqueue(job_id: str, coro: object) -> None:
+    async def fake_enqueue(job_id: str, coroutine: object) -> None:
         enqueued.append(job_id)
 
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
@@ -289,9 +289,9 @@ async def test_update_sselog_nowait_uses_queue_by_default():
 
     enqueued: list[str] = []
 
-    async def fake_enqueue(job_id: str, coro: object) -> None:
+    async def fake_enqueue(job_id: str, coroutine: object) -> None:
         enqueued.append(job_id)
-        _close_coro(coro)
+        _close_coroutine(coroutine)
 
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
 
@@ -314,7 +314,7 @@ async def test_update_sselog_nowait_bypasses_queue_when_false():
 
     enqueued: list[str] = []
 
-    async def fake_enqueue(job_id: str, coro: object) -> None:
+    async def fake_enqueue(job_id: str, coroutine: object) -> None:
         enqueued.append(job_id)
 
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
