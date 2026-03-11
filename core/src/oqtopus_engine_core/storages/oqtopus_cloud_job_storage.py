@@ -23,6 +23,7 @@ class OqtopusCloudJobStorage(JobStorage):
         proxy: str | None = None,
         workers: int = 5,
         storage_op_timeout_seconds: int = 60,
+        max_file_size: int = 10485760,
     ) -> None:
         """Initialize the job storage.
 
@@ -42,13 +43,14 @@ class OqtopusCloudJobStorage(JobStorage):
 
         self._proxy = proxy
         self._storage_op_timeout_seconds = storage_op_timeout_seconds
+        self._max_file_size = max_file_size
 
         logger.info(
             "OqtopusCloudJobsStorage was initialized",
             extra={
                 "proxy": proxy,
                 "workers": workers,
-                "storage_op_timeout_seconds": storage_op_timeout_seconds
+                "storage_op_timeout_seconds": storage_op_timeout_seconds,
             },
         )
 
@@ -86,7 +88,7 @@ class OqtopusCloudJobStorage(JobStorage):
                     extra={
                         "error": str(ex),
                         **extra,
-                    }
+                    },
                 )
                 raise
             except Exception:
@@ -186,7 +188,7 @@ class OqtopusCloudJobStorage(JobStorage):
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
-        arcname_ext: str = ""
+        arcname_ext: str = "",
     ) -> None:
         """Uploads job output data as .zip file to OCTOPUS Cloud S3 storage
 
@@ -194,7 +196,7 @@ class OqtopusCloudJobStorage(JobStorage):
             job: The job for output upload.
             presigned_url: Presigned URL for upload.
             data: Data to be uploaded.
-            arcname_ext: data file extension to be zipped e.g. `.json`.
+            arcname_ext: Data file extension to be zipped e.g. `.json`.
 
         """
 
@@ -206,6 +208,7 @@ class OqtopusCloudJobStorage(JobStorage):
                 presigned_url=presigned_url,
                 data=data,
                 arcname_ext=arcname_ext,
+                max_size=self._max_file_size,
                 proxies=proxies,
                 timeout_s=self._storage_op_timeout_seconds,
             )
@@ -249,7 +252,7 @@ class OqtopusCloudJobStorage(JobStorage):
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
-        arcname_ext: str = ""
+        arcname_ext: str = "",
     ) -> None:
         """Uploads job output data as .zip file to OCTOPUS Cloud S3 storage without waiting
 
