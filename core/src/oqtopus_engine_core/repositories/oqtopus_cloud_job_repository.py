@@ -158,7 +158,9 @@ class OqtopusCloudJobRepository(JobRepository):
 
         Ensures that all nowait requests sharing the same ``job_id`` are executed
         sequentially.  When a queue becomes empty after draining it is removed to
-        avoid memory leaks.
+        avoid memory leaks.  Exceptions raised by individual coroutines are caught
+        and logged so that subsequent items for the same ``job_id`` are still
+        executed and the queue is always cleaned up.
 
         Args:
             job_id: The job identifier used as the queue key.
@@ -180,7 +182,19 @@ class OqtopusCloudJobRepository(JobRepository):
                     break
                 current_coroutine = await queue.get()
 
-            await current_coroutine
+            try:
+                await current_coroutine
+            except Exception:
+                logger.exception(
+                    "_enqueue_and_run: task failed",
+                    extra={"job_id": job_id},
+                )
+            finally:
+                # Guarantee queue-entry cleanup even when the coroutine raises,
+                # so that stale entries are never left in _job_queues.
+                async with self._job_queues_lock:
+                    if queue.empty():
+                        self._job_queues.pop(job_id, None)
 
     async def get_jobs(
         self, device_id: str, status: str = "submitted", limit: int = 10

@@ -326,3 +326,74 @@ async def test_update_sselog_nowait_bypasses_queue_when_false():
 
     assert enqueued == []
     repo.update_sselog.assert_awaited_once_with("job-1", "log content")
+
+
+# ---------------------------------------------------------------------------
+# _enqueue_and_run – queue cleanup after coroutine failure
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enqueue_and_run_cleans_up_queue_after_failure():
+    """The per-job queue entry must be removed even when the coroutine raises."""
+    repo = make_repo()
+
+    async def failing_coroutine() -> None:
+        raise RuntimeError("intentional failure")
+
+    # _enqueue_and_run catches internal exceptions; it should not propagate here.
+    await repo._enqueue_and_run("job-fail", failing_coroutine())
+
+    assert "job-fail" not in repo._job_queues
+
+
+# ---------------------------------------------------------------------------
+# _enqueue_and_run – loop continues after one coroutine fails
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enqueue_and_run_continues_after_coroutine_failure():
+    """Subsequent coroutines for the same job_id must still run after one fails."""
+    repo = make_repo()
+    executed: list[str] = []
+
+    async def failing_coroutine() -> None:
+        raise RuntimeError("intentional failure")
+
+    async def success_coroutine() -> None:
+        executed.append("success")
+
+    t1 = asyncio.create_task(repo._enqueue_and_run("job-seq", failing_coroutine()))
+    t2 = asyncio.create_task(repo._enqueue_and_run("job-seq", success_coroutine()))
+
+    await asyncio.gather(t1, t2)
+
+    # The success coroutine must have run despite the earlier failure.
+    assert "success" in executed
+    # The queue entry must be cleaned up.
+    assert "job-seq" not in repo._job_queues
+
+
+# ---------------------------------------------------------------------------
+# _enqueue_and_run – failed coroutine is logged
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_enqueue_and_run_logs_exception_on_failure(caplog: pytest.LogCaptureFixture):
+    """Exceptions from coroutines must be logged, not silently swallowed."""
+    import logging
+
+    repo = make_repo()
+
+    async def failing_coroutine() -> None:
+        raise ValueError("logged failure")
+
+    with caplog.at_level(logging.ERROR):
+        await repo._enqueue_and_run("job-log", failing_coroutine())
+
+    assert any(
+        "task failed" in record.message and record.levelname == "ERROR"
+        for record in caplog.records
+    )
