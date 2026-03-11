@@ -60,7 +60,9 @@ class OqtopusCloudJobRepository(JobRepository):
         self._background_requests: set[asyncio.Task[Any]] = set()
 
         # Per-job queues for ordering nowait requests
-        self._job_queues: dict[str, asyncio.Queue] = {}
+        self._job_queues: dict[str, asyncio.Queue[Coroutine[None, None, None]]] = {}
+        # Tracks job_ids whose queue currently has an active drainer task
+        self._job_draining: set[str] = set()
         self._job_queues_lock = asyncio.Lock()
 
         logger.info(
@@ -151,8 +153,11 @@ class OqtopusCloudJobRepository(JobRepository):
     ) -> None:
         """Enqueue a coroutine for the given job_id and run it sequentially.
 
-        Ensures that requests for the same job_id are executed in order.
-        The queue entry is removed when it becomes empty after processing.
+        Ensures that requests for the same job_id are executed in order by
+        designating exactly one task per job_id as the drainer. Other tasks
+        that enqueue for the same job_id return immediately after enqueuing,
+        leaving the active drainer to process the item. The queue and its
+        drainer marker are removed when the queue becomes empty.
 
         Args:
             job_id: The job identifier used to determine the queue.
@@ -163,19 +168,26 @@ class OqtopusCloudJobRepository(JobRepository):
             if job_id not in self._job_queues:
                 self._job_queues[job_id] = asyncio.Queue()
             queue = self._job_queues[job_id]
-            await queue.put(coro)
+            queue.put_nowait(coro)
+            # Become the drainer only if no drainer task is currently active
+            is_drainer = job_id not in self._job_draining
+            if is_drainer:
+                self._job_draining.add(job_id)
 
-        # Only one task per job_id should drain the queue.
-        # After enqueuing, attempt to drain; another concurrent task may have
-        # already picked up the item, in which case the loop exits immediately.
+        if not is_drainer:
+            # An active drainer will pick up the enqueued item; nothing more to do
+            return
+
+        # This task is the designated drainer for job_id
         while True:
             async with self._job_queues_lock:
                 if queue.empty():
-                    # Remove the queue entry if it is empty
+                    # Remove the queue and drainer marker when fully drained
                     if self._job_queues.get(job_id) is queue:
                         del self._job_queues[job_id]
+                    self._job_draining.discard(job_id)
                     break
-                current_coro = await queue.get()
+                current_coro = queue.get_nowait()
 
             await current_coro
 
