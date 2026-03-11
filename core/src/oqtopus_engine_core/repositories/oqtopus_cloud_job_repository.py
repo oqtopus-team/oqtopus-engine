@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
 from oqtopus_engine_core.framework import Job, JobRepository
@@ -30,7 +30,7 @@ class OqtopusCloudJobRepository(JobRepository):
         url: str = "http://localhost:8888",
         api_key: str = "",
         proxy: str | None = None,
-        workers: int = 5,
+        workers: int = 5,  # noqa: ARG002
     ) -> None:
         """Initialize the job repository with the API URL and interval.
 
@@ -38,7 +38,7 @@ class OqtopusCloudJobRepository(JobRepository):
             url: The endpoint URL to fetch jobs from.
             api_key: The API key for authentication.
             proxy: The proxy URL for the API request.
-            workers: The number of concurrent workers to use for API requests.
+            workers: Kept for backward compatibility; no longer used.
 
         """
         super().__init__()
@@ -54,22 +54,24 @@ class OqtopusCloudJobRepository(JobRepository):
         )
         self._job_api = JobApi(api_client=api_client)  # for sse
         self._jobs_api = JobsApi(api_client=api_client)
-        self._sem = asyncio.Semaphore(workers)
 
         # Background request tasks:
         # Requests that are sent without waiting for the response
         self._background_requests: set[asyncio.Task[Any]] = set()
+
+        # Per-job queues for ordering nowait requests
+        self._job_queues: dict[str, asyncio.Queue] = {}
+        self._job_queues_lock = asyncio.Lock()
 
         logger.info(
             "OqtopusCloudJobRepository was initialized",
             extra={
                 "url": url,
                 "proxy": proxy,
-                "workers": workers,
             },
         )
 
-    async def _request_with_error_logging(
+    async def _request_with_error_logging(  # noqa: PLR6301
         self,
         call: Callable[[], T],
         label: str,
@@ -90,33 +92,32 @@ class OqtopusCloudJobRepository(JobRepository):
             ApiException: If an API error occurs.
 
         """
-        async with self._sem:
-            try:
-                return await asyncio.to_thread(call)
-            except ApiException as ex:
-                # Note:
-                # - Logged at INFO level because the caller performs the actual
-                #   error handling at a higher layer
-                # - This log is only a diagnostic breadcrumb, not a final failure record
-                logger.info(
-                    "%s: response",
-                    label,
-                    extra={
-                        "status_code": ex.status,
-                        "reason": ex.reason,
-                        "body": str(ex.body),
-                        **extra,
-                    },
-                )
-                raise
-            except Exception:
-                # Same reasoning as above: avoid duplicate ERROR-level logs.
-                logger.info(
-                    "%s: unexpected error",
-                    label,
-                    extra=extra,
-                )
-                raise
+        try:
+            return await asyncio.to_thread(call)
+        except ApiException as ex:
+            # Note:
+            # - Logged at INFO level because the caller performs the actual
+            #   error handling at a higher layer
+            # - This log is only a diagnostic breadcrumb, not a final failure record
+            logger.info(
+                "%s: response",
+                label,
+                extra={
+                    "status_code": ex.status,
+                    "reason": ex.reason,
+                    "body": str(ex.body),
+                    **extra,
+                },
+            )
+            raise
+        except Exception:
+            # Same reasoning as above: avoid duplicate ERROR-level logs.
+            logger.info(
+                "%s: unexpected error",
+                label,
+                extra=extra,
+            )
+            raise
 
     def _track_background_request(
         self,
@@ -144,6 +145,39 @@ class OqtopusCloudJobRepository(JobRepository):
                 logger.exception("%s: failed", label, extra=extra)
 
         task.add_done_callback(_done)
+
+    async def _enqueue_and_run(
+        self, job_id: str, coro: Coroutine[None, None, None]
+    ) -> None:
+        """Enqueue a coroutine for the given job_id and run it sequentially.
+
+        Ensures that requests for the same job_id are executed in order.
+        The queue entry is removed when it becomes empty after processing.
+
+        Args:
+            job_id: The job identifier used to determine the queue.
+            coro: The coroutine to enqueue and execute.
+
+        """
+        async with self._job_queues_lock:
+            if job_id not in self._job_queues:
+                self._job_queues[job_id] = asyncio.Queue()
+            queue = self._job_queues[job_id]
+            await queue.put(coro)
+
+        # Only one task per job_id should drain the queue.
+        # After enqueuing, attempt to drain; another concurrent task may have
+        # already picked up the item, in which case the loop exits immediately.
+        while True:
+            async with self._job_queues_lock:
+                if queue.empty():
+                    # Remove the queue entry if it is empty
+                    if self._job_queues.get(job_id) is queue:
+                        del self._job_queues[job_id]
+                    break
+                current_coro = await queue.get()
+
+            await current_coro
 
     async def get_jobs(
         self, device_id: str, status: str = "submitted", limit: int = 10
@@ -246,14 +280,24 @@ class OqtopusCloudJobRepository(JobRepository):
             },
         )
 
-    async def update_job_status_nowait(self, job: Job) -> None:
+    async def update_job_status_nowait(
+        self, job: Job, *, use_job_queue: bool = True
+    ) -> None:
         """Send a PATCH request to update the job status without waiting.
 
         Args:
-            job: The job whose status will be updated
+            job: The job whose status will be updated.
+            use_job_queue: If True (default), the request is queued per job_id
+                to guarantee ordering. If False, the request is executed immediately
+                without queuing (for priority processing).
 
         """
-        task = asyncio.create_task(self.update_job_status(job))
+        if use_job_queue:
+            task = asyncio.create_task(
+                self._enqueue_and_run(job.job_id, self.update_job_status(job))
+            )
+        else:
+            task = asyncio.create_task(self.update_job_status(job))
         self._track_background_request(
             task,
             label="PATCH /jobs/{job_id}/status",
@@ -333,22 +377,39 @@ class OqtopusCloudJobRepository(JobRepository):
         job: Job,
         overwrite_status: str | None = None,
         execution_time: float | None = None,
+        *,
+        use_job_queue: bool = True,
     ) -> None:
         """Send a PATCH request update job info without waiting.
 
         Args:
-            job: The job to patch
+            job: The job to patch.
             overwrite_status: The status to overwrite in the job info if not None.
             execution_time: The execution time to overwrite in the job info if not None.
+            use_job_queue: If True (default), the request is queued per job_id
+                to guarantee ordering. If False, the request is executed immediately
+                without queuing (for priority processing).
 
         """
-        task = asyncio.create_task(
-            self.update_job_info(
-                job,
-                overwrite_status=overwrite_status,
-                execution_time=execution_time,
+        if use_job_queue:
+            task = asyncio.create_task(
+                self._enqueue_and_run(
+                    job.job_id,
+                    self.update_job_info(
+                        job,
+                        overwrite_status=overwrite_status,
+                        execution_time=execution_time,
+                    ),
+                )
             )
-        )
+        else:
+            task = asyncio.create_task(
+                self.update_job_info(
+                    job,
+                    overwrite_status=overwrite_status,
+                    execution_time=execution_time,
+                )
+            )
         self._track_background_request(
             task,
             label="PATCH /jobs/{job_id}/job_info",
@@ -407,14 +468,24 @@ class OqtopusCloudJobRepository(JobRepository):
     async def update_job_transpiler_info_nowait(
         self,
         job: Job,
+        *,
+        use_job_queue: bool = True,
     ) -> None:
         """Send a PUT request to update transpiler info without waiting.
 
         Args:
             job: The job to update.
+            use_job_queue: If True (default), the request is queued per job_id
+                to guarantee ordering. If False, the request is executed immediately
+                without queuing (for priority processing).
 
         """
-        task = asyncio.create_task(self.update_job_transpiler_info(job))
+        if use_job_queue:
+            task = asyncio.create_task(
+                self._enqueue_and_run(job.job_id, self.update_job_transpiler_info(job))
+            )
+        else:
+            task = asyncio.create_task(self.update_job_transpiler_info(job))
         self._track_background_request(
             task,
             label="PUT /jobs/{job_id}/transpiler_info",
@@ -509,15 +580,25 @@ class OqtopusCloudJobRepository(JobRepository):
             },
         )
 
-    async def update_sselog_nowait(self, job_id: str, sselog: str) -> None:
+    async def update_sselog_nowait(
+        self, job_id: str, sselog: str, *, use_job_queue: bool = True
+    ) -> None:
         """Send a PATCH request to update SSE log file without waiting.
 
         Args:
             job_id: Job identifier.
             sselog: SSE log content as string.
+            use_job_queue: If True (default), the request is queued per job_id
+                to guarantee ordering. If False, the request is executed immediately
+                without queuing (for priority processing).
 
         """
-        task = asyncio.create_task(self.update_sselog(job_id, sselog))
+        if use_job_queue:
+            task = asyncio.create_task(
+                self._enqueue_and_run(job_id, self.update_sselog(job_id, sselog))
+            )
+        else:
+            task = asyncio.create_task(self.update_sselog(job_id, sselog))
         self._track_background_request(
             task,
             label="PATCH /jobs/{job_id}/sselog",  # noqa: RUF027
