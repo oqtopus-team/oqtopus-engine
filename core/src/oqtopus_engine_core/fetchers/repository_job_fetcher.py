@@ -39,24 +39,6 @@ class RepositoryJobFetcher(JobFetcher):
             },
         )
 
-    async def _fail_job(
-        self,
-        job: Job,
-        message: str,
-    ) -> None:
-        try:
-            job.status = "failed"
-            job.message = message
-            await self.gctx.job_repository.update_job_status(job=job)
-        except Exception:
-            logger.exception(
-                "failed to update job status to 'failed' in the repository",
-                extra={
-                    "job_id": job.job_id,
-                    "job_type": job.job_type,
-                },
-            )
-
     async def start(self) -> None:
         """Start periodically fetching jobs and feeding them into the pipeline."""
         self.validate_fetcher_ready()
@@ -81,45 +63,11 @@ class RepositoryJobFetcher(JobFetcher):
                 )
 
                 if len(jobs):
-                    # Create a list of awaitable tasks for downloading job inputs
-                    job_download_tasks = [
-                        gctx.job_storage.download_job_input(job) for job in jobs
-                    ]
-                    # Run all download tasks concurrently
-                    job_inputs = await asyncio.gather(
-                        *job_download_tasks, return_exceptions=True
-                    )
-                    success_count = sum(
-                        1 for i in job_inputs if not isinstance(i, Exception)
-                    )
-                    logger.info(
-                        "jobs downloaded",
-                        extra={
-                            "success": success_count,
-                            "failed": len(jobs) - success_count,
-                        },
-                    )
-
-                    for i, job in enumerate(jobs):
-                        if not isinstance(job_inputs[i], Exception):
-                            try:
-                                validated_input = JobInput(**job_inputs[i])
-                                job.program = validated_input.program
-                                job.operator = validated_input.operator
-                                job.sse_program = validated_input.sse_program
-
-                                # Send job to pipeline
-                                jctx = JobContext()
-                                await pipeline.execute_pipeline(gctx, jctx, job)
-
-                            except ValidationError as exc:
-                                await self._fail_job(
-                                    job, f"Job input validation failed: {str(exc)}"
-                                )
-                        else:
-                            await self._fail_job(
-                                job, f"Job input download failed: {str(job_inputs[i])}"
-                            )
+                    jobs = await self._download_inputs(jobs)
+                    for job in jobs:
+                        # Send job to pipeline
+                        jctx = JobContext()
+                        await pipeline.execute_pipeline(gctx, jctx, job)
 
                 # Sleep if fewer jobs than the fetch limit were returned
                 if len(jobs) < self._limit:
@@ -130,5 +78,72 @@ class RepositoryJobFetcher(JobFetcher):
                     await asyncio.sleep(self._interval_seconds)
 
             except Exception:
-                logger.exception("failed to fetch jobs")
+                logger.exception("unexpected error during job fetch")
                 await asyncio.sleep(self._interval_seconds)
+
+    async def _download_inputs(
+        self,
+        jobs: list[Job],
+    ) -> list[Job]:
+        jobs_with_inputs = []
+        """ Downloads and validates job inputs. Fails the job if download or validation fail."""
+        try:
+            # Create a list of awaitable tasks for downloading job inputs
+            job_download_tasks = [
+                self.gctx.job_storage.download_job_input(job) for job in jobs
+            ]
+            # Run all download tasks concurrently
+            job_download_results = await asyncio.gather(
+                *job_download_tasks, return_exceptions=True
+            )
+            success_count = sum(
+                1 for i in job_download_results if not isinstance(i, Exception)
+            )
+            logger.info(
+                "jobs downloaded",
+                extra={
+                    "success": success_count,
+                    "failed": len(jobs) - success_count,
+                },
+            )
+
+            for i, job in enumerate(jobs):
+                if not isinstance(job_download_results[i], Exception):
+                    try:
+                        validated_input = JobInput(**job_download_results[i])
+                        job.program = validated_input.program
+                        job.operator = validated_input.operator
+                        job.sse_program = validated_input.sse_program
+                        jobs_with_inputs.append(job)
+                    except ValidationError as exc:
+                        await self._fail_job(
+                            job, f"Job input validation failed: {str(exc)}"
+                        )
+                else:
+                    await self._fail_job(
+                        job,
+                        f"Job input download failed: {str(job_download_results[i])}",
+                    )
+        except Exception as exc:
+            logger.exception("unexpected error during job input download")
+
+        return jobs_with_inputs
+
+    async def _fail_job(
+        self,
+        job: Job,
+        message: str,
+    ) -> None:
+        """ Sets the job as failed in the job repository."""
+        try:
+            job.status = "failed"
+            job.message = message
+            await self.gctx.job_repository.update_job_status(job=job)
+        except Exception:
+            logger.exception(
+                "failed to update job status to 'failed' in the repository",
+                extra={
+                    "job_id": job.job_id,
+                    "job_type": job.job_type,
+                },
+            )
