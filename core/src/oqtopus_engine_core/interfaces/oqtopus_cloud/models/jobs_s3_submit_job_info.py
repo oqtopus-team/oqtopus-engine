@@ -45,7 +45,8 @@ class JobsS3SubmitJobInfo(object):
         self._operator = None
         self._sse_program = None
         self.discriminator = None
-        self.program = program
+        if program is not None:
+            self.program = program
         if operator is not None:
             self.operator = operator
         if sse_program is not None:
@@ -55,7 +56,7 @@ class JobsS3SubmitJobInfo(object):
     def program(self):
         """Gets the program of this JobsS3SubmitJobInfo.  # noqa: E501
 
-        A list of OPENQASM3 program. For non-multiprogramming jobs, this field is assumed to contain exactly one program. Otherwise, those programs are combined according to the multiprogramming machinery.  # noqa: E501
+        A list of OPENQASM3 program. Required for sampling, estimation and multiprogramming jobs. For non-multiprogramming jobs, this field is assumed to contain exactly one program. Otherwise, those programs are combined according to the multiprogramming machinery.  # noqa: E501
 
         :return: The program of this JobsS3SubmitJobInfo.  # noqa: E501
         :rtype: list[str]
@@ -66,13 +67,11 @@ class JobsS3SubmitJobInfo(object):
     def program(self, program):
         """Sets the program of this JobsS3SubmitJobInfo.
 
-        A list of OPENQASM3 program. For non-multiprogramming jobs, this field is assumed to contain exactly one program. Otherwise, those programs are combined according to the multiprogramming machinery.  # noqa: E501
+        A list of OPENQASM3 program. Required for sampling, estimation and multiprogramming jobs. For non-multiprogramming jobs, this field is assumed to contain exactly one program. Otherwise, those programs are combined according to the multiprogramming machinery.  # noqa: E501
 
         :param program: The program of this JobsS3SubmitJobInfo.  # noqa: E501
         :type: list[str]
         """
-        if program is None:
-            raise ValueError("Invalid value for `program`, must not be `None`")  # noqa: E501
 
         self._program = program
 
@@ -80,6 +79,7 @@ class JobsS3SubmitJobInfo(object):
     def operator(self):
         """Gets the operator of this JobsS3SubmitJobInfo.  # noqa: E501
 
+        Estimation operator. Required for estimation jobs.  # noqa: E501
 
         :return: The operator of this JobsS3SubmitJobInfo.  # noqa: E501
         :rtype: list[JobsS3OperatorItem]
@@ -90,6 +90,7 @@ class JobsS3SubmitJobInfo(object):
     def operator(self, operator):
         """Sets the operator of this JobsS3SubmitJobInfo.
 
+        Estimation operator. Required for estimation jobs.  # noqa: E501
 
         :param operator: The operator of this JobsS3SubmitJobInfo.  # noqa: E501
         :type: list[JobsS3OperatorItem]
@@ -101,7 +102,7 @@ class JobsS3SubmitJobInfo(object):
     def sse_program(self):
         """Gets the sse_program of this JobsS3SubmitJobInfo.  # noqa: E501
 
-        SSE user program  # noqa: E501
+        SSE user program. Required for SSE jobs.  # noqa: E501
 
         :return: The sse_program of this JobsS3SubmitJobInfo.  # noqa: E501
         :rtype: str
@@ -112,7 +113,7 @@ class JobsS3SubmitJobInfo(object):
     def sse_program(self, sse_program):
         """Sets the sse_program of this JobsS3SubmitJobInfo.
 
-        SSE user program  # noqa: E501
+        SSE user program. Required for SSE jobs.  # noqa: E501
 
         :param sse_program: The sse_program of this JobsS3SubmitJobInfo.  # noqa: E501
         :type: str
