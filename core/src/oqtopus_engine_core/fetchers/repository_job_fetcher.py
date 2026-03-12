@@ -1,7 +1,8 @@
 import asyncio
 import logging
+from pydantic import ValidationError
 
-from oqtopus_engine_core.framework import JobContext, JobInput, JobFetcher
+from oqtopus_engine_core.framework import Job, JobContext, JobInput, JobFetcher
 from oqtopus_engine_core.framework.job_fetcher import wait_until_fetchable
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,24 @@ class RepositoryJobFetcher(JobFetcher):
                 "job_fetch_threshold": self._job_fetch_threshold,
             },
         )
+
+    async def _fail_job(
+        self,
+        job: Job,
+        message: str,
+    ) -> None:
+        try:
+            job.status = "failed"
+            job.message = message
+            await self.gctx.job_repository.update_job_status(job=job)
+        except Exception:
+            logger.exception(
+                "failed to update job status to 'failed' in the repository",
+                extra={
+                    "job_id": job.job_id,
+                    "job_type": job.job_type,
+                },
+            )
 
     async def start(self) -> None:
         """Start periodically fetching jobs and feeding them into the pipeline."""
@@ -83,35 +102,24 @@ class RepositoryJobFetcher(JobFetcher):
 
                     for i, job in enumerate(jobs):
                         if not isinstance(job_inputs[i], Exception):
-                            # use pydantic for final validation
-                            validated_input = JobInput(**job_inputs[i])
-
-                            job.program = validated_input.program
-                            job.operator = validated_input.operator
-                            job.sse_program = validated_input.sse_program
-
-                            # Send job to pipeline
-                            jctx = JobContext()
-                            await pipeline.execute_pipeline(gctx, jctx, job)
-                        else:
-                            # Fail the job
-                            # TODO: refactor to avoid this copy/paste of FailJobRepositoryHandler
                             try:
-                                job.status = "failed"
-                                job.message = (
-                                    f"Job input download failed: {str(job_inputs[i])}"
+                                validated_input = JobInput(**job_inputs[i])
+                                job.program = validated_input.program
+                                job.operator = validated_input.operator
+                                job.sse_program = validated_input.sse_program
+
+                                # Send job to pipeline
+                                jctx = JobContext()
+                                await pipeline.execute_pipeline(gctx, jctx, job)
+
+                            except ValidationError as exc:
+                                await self._fail_job(
+                                    job, f"Job input validation failed: {str(exc)}"
                                 )
-                                await gctx.job_repository.update_job_status(
-                                    job=job,
-                                )
-                            except Exception:
-                                logger.exception(
-                                    "failed to update job status to 'failed' in the repository",
-                                    extra={
-                                        "job_id": job.job_id,
-                                        "job_type": job.job_type,
-                                    },
-                                )
+                        else:
+                            await self._fail_job(
+                                job, f"Job input download failed: {str(job_inputs[i])}"
+                            )
 
                 # Sleep if fewer jobs than the fetch limit were returned
                 if len(jobs) < self._limit:
