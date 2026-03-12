@@ -44,11 +44,18 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def update_job_status_nowait(self, job: Job) -> None:
+    async def update_job_status_nowait(
+        self, job: Job, *, preserve_order: bool = True
+    ) -> None:
         """Update job status without waiting.
 
         Args:
             job: The job to update
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -89,6 +96,8 @@ class JobRepository(ABC):
         job: Job,
         overwrite_status: str | None = None,
         execution_time: float | None = None,
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """Update job info.
 
@@ -96,6 +105,11 @@ class JobRepository(ABC):
             job: The job to update
             overwrite_status: The status to overwrite in the job info if not None.
             execution_time: The execution time to overwrite in the job info if not None.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -125,11 +139,18 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def update_job_transpiler_info_nowait(self, job: Job) -> None:
+    async def update_job_transpiler_info_nowait(
+        self, job: Job, *, preserve_order: bool = True
+    ) -> None:
         """Update transpiler info without waiting.
 
         Args:
             job: The job to update
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -174,12 +195,19 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def update_sselog_nowait(self, job_id: str, sselog: str) -> None:
+    async def update_sselog_nowait(
+        self, job_id: str, sselog: str, *, preserve_order: bool = True
+    ) -> None:
         """Update SSE log without waiting.
 
         Args:
             job_id: The job ID.
             sselog: The SSE log to update.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
