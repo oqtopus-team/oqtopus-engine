@@ -1,7 +1,8 @@
 import asyncio
+import copy
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
 from oqtopus_engine_core.framework import Job, JobRepository
@@ -60,9 +61,9 @@ class OqtopusCloudJobRepository(JobRepository):
         # Requests that are sent without waiting for the response
         self._background_requests: set[asyncio.Task[Any]] = set()
 
-        # Per-job queues for ordered execution of nowait requests
-        self._job_queues: dict[str, asyncio.Queue] = {}
-        self._job_queues_lock = asyncio.Lock()
+        # Per-job task chains to ensure sequential execution for the same job_id
+        self._job_tails: dict[str, asyncio.Future] = {}
+        self._job_tails_lock = asyncio.Lock()
 
         logger.info(
             "OqtopusCloudJobRepository was initialized",
@@ -152,49 +153,93 @@ class OqtopusCloudJobRepository(JobRepository):
     async def _enqueue_and_run(
         self,
         job_id: str,
-        coroutine: Any,
+        coroutine: Coroutine[Any, Any, Any],
     ) -> None:
-        """Enqueue a coroutine for the given job ID and run queued tasks in order.
+        """Schedule a coroutine for the given job_id while preserving execution order.
 
-        Ensures that all nowait requests sharing the same ``job_id`` are executed
-        sequentially.  When a queue becomes empty after draining it is removed to
-        avoid memory leaks.  Exceptions raised by individual coroutines are caught
-        and logged so that subsequent items for the same ``job_id`` are still
-        executed and the queue is always cleaned up.
+        This method ensures that all operations associated with the same ``job_id``
+        are executed strictly in FIFO order, even when scheduled concurrently.
+
+        The implementation uses a *per-job task chain* instead of an explicit queue
+        or worker. For each ``job_id`` we keep a reference to the last scheduled
+        task (the "tail"). A new task waits for the previous one before executing.
+
+        Conceptually:
+
+            job_id = X
+
+                task A
+                ↓
+                task B waits A
+                ↓
+                task C waits B
+
+        This guarantees that requests affecting the same job (for example
+        status updates, job_info updates, or SSE log updates) are never sent
+        concurrently and cannot overtake each other.
+
+        Advantages of this design:
+
+        - No background worker management
+        - No queue lifecycle management
+        - Strict per-job ordering
+        - Minimal shared state
+        - No race conditions around queue creation or deletion
+
+        The last task reference is stored in ``_job_tails``. When the final task
+        in the chain completes, the entry is removed to prevent memory growth.
 
         Args:
-            job_id: The job identifier used as the queue key.
-            coroutine: The coroutine to enqueue and eventually await.
+            job_id:
+                Identifier of the job used as the ordering key.
+
+            coroutine:
+                The coroutine that performs the actual operation
+                (typically an HTTP request).
 
         """
-        async with self._job_queues_lock:
-            if job_id not in self._job_queues:
-                self._job_queues[job_id] = asyncio.Queue()
-            queue = self._job_queues[job_id]
-            await queue.put(coroutine)
+        async with self._job_tails_lock:
+            previous = self._job_tails.get(job_id)
 
-        while True:
-            async with self._job_queues_lock:
-                if queue.empty():
-                    # Remove the queue only if it belongs to this job_id
-                    # (another coroutine may have already deleted it)
-                    self._job_queues.pop(job_id, None)
-                    break
-                current_coroutine = await queue.get()
+            async def runner() -> None:
+                """Execute the coroutine after the previous task finishes."""
+                if previous is not None:
+                    try:
+                        # Wait for the previous operation for this job.
+                        # Errors from the previous task must not block
+                        # subsequent operations.
+                        await previous
+                    except Exception:
+                        # Log the exception to ensure traceability while
+                        # allowing subsequent operations to proceed.
+                        logger.exception(
+                            "Previous task failed",
+                            extra={"job_id": job_id},
+                        )
 
-            try:
-                await current_coroutine
-            except Exception:
-                logger.exception(
-                    "_enqueue_and_run: task failed",
-                    extra={"job_id": job_id},
-                )
-            finally:
-                # Guarantee queue-entry cleanup even when the coroutine raises,
-                # so that stale entries are never left in _job_queues.
-                async with self._job_queues_lock:
-                    if queue.empty():
-                        self._job_queues.pop(job_id, None)
+                try:
+                    # Execute the requested operation.
+                    await coroutine
+                except Exception:
+                    logger.exception(
+                        "job task failed",
+                        extra={"job_id": job_id},
+                    )
+
+            # Create the new task and set it as the new tail.
+            task = asyncio.create_task(runner())
+            self._job_tails[job_id] = task
+
+        try:
+            # Wait for this task to complete.
+            # This ensures proper propagation when called directly.
+            await task
+        finally:
+            # Remove the tail entry if this task is still the latest one.
+            # This prevents memory leaks when no further tasks are scheduled.
+            async with self._job_tails_lock:
+                if self._job_tails.get(job_id) is task:
+                    self._job_tails.pop(job_id, None)
 
     async def get_jobs(
         self, device_id: str, status: str = "submitted", limit: int = 10
@@ -298,24 +343,29 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
     async def update_job_status_nowait(
-        self, job: Job, use_job_queue: bool = True
+        self, job: Job, *, preserve_order: bool = True
     ) -> None:
         """Send a PATCH request to update the job status without waiting.
 
         Args:
             job: The job whose status will be updated
-            use_job_queue: If ``True`` (default), the request is enqueued and
-                executed sequentially with other requests sharing the same
-                ``job_id``.  If ``False``, the request bypasses the queue and
-                is executed immediately.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         """
-        if use_job_queue:
+        # Take a shallow copy immediately to capture the current 'status'.
+        # This prevents the value from changing while waiting in the queue.
+        job_snapshot = job.model_copy(deep=False)
+
+        if preserve_order:
             task = asyncio.create_task(
-                self._enqueue_and_run(job.job_id, self.update_job_status(job))
+                self._enqueue_and_run(job.job_id, self.update_job_status(job_snapshot))
             )
         else:
-            task = asyncio.create_task(self.update_job_status(job))
+            task = asyncio.create_task(self.update_job_status(job_snapshot))
         self._track_background_request(
             task,
             label="PATCH /jobs/{job_id}/status",
@@ -395,7 +445,8 @@ class OqtopusCloudJobRepository(JobRepository):
         job: Job,
         overwrite_status: str | None = None,
         execution_time: float | None = None,
-        use_job_queue: bool = True,
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """Send a PATCH request update job info without waiting.
 
@@ -403,18 +454,25 @@ class OqtopusCloudJobRepository(JobRepository):
             job: The job to patch
             overwrite_status: The status to overwrite in the job info if not None.
             execution_time: The execution time to overwrite in the job info if not None.
-            use_job_queue: If ``True`` (default), the request is enqueued and
-                executed sequentially with other requests sharing the same
-                ``job_id``.  If ``False``, the request bypasses the queue and
-                is executed immediately.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         """
+        # Take a shallow copy immediately to capture the current 'job_info'.
+        # This prevents the value from changing while waiting in the queue.
+        job_info_snapshot = job.job_info.model_copy(deep=False)
+        job_snapshot = job.model_copy(deep=False)
+        job_snapshot.job_info = job_info_snapshot
+
         coroutine = self.update_job_info(
-            job,
+            job_snapshot,
             overwrite_status=overwrite_status,
             execution_time=execution_time,
         )
-        if use_job_queue:
+        if preserve_order:
             task = asyncio.create_task(self._enqueue_and_run(job.job_id, coroutine))
         else:
             task = asyncio.create_task(coroutine)
@@ -434,7 +492,9 @@ class OqtopusCloudJobRepository(JobRepository):
             job: The job to update.
 
         """
-        body = job.transpiler_info
+        # Use deepcopy for transpiler_info to ensure all nested structures
+        # are preserved as they were at the moment of the call.
+        body = copy.deepcopy(job.transpiler_info)
 
         def _call() -> tuple[object, int, dict]:
             return self._jobs_api.update_job_transpiler_info_with_http_info(
@@ -476,26 +536,34 @@ class OqtopusCloudJobRepository(JobRepository):
     async def update_job_transpiler_info_nowait(
         self,
         job: Job,
-        use_job_queue: bool = True,
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """Send a PUT request to update transpiler info without waiting.
 
         Args:
             job: The job to update.
-            use_job_queue: If ``True`` (default), the request is enqueued and
-                executed sequentially with other requests sharing the same
-                ``job_id``.  If ``False``, the request bypasses the queue and
-                is executed immediately.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         """
-        if use_job_queue:
+        # Take a shallow copy immediately to capture the current 'transpiler_info'.
+        # This prevents the value from changing while waiting in the queue.
+        transpiler_info_snapshot = copy.deepcopy(job.transpiler_info)
+        job_snapshot = job.model_copy(deep=False)
+        job_snapshot.transpiler_info = transpiler_info_snapshot
+
+        if preserve_order:
             task = asyncio.create_task(
                 self._enqueue_and_run(
-                    job.job_id, self.update_job_transpiler_info(job)
+                    job.job_id, self.update_job_transpiler_info(job_snapshot)
                 )
             )
         else:
-            task = asyncio.create_task(self.update_job_transpiler_info(job))
+            task = asyncio.create_task(self.update_job_transpiler_info(job_snapshot))
         self._track_background_request(
             task,
             label="PUT /jobs/{job_id}/transpiler_info",
@@ -591,20 +659,21 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
     async def update_sselog_nowait(
-        self, job_id: str, sselog: str, use_job_queue: bool = True
+        self, job_id: str, sselog: str, *, preserve_order: bool = True
     ) -> None:
         """Send a PATCH request to update SSE log file without waiting.
 
         Args:
             job_id: Job identifier.
             sselog: SSE log content as string.
-            use_job_queue: If ``True`` (default), the request is enqueued and
-                executed sequentially with other requests sharing the same
-                ``job_id``.  If ``False``, the request bypasses the queue and
-                is executed immediately.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         """
-        if use_job_queue:
+        if preserve_order:
             task = asyncio.create_task(
                 self._enqueue_and_run(job_id, self.update_sselog(job_id, sselog))
             )

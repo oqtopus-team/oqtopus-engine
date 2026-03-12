@@ -30,7 +30,7 @@ class NullJobRepository(JobRepository):
         """No-op implementation."""
 
     async def update_job_status_nowait(
-        self, job: Job, use_job_queue: bool = True
+        self, job: Job, *, preserve_order: bool = True
     ) -> None:
         """No-op implementation."""
 
@@ -47,7 +47,8 @@ class NullJobRepository(JobRepository):
         job: Job,
         overwrite_status: str | None = None,
         execution_time: float | None = None,
-        use_job_queue: bool = True,
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """No-op implementation."""
 
@@ -55,7 +56,7 @@ class NullJobRepository(JobRepository):
         """No-op implementation."""
 
     async def update_job_transpiler_info_nowait(
-        self, job: Job, use_job_queue: bool = True
+        self, job: Job, *, preserve_order: bool = True
     ) -> None:
         """No-op implementation."""
 
@@ -66,6 +67,6 @@ class NullJobRepository(JobRepository):
         """No-op implementation."""
 
     async def update_sselog_nowait(
-        self, job_id: str, sselog: str, use_job_queue: bool = True
+        self, job_id: str, sselog: str, *, preserve_order: bool = True
     ) -> None:
         """No-op implementation."""

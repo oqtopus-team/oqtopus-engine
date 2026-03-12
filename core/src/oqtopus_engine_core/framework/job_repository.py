@@ -45,16 +45,17 @@ class JobRepository(ABC):
 
     @abstractmethod
     async def update_job_status_nowait(
-        self, job: Job, use_job_queue: bool = True
+        self, job: Job, *, preserve_order: bool = True
     ) -> None:
         """Update job status without waiting.
 
         Args:
             job: The job to update
-            use_job_queue: If ``True`` (default), the request is enqueued and
-                executed sequentially with other requests sharing the same
-                ``job_id``.  If ``False``, the request bypasses the queue and
-                is executed immediately.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -95,7 +96,8 @@ class JobRepository(ABC):
         job: Job,
         overwrite_status: str | None = None,
         execution_time: float | None = None,
-        use_job_queue: bool = True,
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """Update job info.
 
@@ -103,10 +105,11 @@ class JobRepository(ABC):
             job: The job to update
             overwrite_status: The status to overwrite in the job info if not None.
             execution_time: The execution time to overwrite in the job info if not None.
-            use_job_queue: If ``True`` (default), the request is enqueued and
-                executed sequentially with other requests sharing the same
-                ``job_id``.  If ``False``, the request bypasses the queue and
-                is executed immediately.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -137,16 +140,17 @@ class JobRepository(ABC):
 
     @abstractmethod
     async def update_job_transpiler_info_nowait(
-        self, job: Job, use_job_queue: bool = True
+        self, job: Job, *, preserve_order: bool = True
     ) -> None:
         """Update transpiler info without waiting.
 
         Args:
             job: The job to update
-            use_job_queue: If ``True`` (default), the request is enqueued and
-                executed sequentially with other requests sharing the same
-                ``job_id``.  If ``False``, the request bypasses the queue and
-                is executed immediately.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -192,17 +196,18 @@ class JobRepository(ABC):
 
     @abstractmethod
     async def update_sselog_nowait(
-        self, job_id: str, sselog: str, use_job_queue: bool = True
+        self, job_id: str, sselog: str, *, preserve_order: bool = True
     ) -> None:
         """Update SSE log without waiting.
 
         Args:
             job_id: The job ID.
             sselog: The SSE log to update.
-            use_job_queue: If ``True`` (default), the request is enqueued and
-                executed sequentially with other requests sharing the same
-                ``job_id``.  If ``False``, the request bypasses the queue and
-                is executed immediately.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.

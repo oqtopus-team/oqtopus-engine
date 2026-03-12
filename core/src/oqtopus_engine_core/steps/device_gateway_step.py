@@ -67,9 +67,7 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
 
         # Update job status
         job.status = "running"
-        # TODO: nowait
-        # await gctx.job_repository.update_job_status_nowait(job)
-        await gctx.job_repository.update_job_status(job)
+        await gctx.job_repository.update_job_status_nowait(job)
 
         # Check device status
         service_status = await self._stub.GetServiceStatus(

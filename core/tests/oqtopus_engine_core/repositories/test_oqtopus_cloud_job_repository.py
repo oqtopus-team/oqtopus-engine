@@ -88,7 +88,7 @@ async def test_enqueue_and_run_cleans_up_queue_after_completion():
 
     await repo._enqueue_and_run("job-x", coro())
 
-    assert "job-x" not in repo._job_queues
+    assert "job-x" not in repo._job_tails
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ async def test_enqueue_and_run_different_job_ids_are_independent():
 
 
 # ---------------------------------------------------------------------------
-# update_job_status_nowait – use_job_queue=True (default)
+# update_job_status_nowait – preserve_order=True (default)
 # ---------------------------------------------------------------------------
 
 
@@ -142,13 +142,13 @@ async def test_update_job_status_nowait_uses_queue_by_default():
 
 
 # ---------------------------------------------------------------------------
-# update_job_status_nowait – use_job_queue=False (bypass)
+# update_job_status_nowait – preserve_order=False (bypass)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_update_job_status_nowait_bypasses_queue_when_false():
-    """update_job_status_nowait should NOT use _enqueue_and_run when use_job_queue=False."""
+    """update_job_status_nowait should NOT use _enqueue_and_run when preserve_order=False."""
     repo = make_repo()
     job = make_test_job()
 
@@ -160,7 +160,7 @@ async def test_update_job_status_nowait_bypasses_queue_when_false():
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
     repo.update_job_status = AsyncMock()  # type: ignore[method-assign]
 
-    await repo.update_job_status_nowait(job, use_job_queue=False)
+    await repo.update_job_status_nowait(job, preserve_order=False)
 
     # Allow the background task to run
     await asyncio.sleep(0)
@@ -170,7 +170,7 @@ async def test_update_job_status_nowait_bypasses_queue_when_false():
 
 
 # ---------------------------------------------------------------------------
-# update_job_info_nowait – use_job_queue=True (default)
+# update_job_info_nowait – preserve_order=True (default)
 # ---------------------------------------------------------------------------
 
 
@@ -196,13 +196,13 @@ async def test_update_job_info_nowait_uses_queue_by_default():
 
 
 # ---------------------------------------------------------------------------
-# update_job_info_nowait – use_job_queue=False (bypass)
+# update_job_info_nowait – preserve_order=False (bypass)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_update_job_info_nowait_bypasses_queue_when_false():
-    """update_job_info_nowait should NOT use _enqueue_and_run when use_job_queue=False."""
+    """update_job_info_nowait should NOT use _enqueue_and_run when preserve_order=False."""
     repo = make_repo()
     job = make_test_job()
 
@@ -214,7 +214,7 @@ async def test_update_job_info_nowait_bypasses_queue_when_false():
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
     repo.update_job_info = AsyncMock()  # type: ignore[method-assign]
 
-    await repo.update_job_info_nowait(job, use_job_queue=False)
+    await repo.update_job_info_nowait(job, preserve_order=False)
 
     await asyncio.sleep(0)
 
@@ -225,7 +225,7 @@ async def test_update_job_info_nowait_bypasses_queue_when_false():
 
 
 # ---------------------------------------------------------------------------
-# update_job_transpiler_info_nowait – use_job_queue=True (default)
+# update_job_transpiler_info_nowait – preserve_order=True (default)
 # ---------------------------------------------------------------------------
 
 
@@ -251,13 +251,13 @@ async def test_update_job_transpiler_info_nowait_uses_queue_by_default():
 
 
 # ---------------------------------------------------------------------------
-# update_job_transpiler_info_nowait – use_job_queue=False (bypass)
+# update_job_transpiler_info_nowait – preserve_order=False (bypass)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_update_job_transpiler_info_nowait_bypasses_queue_when_false():
-    """update_job_transpiler_info_nowait skips queue when use_job_queue=False."""
+    """update_job_transpiler_info_nowait skips queue when preserve_order=False."""
     repo = make_repo()
     job = make_test_job()
 
@@ -269,7 +269,7 @@ async def test_update_job_transpiler_info_nowait_bypasses_queue_when_false():
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
     repo.update_job_transpiler_info = AsyncMock()  # type: ignore[method-assign]
 
-    await repo.update_job_transpiler_info_nowait(job, use_job_queue=False)
+    await repo.update_job_transpiler_info_nowait(job, preserve_order=False)
 
     await asyncio.sleep(0)
 
@@ -278,7 +278,7 @@ async def test_update_job_transpiler_info_nowait_bypasses_queue_when_false():
 
 
 # ---------------------------------------------------------------------------
-# update_sselog_nowait – use_job_queue=True (default)
+# update_sselog_nowait – preserve_order=True (default)
 # ---------------------------------------------------------------------------
 
 
@@ -303,13 +303,13 @@ async def test_update_sselog_nowait_uses_queue_by_default():
 
 
 # ---------------------------------------------------------------------------
-# update_sselog_nowait – use_job_queue=False (bypass)
+# update_sselog_nowait – preserve_order=False (bypass)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_update_sselog_nowait_bypasses_queue_when_false():
-    """update_sselog_nowait skips queue when use_job_queue=False."""
+    """update_sselog_nowait skips queue when preserve_order=False."""
     repo = make_repo()
 
     enqueued: list[str] = []
@@ -320,7 +320,7 @@ async def test_update_sselog_nowait_bypasses_queue_when_false():
     repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
     repo.update_sselog = AsyncMock()  # type: ignore[method-assign]
 
-    await repo.update_sselog_nowait("job-1", "log content", use_job_queue=False)
+    await repo.update_sselog_nowait("job-1", "log content", preserve_order=False)
 
     await asyncio.sleep(0)
 
@@ -344,7 +344,7 @@ async def test_enqueue_and_run_cleans_up_queue_after_failure():
     # _enqueue_and_run catches internal exceptions; it should not propagate here.
     await repo._enqueue_and_run("job-fail", failing_coroutine())
 
-    assert "job-fail" not in repo._job_queues
+    assert "job-fail" not in repo._job_tails
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +372,7 @@ async def test_enqueue_and_run_continues_after_coroutine_failure():
     # The success coroutine must have run despite the earlier failure.
     assert "success" in executed
     # The queue entry must be cleaned up.
-    assert "job-seq" not in repo._job_queues
+    assert "job-seq" not in repo._job_tails
 
 
 # ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ OQTOPUS Engine is organized as a microservice architecture centered around the c
 - [Development Flow](./developer_guidelines/development_flow.md)
 - [Setup Development Environment](./developer_guidelines/setup.md)
 - [Implementing Pipeline](./developer_guidelines/implementing_pipeline.md)
+- [Implementing Repository](./developer_guidelines/implementing_repository.md)
 - [How to Contribute](./CONTRIBUTING.md)
 - [Code of Conduct](https://github.com/oqtopus-team/.github/blob/main/CODE_OF_CONDUCT.md)
 - [Security](https://github.com/oqtopus-team/.github/blob/main/SECURITY.md)
