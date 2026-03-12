@@ -41,6 +41,7 @@ class RepositoryJobFetcher(JobFetcher):
 
     async def start(self) -> None:
         """Start periodically fetching jobs and feeding them into the pipeline."""
+
         self.validate_fetcher_ready()
         gctx = self.gctx
         pipeline = self.pipeline
@@ -85,8 +86,10 @@ class RepositoryJobFetcher(JobFetcher):
         self,
         jobs: list[Job],
     ) -> list[Job]:
-        jobs_with_inputs = []
         """ Downloads and validates job inputs. Fails the job if download or validation fail."""
+
+        jobs_with_inputs = []
+
         try:
             # Create a list of awaitable tasks for downloading job inputs
             job_download_tasks = [
