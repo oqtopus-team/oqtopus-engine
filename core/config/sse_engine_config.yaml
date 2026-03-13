@@ -42,6 +42,9 @@ di_container:
     device_repository:
       _target_: oqtopus_engine_core.repositories.NullDeviceRepository
 
+    job_storage:
+      _target_: oqtopus_engine_core.storages.NullJobStorage
+
     # buffer configurations
     buffer:
       _target_: oqtopus_engine_core.buffers.QueueBuffer
