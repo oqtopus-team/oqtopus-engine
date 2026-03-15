@@ -5,6 +5,9 @@ SHELL := bash
 run:
 	@WORKERS=10 ADDRESS="localhost:52013" uv run python src/oqtopus_engine_combiner/app.py -c config/config.yaml -l config/logging.yaml
 
+build:
+	@docker compose build
+
 test:
 	@uv run pytest
 
