@@ -32,21 +32,26 @@ COMBINABLE_JOB_TYPES = ["sampling", "multi_manual"]
 
 
 class MpAutoCombiningBuffer(Buffer):
-    """FIFO buffer implementation backed by `asyncio.Queue`.
+    """Multi-programming auto combining buffer.
 
-    This class provides a simple first-in/first-out buffer for transporting
-    `(gctx, jctx, job)` tuples between pipeline components. All operations are
-    asynchronous and thread-safe under Python's asyncio model.
-
-    This implementation is suitable for most common use cases. Specialized
-    buffers—such as those performing automatic combining, batching, or
-    dependency-aware gating—can be built by extending or composing this class.
+        This buffer automatically combines jobs in the input queue based on
+        the combiner gRPC service and puts the combined jobs to the output queue.
+        The combination process is done in the background task.
+        The uncombined jobs are passed through without modification.
 
     Args:
         maxsize: Maximum number of elements allowed in the queue.
             A value of 0 indicates unlimited capacity.
         max_concurrency: Maximum number of worker tasks allowed to consume
             from this buffer concurrently. Defaults to 1.
+        combiner_address: The address of the combiner gRPC service.
+        monitor_interval_seconds: The interval in seconds for monitoring the input queue
+            and performing combination.
+        max_batch_size: The maximum number of jobs to drain from the input queue
+            for each combination attempt.
+        max_qsize_to_proceed: The maximum output queue size to proceed with combination.
+            If the output queue size exceeds this value, the buffer will wait for more
+            jobs to accumulate in the input queue before proceeding with combination.
 
     """
 
@@ -136,11 +141,11 @@ class MpAutoCombiningBuffer(Buffer):
             await self._task
 
     async def _run(self) -> None:
-        """Run main loop: drain source buffer, perform combination, enqueue results."""
+        """Run main loop: drain input buffer, perform combination, enqueue results."""
         while not self._stopped.is_set():
             await asyncio.sleep(self._interval_seconds)
 
-            drained = await self._drain_source()
+            drained = await self._drain_input()
             if not drained:
                 continue
 
@@ -218,10 +223,10 @@ class MpAutoCombiningBuffer(Buffer):
                     },
                 )
 
-    async def _drain_source(self) -> list[tuple[GlobalContext, JobContext, Job]]:
-        """Drain jobs from source buffer up to max_batch_size.
+    async def _drain_input(self) -> list[tuple[GlobalContext, JobContext, Job]]:
+        """Drain jobs from input buffer up to max_batch_size.
 
-        Drain jobs from the source buffer without blocking too long.
+        Drain jobs from the input buffer without blocking too long.
 
         Returns:
             A list of drained (GlobalContext, JobContext, Job) tuples.
