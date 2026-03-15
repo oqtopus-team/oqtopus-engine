@@ -4,3 +4,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+    environment:
+      WORKERS: ${CIRCUIRT_COMBINER_WORKERS:-10}
+      ADDRESS: ${CIRCUIRT_COMBINER_PORT:-[::]:52013}
+    ports:
+      - ${CIRCUIRT_COMBINER_PORT:-52013}:${CIRCUIRT_COMBINER_PORT:-52013}
+    volumes:
+      - ${SHARE_DIR:-.}/${LOG_DIR:-logs}:/app/logs
+    tty: true
