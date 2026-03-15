@@ -5,6 +5,7 @@ package combiner_interface.v1;
 // RPC service for circuit combiner
 service CombinerService {
   rpc Combine (CombineRequest) returns (CombineResponse);
+  rpc OptimalCombine (OptimalCombineRequest) returns (OptimalCombineResponse);
 }
 
 enum Status {
@@ -13,23 +14,38 @@ enum Status {
   STATUS_INVALID_QUBIT_SIZE = 2;
 }
 
-// request to circuit_combiner of gRPC server
+// request to combiner of gRPC server
 message CombineRequest {
   // string of json array
-  // example: "{\\\"qasm\\\": [\\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\", \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\"]}" # noqa
-  string qasm_array = 1;
+  // example: "{\\\"program\\\": [\\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\", \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\"]}" # noqa
+  string programs = 1;
   // device information like "qubit_index" or "measurement_windows_index"
   int32 max_qubits = 2;
 }
 
-// response from circuit_combiner of gRPC server
+// response from combiner of gRPC server
 message CombineResponse {
   // status of the response
   Status combined_status = 1;
-  // combined circuit qasm
-  string combined_qasm = 2;
-  // combined qasm bit information
+  // combined circuit program
+  string combined_program = 2;
+  // combined program bit information
   repeated int32 combined_qubits_list = 3;
 }
 
+// request to combiner of gRPC server
+message OptimalCombineRequest {
+  // string of json array
+  // example: "[{\\\"job_id\\\": "069588bb-5e1d-7f9d-8000-08f8c36dc61b", \\\"program\\\": \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\", \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\"}]" # noqa
+  string programs = 1;
+  // string of device topology json
+  string device_info = 2;
+}
 
+// response from circuit_combiner of gRPC server
+message OptimalCombineResponse {
+  // status of the response
+  Status combined_status = 1;
+  // combined programs and related informations
+  string combine_result = 2;
+}
