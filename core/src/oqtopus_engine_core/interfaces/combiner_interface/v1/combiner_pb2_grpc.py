@@ -20,6 +20,11 @@ class CombinerServiceStub(object):
                 request_serializer=oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.CombineRequest.SerializeToString,
                 response_deserializer=oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.CombineResponse.FromString,
                 _registered_method=True)
+        self.OptimalCombine = channel.unary_unary(
+                '/combiner_interface.v1.CombinerService/OptimalCombine',
+                request_serializer=oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.OptimalCombineRequest.SerializeToString,
+                response_deserializer=oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.OptimalCombineResponse.FromString,
+                _registered_method=True)
 
 
 class CombinerServiceServicer(object):
@@ -32,6 +37,12 @@ class CombinerServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def OptimalCombine(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CombinerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -39,6 +50,11 @@ def add_CombinerServiceServicer_to_server(servicer, server):
                     servicer.Combine,
                     request_deserializer=oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.CombineRequest.FromString,
                     response_serializer=oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.CombineResponse.SerializeToString,
+            ),
+            'OptimalCombine': grpc.unary_unary_rpc_method_handler(
+                    servicer.OptimalCombine,
+                    request_deserializer=oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.OptimalCombineRequest.FromString,
+                    response_serializer=oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.OptimalCombineResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -69,6 +85,33 @@ class CombinerService(object):
             '/combiner_interface.v1.CombinerService/Combine',
             oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.CombineRequest.SerializeToString,
             oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.CombineResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def OptimalCombine(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/combiner_interface.v1.CombinerService/OptimalCombine',
+            oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.OptimalCombineRequest.SerializeToString,
+            oqtopus__engine__core_dot_interfaces_dot_combiner__interface_dot_v1_dot_combiner__pb2.OptimalCombineResponse.FromString,
             options,
             channel_credentials,
             insecure,
