@@ -138,14 +138,14 @@ def test_divide_result(
             "operator": [],
         },
     )
-    jctx = {"combined_qubits_list": combined_qubits_list}
     if error:
         with pytest.raises(ValueError) as e:
-            divide_result(job=job, jctx=jctx)
+            divide_result(job=job, combined_qubits_list=combined_qubits_list)
         assert error in str(e.value)
     else:
         divided_counts = divide_result(
-            job=job, jctx=jctx
+            job=job,
+            combined_qubits_list=combined_qubits_list,
         )
         assert job.job_info.result.sampling.counts == expected_counts
         assert divided_counts == expected_divided

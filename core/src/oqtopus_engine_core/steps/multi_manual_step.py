@@ -58,13 +58,13 @@ def divide_string_by_lengths(input_str: str, lengths: list[int]) -> list[str]:
 
 
 def divide_result(
-    job: Job, jctx: dict,
+    job: Job, combined_qubits_list: list[int],
 ) -> dict[int, dict[str, int]]:
     """Divide the job result into multiple results based on combined qubits list.
 
     Args:
         job (Job): The job object containing the result to be divided.
-        jctx (dict): The job context containing the combined qubits list.
+        combined_qubits_list (list[int]): The list of combined qubits.
 
     Returns:
         dict[int, dict[str, int]]: A dictionary mapping circuit index to divided result.
@@ -77,7 +77,6 @@ def divide_result(
         message = "inconsistent qubit property"
         logger.error(message, extra={"job_id": job.job_id})
         raise ValueError(message)
-    combined_qubits_list = jctx.get(COMBINED_QUBITS_LIST_KEY, [])
 
     # Divide results
     divided_job_result: dict[int, dict[str, int]] = {}
@@ -233,7 +232,8 @@ class MultiManualStep(Step):
             return
 
         try:
-            job.job_info.result.sampling.divided_counts = divide_result(job, jctx)
+            job.job_info.result.sampling.divided_counts = \
+                divide_result(job, jctx.get(COMBINED_QUBITS_LIST_KEY, []))
         except Exception:
             logger.exception(
                 "failed to divide result",
