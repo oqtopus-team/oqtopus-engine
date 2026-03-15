@@ -19,31 +19,13 @@ from oqtopus_engine_core.steps.multi_manual_step import (
 
 logger = logging.getLogger(__name__)
 
-# Only combine sampling jobs for now.
-COMBINABLE_JOB_TYPES = ["sampling", "multi_manual"]
-
 
 class MpAutoCombiningStep(Step, SplitOnPostprocess):
-    """Automatic multi-programming worker.
+    """Multi-programming auto combining worker.
 
-        Implemented as a step to integrate with PipelineExecutor,
-          but runs as a background task.
-
-    Args:
-        source_buffer: Queue from which raw jobs are read
-                       (produced by before-buffer steps).
-        processed_buffer: Queue to which combined jobs are written
-                          (consumed by after-buffer steps).
-        config: Configuration dictionary for auto mode. Expected keys:
-            - interval_seconds (float): sleep interval between processing cycles.
-            - max_batch_size (int): optional limit of jobs to combine per cycle.
-
+    This step divides the results of auto-combined job back to original jobs.
+    The automatic combining process is done in MpAutoCombiningBuffer class.
     """
-
-    def __init__(
-        self,
-    ) -> None:
-        pass
 
     async def pre_process(
         self,
@@ -54,7 +36,7 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
         """Pre-process the job.
 
         Do nothing.
-        Main processing is done in the start() method as a background task.
+        The automatic combining process is done in MpAutoCombiningBuffer class.
 
         Args:
             gctx: The global context.
@@ -90,13 +72,12 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
                     "job_type": job.job_type,
                 },
             )
-
-            # If the job is not combined one, just pass it through.
-            # But we need to treat it the same as the case of splitting.
-            # Therefore set the job to job.children and replace the parent's job_id
-            # to avoid confusion of parent and child jobs.
+            # If the job is not combined one, just pass it through. But to pass it to
+            # the next step, we need to treat the job same as the case of splitting.
+            # Therefore set a copy of the job to job.children.
             job.children = [copy.copy(job)]
             jctx.children = [copy.copy(jctx)]
+            # replace the parent's job_id to avoid confusion of parent and child jobs
             job.job_id = f"mpa-uncomb-{uuid7(as_type='str')}"
             return
 
