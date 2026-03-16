@@ -21,12 +21,15 @@ OQTOPUS Engine is organized as a microservice architecture centered around the c
 
 - [Overview](./design/overview.md)
 - [Concept](./design/concept.md)
+- [Dependency Injection](./design/di.md)
+- [Pipeline Execution](./design/pipeline_execution.md)
 
 ## Developer Guidelines
 
 - [Development Flow](./developer_guidelines/development_flow.md)
 - [Setup Development Environment](./developer_guidelines/setup.md)
 - [Implementing Pipeline](./developer_guidelines/implementing_pipeline.md)
+- [Implementing Repository](./developer_guidelines/implementing_repository.md)
 - [How to Contribute](./CONTRIBUTING.md)
 - [Code of Conduct](https://github.com/oqtopus-team/.github/blob/main/CODE_OF_CONDUCT.md)
 - [Security](https://github.com/oqtopus-team/.github/blob/main/SECURITY.md)
@@ -35,7 +38,7 @@ OQTOPUS Engine is organized as a microservice architecture centered around the c
 
 You can use the DOI to cite OQTOPUS Engine in your research.
 
-[![DOI](https://zenodo.org/badge/907141992.svg)](https://zenodo.org/badge/latestdoi/907141992)
+[![DOI](https://zenodo.org/badge/1153299863.svg)](https://zenodo.org/badge/latestdoi/1153299863)
 
 Citation information is also available in the [CITATION](https://github.com/oqtopus-team/oqtopus-engine/blob/main/CITATION.cff) file.
 

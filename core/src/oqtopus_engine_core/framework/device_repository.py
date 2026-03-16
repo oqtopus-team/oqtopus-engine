@@ -33,7 +33,10 @@ class DeviceRepository(ABC):
             NotImplementedError: If not implemented in subclass.
 
         """
-        message = "`update_device_status` must be implemented in subclasses of DeviceRepository."
+        message = (
+            "`update_device_status` must be implemented "
+            "in subclasses of DeviceRepository."
+        )
         raise NotImplementedError(message)
 
     @abstractmethod
@@ -47,5 +50,8 @@ class DeviceRepository(ABC):
             NotImplementedError: If not implemented in subclass.
 
         """
-        message = "`update_device_info` must be implemented in subclasses of DeviceRepository."
+        message = (
+            "`update_device_info` must be implemented "
+            "in subclasses of DeviceRepository."
+        )
         raise NotImplementedError(message)

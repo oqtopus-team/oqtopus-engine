@@ -1,9 +1,14 @@
 import asyncio
 import logging
 
-from oqtopus_engine_core.framework import Job, JobContext, JobFetcher, JobInfo
+from oqtopus_engine_core.framework import (
+    Job,
+    JobContext,
+    JobFetcher,
+    JobInfo,
+    OperatorItem,
+)
 from oqtopus_engine_core.framework.job_fetcher import wait_until_fetchable
-from oqtopus_engine_core.framework.model import OperatorItem
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +38,8 @@ class MockJobFetcher(JobFetcher):
         Args:
             interval_seconds: Interval in seconds between each job fetch.
             limit: Maximum number of jobs to fetch per request.
-            job_fetch_threshold: The threshold of jobs in the buffer to trigger fetching.
+            job_fetch_threshold: The threshold of jobs in the buffer to trigger
+            fetching.
 
         """
         super().__init__()
