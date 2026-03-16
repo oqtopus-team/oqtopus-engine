@@ -116,7 +116,7 @@ di_container:
         container_cpu_set: ${SSE_CONTAINER_CPU_SET, "0"}
         container_network: ${SSE_CONTAINER_NETWORK, "context_app_net"}
         container_extra_hosts:
-          - sse_engine: ${SSE_ENGINE_IP, "localhost"}
+          - sse_engine:${SSE_ENGINE_IP, localhost}
         timeout: ${SSE_TIMEOUT, 600}
         max_file_size: ${SSE_MAX_FILE_SIZE, 10485760}
 
