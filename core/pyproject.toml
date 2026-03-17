@@ -1,6 +1,6 @@
 [project]
 name = "oqtopus-engine-core"
-version = "2.0.1"
+version = "2.0.2"
 description = "OQTOPUS Engine in the backend layer retrieves jobs managed in OQTOPUS Cloud and executes quantum programs"
 readme = "README.md"
 license = "Apache-2.0"
