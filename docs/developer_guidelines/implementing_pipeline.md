@@ -195,6 +195,44 @@ Valid:
 
 If a step violates these constraints, the engine will raise a `TypeError` during class construction.
 
+## 5.2 Dynamic Enabling/Disabling via JobContext
+
+The executor reads two optional keys from `jctx` to gate split and join
+execution at runtime.
+
+| Key | Type | Effect when absent | Effect when present |
+|---|---|---|---|
+| `split_enabled_steps` | `set[str]` | All splits are executed (default) | Only steps whose `__class__.__name__` is in the set are split |
+| `join_enabled_steps` | `set[str]` | All joins are executed (default) | Only steps whose `__class__.__name__` is in the set are joined |
+
+### Usage example
+
+```python
+# Disable all splits and joins for this job.
+jctx = JobContext(initial={
+    "split_enabled_steps": set(),
+    "join_enabled_steps": set(),
+})
+
+# Enable split only for MySplitStep.
+jctx = JobContext(initial={
+    "split_enabled_steps": {"MySplitStep"},
+})
+```
+
+### Caveats
+
+- **Split disabled, children created**: If a step's `pre_process` or
+  `post_process` populates `job.children` / `jctx.children` but the split
+  is disabled, those children are silently ignored.  Cleaning them up is
+  the responsibility of the step implementation.
+
+- **Join enabled without a preceding split**: If `join_enabled_steps`
+  contains a step name but no split has occurred (so the root job reaches
+  the join step directly), the executor will raise a `RuntimeError` because
+  `job.parent` is `None`.  This is expected behavior and must be avoided by
+  ensuring that split and join configuration are always consistent.
+
 ## 6. JobContext Usage
 
 ### 6.1 How JobContext Participates in Split/Join

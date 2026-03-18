@@ -280,7 +280,7 @@ class PipelineExecutor:
                     return  # Worker returns immediately
 
                 # ----- join on PRE_PROCESS (children only) -----
-                if isinstance(node, JoinOnPreprocess):
+                if self._is_join_enabled(node, jctx, JoinOnPreprocess):
                     await self._handle_join(
                         step=node,
                         step_phase=StepPhase.PRE_PROCESS,
@@ -292,7 +292,7 @@ class PipelineExecutor:
                     return  # stop forward execution for this child job.
 
                 # ----- split on PRE_PROCESS -----
-                if isinstance(node, SplitOnPreprocess):
+                if self._is_split_enabled(node, jctx, SplitOnPreprocess):
                     await self._handle_split(
                         step=node,
                         step_phase=StepPhase.PRE_PROCESS,
@@ -353,7 +353,7 @@ class PipelineExecutor:
                     return  # Worker returns immediately
 
                 # ----- join on POST_PROCESS (children only) -----
-                if isinstance(node, JoinOnPostprocess):
+                if self._is_join_enabled(node, jctx, JoinOnPostprocess):
                     # parent should resume from the next step after the join.
                     await self._handle_join(
                         step=node,
@@ -366,7 +366,7 @@ class PipelineExecutor:
                     return  # stop backward execution for this child job.
 
                 # ----- split on POST_PROCESS -----
-                if isinstance(node, SplitOnPostprocess):
+                if self._is_split_enabled(node, jctx, SplitOnPostprocess):
                     # children created from a post-process split start from
                     # the step immediately after the splitter.
                     await self._handle_split(
@@ -456,6 +456,70 @@ class PipelineExecutor:
             return False
         else:
             return True
+
+    @staticmethod
+    def _is_split_enabled(
+        step: Step,
+        jctx: JobContext,
+        target_type: type,
+    ) -> bool:
+        """Determine whether a split should be triggered for the given step.
+
+        The decision is gated by the ``split_enabled_steps`` key in *jctx*:
+
+        - If *step* is not an instance of *target_type*, return ``False``.
+        - If ``jctx["split_enabled_steps"]`` is absent, return ``True``
+          (backward-compatible: all splits are allowed).
+        - Otherwise return ``True`` only when the step's class name appears in
+          the enabled set.
+
+        Args:
+            step: The current step instance.
+            jctx: The job context for the current job.
+            target_type: The mixin type to check (e.g. ``SplitOnPreprocess``).
+
+        Returns:
+            ``True`` if the split should be executed, ``False`` otherwise.
+
+        """
+        if not isinstance(step, target_type):
+            return False
+        enabled_steps: set[str] | None = jctx.get("split_enabled_steps")
+        if enabled_steps is None:
+            return True
+        return step.__class__.__name__ in enabled_steps
+
+    @staticmethod
+    def _is_join_enabled(
+        step: Step,
+        jctx: JobContext,
+        target_type: type,
+    ) -> bool:
+        """Determine whether a join should be triggered for the given step.
+
+        The decision is gated by the ``join_enabled_steps`` key in *jctx*:
+
+        - If *step* is not an instance of *target_type*, return ``False``.
+        - If ``jctx["join_enabled_steps"]`` is absent, return ``True``
+          (backward-compatible: all joins are allowed).
+        - Otherwise return ``True`` only when the step's class name appears in
+          the enabled set.
+
+        Args:
+            step: The current step instance.
+            jctx: The job context for the current job.
+            target_type: The mixin type to check (e.g. ``JoinOnPostprocess``).
+
+        Returns:
+            ``True`` if the join should be executed, ``False`` otherwise.
+
+        """
+        if not isinstance(step, target_type):
+            return False
+        enabled_steps: set[str] | None = jctx.get("join_enabled_steps")
+        if enabled_steps is None:
+            return True
+        return step.__class__.__name__ in enabled_steps
 
     async def _handle_split(  # noqa: PLR0913, PLR0917
         self,
