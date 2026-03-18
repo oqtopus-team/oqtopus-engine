@@ -862,3 +862,134 @@ async def test_executor_workers_call_buffer_get():
 
     # Now workers have called get() exactly once each.
     assert buffer.get_calls == 2
+
+
+# ---------------------------------------------------------------------------
+# Dynamic split/join gating via JobContext
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_split_enabled_steps_undefined_triggers_split():
+    """
+    Regression: when split_enabled_steps is absent from jctx the split still
+    fires (backward-compatible behaviour).
+    """
+    pipeline = [SplitOnPreStep(), JoinOnPostStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})  # no split_enabled_steps key
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    assert jctx.get("joined") is True
+    assert len(jctx.children) == 2
+
+
+@pytest.mark.asyncio
+async def test_split_disabled_via_empty_enabled_steps():
+    """
+    split_enabled_steps=set() disables all splits.
+
+    The step's pre_process is still called (and may populate children), but
+    the split fan-out is skipped so the pipeline continues as a plain
+    forward/backward pass without interruption.
+    """
+    pipeline = [RecordStep(), SplitOnPreStep(), RecordStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={"split_enabled_steps": set()})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    # Full forward + backward pass with no fan-out interruption.
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("pre_process", 1),
+        ("pre_process", 2),
+        ("post_process", 2),
+        ("post_process", 1),
+        ("post_process", 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_join_disabled_via_empty_enabled_steps():
+    """
+    join_enabled_steps=set() in child jctx disables all joins.
+
+    A custom split step propagates the join_enabled_steps key to each child
+    context so that children inherit the disabled-join policy.  Children
+    traverse the join step without triggering the join handler and exit
+    normally via cascade_cleanup.  After all children complete,
+    pending_children must be empty.
+    """
+
+    class PropagatingSplitStep(Step, SplitOnPreprocess):
+        """Split that copies join_enabled_steps from parent jctx to children."""
+
+        async def pre_process(self, gctx, jctx, job):
+            child_jobs = []
+            child_ctxs = []
+            for i in range(2):
+                c_job = make_test_job(f"{job.job_id}-child{i}", job_type="child")
+                initial = {}
+                if "join_enabled_steps" in jctx:
+                    initial["join_enabled_steps"] = jctx["join_enabled_steps"]
+                c_jctx = JobContext(initial=initial)
+                child_jobs.append(c_job)
+                child_ctxs.append(c_jctx)
+            job.children = child_jobs
+            jctx.children = child_ctxs
+
+        async def post_process(self, gctx, jctx, job):
+            pass
+
+    pipeline = [PropagatingSplitStep(), JoinOnPostStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={"join_enabled_steps": set()})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    # Join was never triggered on the parent context.
+    assert "joined" not in jctx
+    # Children were still created by the split.
+    assert len(jctx.children) == 2
+    # All pending_children counters cleaned up by cascade_cleanup.
+    assert executor._pending_children == {}
+
+
+@pytest.mark.asyncio
+async def test_join_enabled_but_no_split_raises_runtime_error():
+    """
+    join_enabled_steps={"JoinOnPostStep"} enables the join for that step,
+    but when the root job (no parent) reaches the join step a RuntimeError
+    is raised.  This is the defined caveat behaviour.
+    """
+    pipeline = [JoinOnPostStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={"join_enabled_steps": {"JoinOnPostStep"}})
+
+    with pytest.raises(RuntimeError):
+        await executor._run_from(
+            StepPhase.PRE_PROCESS,
+            0,
+            make_test_global_context(),
+            jctx,
+            make_test_job("root"),
+        )
