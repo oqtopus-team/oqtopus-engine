@@ -1,6 +1,8 @@
 import json
 import logging
 import time
+from copy import deepcopy
+from typing import Any
 
 import grpc
 
@@ -8,6 +10,7 @@ from oqtopus_engine_core.framework import (
     GlobalContext,
     Job,
     JobContext,
+    JobResult,
     Step,
 )
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
@@ -16,6 +19,7 @@ from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
 )
 
 logger = logging.getLogger(__name__)
+SUPPORTED_READOUT_METHODS = {"local", "mthree", "pseudo_inverse"}
 
 
 class ReadoutErrorMitigationStep(Step):
@@ -34,19 +38,28 @@ class ReadoutErrorMitigationStep(Step):
 
     """
 
-    def __init__(self, mitigator_address: str) -> None:
+    def __init__(
+        self,
+        mitigator_address: str = "localhost:52011",
+        mitigator_timeout_seconds: float = 120.0,
+    ) -> None:
         """Initialize the ReadoutErrorMitigationStep with mitigator service address.
 
         Args:
             mitigator_address: Address of the gRPC mitigator service
                 (e.g., "localhost:52011").
+            mitigator_timeout_seconds: Request timeout in seconds.
 
         """
         self._channel = grpc.aio.insecure_channel(mitigator_address)
         self._stub = mitigator_pb2_grpc.MitigatorServiceStub(self._channel)
+        self._mitigator_timeout_seconds = mitigator_timeout_seconds
         logger.info(
             "ReadoutErrorMitigationStep was initialized",
-            extra={"mitigator_address": mitigator_address},
+            extra={
+                "mitigator_address": mitigator_address,
+                "mitigator_timeout_seconds": mitigator_timeout_seconds,
+            },
         )
 
     async def pre_process(
@@ -91,117 +104,122 @@ class ReadoutErrorMitigationStep(Step):
                 or required job result fields are None.
 
         """
-        if (
-            job.mitigation_info == {}
-            or job.mitigation_info.get("ro_error_mitigation") is None
-        ):
+        readout_method = self._resolve_readout_method(job.mitigation_info or {})
+        if readout_method is None:
             logger.debug(
-                "ro_error_mitigation is not set, skipping post_process",
+                "readout mitigation is not set, skipping post_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
             return
 
-        if job.mitigation_info["ro_error_mitigation"] == "pseudo_inverse":
-            # Extract necessary information from the job
-            if gctx.device is None:  # pragma: no cover
+        if readout_method not in SUPPORTED_READOUT_METHODS:
+            logger.warning(
+                "unknown readout method=%s, fallback to default mitigator behavior",
+                readout_method,
+            )
+
+        # Extract necessary information from the job
+        if gctx.device is None:  # pragma: no cover
+            message = (
+                "gctx.device is None. Cannot perform readout error mitigation."
+            )
+            raise ValueError(message)
+        if gctx.device.device_info is None:  # pragma: no cover
+            message = (
+                "gctx.device.device_info is None. "
+                "Cannot perform readout error mitigation."
+            )
+            raise ValueError(message)
+        device_info_json = json.loads(gctx.device.device_info)
+
+        # Prepare device_topology protobuf (common for both job types)
+        qubits_pb = []
+        for qubit in device_info_json["qubits"]:
+            mes_error = mitigator_pb2.MesError(
+                p0m1=float(qubit["meas_error"]["prob_meas1_prep0"]),
+                p1m0=float(qubit["meas_error"]["prob_meas0_prep1"]),
+            )
+            qubit_pb = mitigator_pb2.Qubit(mes_error=mes_error)
+            qubits_pb.append(qubit_pb)
+
+        device_topology = mitigator_pb2.DeviceTopology(qubits=qubits_pb)
+
+        # Process based on job type
+        if job.job_type == "sampling":
+            # For sampling jobs, process single counts result
+            if job.job_info.result is None:  # pragma: no cover
                 message = (
-                    "gctx.device is None. Cannot perform readout error mitigation."
-                )
-                raise ValueError(message)
-            if gctx.device.device_info is None:  # pragma: no cover
-                message = (
-                    "gctx.device.device_info is None. "
+                    "job.job_info.result is None. "
                     "Cannot perform readout error mitigation."
                 )
                 raise ValueError(message)
-            device_info_json = json.loads(gctx.device.device_info)
-
-            # Prepare device_topology protobuf (common for both job types)
-            qubits_pb = []
-            for qubit in device_info_json["qubits"]:
-                mes_error = mitigator_pb2.MesError(
-                    p0m1=float(qubit["meas_error"]["prob_meas1_prep0"]),
-                    p1m0=float(qubit["meas_error"]["prob_meas0_prep1"]),
+            if job.job_info.result.sampling is None:  # pragma: no cover
+                message = (
+                    "job.job_info.result.sampling is None. "
+                    "Cannot perform readout error mitigation."
                 )
-                qubit_pb = mitigator_pb2.Qubit(mes_error=mes_error)
-                qubits_pb.append(qubit_pb)
-
-            device_topology = mitigator_pb2.DeviceTopology(qubits=qubits_pb)
-
-            # Process based on job type
-            if job.job_type == "sampling":
-                # For sampling jobs, process single counts result
-                if job.job_info.result is None:  # pragma: no cover
-                    message = (
-                        "job.job_info.result is None. "
-                        "Cannot perform readout error mitigation."
-                    )
-                    raise ValueError(message)
-                if job.job_info.result.sampling is None:  # pragma: no cover
-                    message = (
-                        "job.job_info.result.sampling is None. "
-                        "Cannot perform readout error mitigation."
-                    )
-                    raise ValueError(message)
-                if job.job_info.result.sampling.counts is None:  # pragma: no cover
-                    message = (
-                        "job.job_info.result.sampling.counts is None. "
-                        "Cannot perform readout error mitigation."
-                    )
-                    raise ValueError(message)
-                orig_counts = job.job_info.result.sampling.counts
-
-                # Call gRPC mitigator service
-                request = mitigator_pb2.ReqMitigationRequest(
-                    device_topology=device_topology,
-                    counts=orig_counts,
-                    program=job.job_info.program[0],
+                raise ValueError(message)
+            if job.job_info.result.sampling.counts is None:  # pragma: no cover
+                message = (
+                    "job.job_info.result.sampling.counts is None. "
+                    "Cannot perform readout error mitigation."
                 )
-                logger.info(
-                    "ReqMitigation request",
-                    extra={
-                        "job_id": job.job_id,
-                        "job_type": job.job_type,
-                        "request": request,
-                    },
-                )
+                raise ValueError(message)
+            orig_counts = job.job_info.result.sampling.counts
 
-                start = time.perf_counter()
-                response = await self._stub.ReqMitigation(request)
-                elapsed_ms = (time.perf_counter() - start) * 1000.0
+            # Call gRPC mitigator service
+            request = mitigator_pb2.ReqMitigationRequest(
+                device_topology=device_topology,
+                counts=orig_counts,
+                program=job.job_info.program[0],
+            )
+            logger.info(
+                "ReqMitigation request",
+                extra={
+                    "job_id": job.job_id,
+                    "job_type": job.job_type,
+                    "request": request,
+                },
+            )
 
-                logger.info(
-                    "ReqMitigation response",
-                    extra={
-                        "elapsed_ms": round(elapsed_ms, 3),
-                        "job_id": job.job_id,
-                        "job_type": job.job_type,
-                        "response": response,
-                    },
-                )
-                mitigated_counts = dict(response.counts)
+            start = time.perf_counter()
+            response = await self._stub.ReqMitigation(request)
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
 
-                # Update the job's result with mitigated counts
-                job.job_info.result.sampling.counts = mitigated_counts
-                logger.debug(
-                    "ro_error_mitigated_counts is %s, original_counts is %s",
-                    mitigated_counts,
-                    orig_counts,
-                )
+            logger.info(
+                "ReqMitigation response",
+                extra={
+                    "elapsed_ms": round(elapsed_ms, 3),
+                    "job_id": job.job_id,
+                    "job_type": job.job_type,
+                    "response": response,
+                },
+            )
+            mitigated_counts = dict(response.counts)
 
-            elif job.job_type == "estimation":
-                # For estimation jobs, process each count in counts_list
-                if "estimation_job_info" not in jctx:
-                    logger.warning(
-                        "estimation_job_info not found in jctx for estimation job"
-                    )
-                    return
+            # Update the job's result with mitigated counts
+            job.job_info.result.sampling.counts = mitigated_counts
+            self._record_readout_details(
+                job,
+                target=None,
+                detail={
+                    "before": {"counts": deepcopy(orig_counts)},
+                },
+            )
+            logger.debug(
+                "ro_error_mitigated_counts is %s, original_counts is %s",
+                mitigated_counts,
+                orig_counts,
+            )
 
-                estimation_job_info = jctx["estimation_job_info"]
-                if estimation_job_info.counts_list is None:
-                    logger.warning("counts_list is None in estimation_job_info")
-                    return
+        elif job.job_type == "estimation":
+            # For estimation jobs, process each count in counts_list.
+            if "estimation_job_info" not in jctx:
+                logger.warning("estimation_job_info not found in jctx for estimation job")
+                return
 
+            estimation_job_info = jctx["estimation_job_info"]
+            if estimation_job_info.counts_list is not None:
                 preprocessed_qasms = estimation_job_info.preprocessed_qasms
                 mitigated_counts_list = []
 
@@ -252,5 +270,130 @@ class ReadoutErrorMitigationStep(Step):
 
                 # Update counts_list with mitigated results
                 estimation_job_info.counts_list = mitigated_counts_list
+                self._record_readout_details(
+                    job,
+                    target="estimation_counts_list",
+                    detail={
+                        "result_count": len(mitigated_counts_list),
+                        "total_shots": self._total_shots_from_counts_list(
+                            mitigated_counts_list
+                        ),
+                    },
+                )
+                return
 
+            # If direct estimation counts are absent, apply REM to ZNE execution results.
+            zne_job_info = jctx.get("zne_job_info")
+            if not zne_job_info:
+                logger.warning("counts_list is None in estimation_job_info")
+                return
+            execution_results = zne_job_info.get("execution_results") or []
+            execution_programs = zne_job_info.get("execution_programs") or []
+            if len(execution_results) == 0 or len(execution_programs) == 0:
+                logger.warning("zne execution results/programs are missing for REM")
+                return
+
+            program_map = {
+                (
+                    float(item.scale_factor),
+                    int(item.repetition),
+                    int(item.program_index),
+                ): item.program
+                for item in execution_programs
+            }
+            mitigated_execution_results: list[dict[str, object]] = []
+            for result in execution_results:
+                key = (
+                    float(result["scale_factor"]),
+                    int(result["repetition"]),
+                    int(result["program_index"]),
+                )
+                program = program_map.get(key)
+                if program is None:
+                    logger.warning("program is not found for zne execution result key=%s", key)
+                    continue
+
+                request = mitigator_pb2.ReqMitigationRequest(
+                    device_topology=device_topology,
+                    counts=dict(result["counts"]),
+                    program=program,
+                )
+                logger.info(
+                    "ReqMitigation request for zne execution result",
+                    extra={
+                        "job_id": job.job_id,
+                        "job_type": job.job_type,
+                        "request": request,
+                    },
+                )
+                response = await self._stub.ReqMitigation(request)
+                logger.info(
+                    "ReqMitigation response for zne execution result",
+                    extra={
+                        "job_id": job.job_id,
+                        "job_type": job.job_type,
+                        "response": response,
+                    },
+                )
+                mitigated_execution_results.append(
+                    {
+                        "scale_factor": float(result["scale_factor"]),
+                        "repetition": int(result["repetition"]),
+                        "program_index": int(result["program_index"]),
+                        "counts": dict(response.counts),
+                    }
+                )
+            zne_job_info["execution_results"] = mitigated_execution_results
+            self._record_readout_details(
+                job,
+                target="zne_execution_results",
+                detail={
+                    "result_count": len(mitigated_execution_results),
+                    "total_shots": self._total_shots_from_execution_results(
+                        mitigated_execution_results
+                    ),
+                },
+            )
+
+    def _resolve_readout_method(self, mitigation_info: dict) -> str | None:
+        readout_cfg = mitigation_info.get("readout")
+        if isinstance(readout_cfg, dict):
+            method = readout_cfg.get("method")
+            if method is None:
+                return None
+            return str(method).lower()
+        return None
+
+    def _record_readout_details(
+        self,
+        job: Job,
+        target: str | None,
+        detail: dict[str, Any],
+    ) -> None:
+        if job.job_info.result is None:
+            job.job_info.result = JobResult()
+
+        mitigation_details = job.job_info.result.mitigation_details
+        if not isinstance(mitigation_details, dict):
+            mitigation_details = {}
+            job.job_info.result.mitigation_details = mitigation_details
+
+        readout_details = mitigation_details.get("readout")
+        if not isinstance(readout_details, dict):
+            readout_details = {}
+            mitigation_details["readout"] = readout_details
+
+        if target is None:
+            readout_details.update(detail)
             return
+        readout_details[target] = detail
+
+    def _total_shots_from_counts_list(self, counts_list: list[dict[str, int]]) -> int:
+        return int(sum(sum(counts.values()) for counts in counts_list))
+
+    def _total_shots_from_execution_results(
+        self, execution_results: list[dict[str, Any]]
+    ) -> int:
+        return int(
+            sum(sum(dict(result["counts"]).values()) for result in execution_results)
+        )

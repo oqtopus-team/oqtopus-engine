@@ -5,6 +5,7 @@ pipeline_executor:
     - multi_manual_step
     - tranqu_step
     - estimator_step
+    - zne_step
     - ro_error_mitigation_step
     - buffer
     - sse_step
@@ -78,9 +79,32 @@ di_container:
         - "delay"
         - "measure"
 
+    zne_step:
+      _target_: oqtopus_engine_core.steps.ZneStep
+      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+      mitigator_timeout_seconds: ${MITIGATOR_TIMEOUT_SECONDS, 120}
+      zne_default_config:
+        enabled: ${ZNE_ENABLED, false}
+        scale_factors: ${ZNE_SCALE_FACTORS, [1.0, 2.0, 3.0]}
+        factory: ${ZNE_FACTORY, "richardson"}
+        folding: ${ZNE_FOLDING, "global"}
+        num_to_average: ${ZNE_NUM_TO_AVERAGE, 1}
+        fail_open: ${ZNE_FAIL_OPEN, true}
+        poly_order: ${ZNE_POLY_ORDER, 2}
+        basis_gates:
+          - "cx"
+          - "id"
+          - "rz"
+          - "sx"
+          - "x"
+          - "reset"
+          - "delay"
+          - "measure"
+
     ro_error_mitigation_step:
       _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
       mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+      mitigator_timeout_seconds: ${MITIGATOR_TIMEOUT_SECONDS, 120}
 
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep
