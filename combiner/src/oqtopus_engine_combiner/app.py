@@ -186,10 +186,7 @@ class CircuitCombiner(CombinerService):
 
         """
         try:
-            # remove double-quote
-            input_programs = programs.replace(r"\"", '"')
-            # convert str to list[str]
-            return ast.literal_eval(f"{input_programs}")
+            return json.loads(programs)
         except Exception as e:
             logger.exception("invalid input program array")
             msg = f"invalid input program array: {programs}"
