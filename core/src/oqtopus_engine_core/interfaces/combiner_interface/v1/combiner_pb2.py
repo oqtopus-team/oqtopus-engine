@@ -24,23 +24,19 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\nCoqtopus_engine_core/interfaces/combiner_interface/v1/combiner.proto\x12\x15\x63ombiner_interface.v1\"K\n\x0e\x43ombineRequest\x12\x1a\n\x08programs\x18\x01 \x01(\tR\x08programs\x12\x1d\n\nmax_qubits\x18\x02 \x01(\x05R\tmaxQubits\"\xb6\x01\n\x0f\x43ombineResponse\x12\x46\n\x0f\x63ombined_status\x18\x01 \x01(\x0e\x32\x1d.combiner_interface.v1.StatusR\x0e\x63ombinedStatus\x12)\n\x10\x63ombined_program\x18\x02 \x01(\tR\x0f\x63ombinedProgram\x12\x30\n\x14\x63ombined_qubits_list\x18\x03 \x03(\x05R\x12\x63ombinedQubitsList\"T\n\x15OptimalCombineRequest\x12\x1a\n\x08programs\x18\x01 \x01(\tR\x08programs\x12\x1f\n\x0b\x64\x65vice_info\x18\x02 \x01(\tR\ndeviceInfo\"\x87\x01\n\x16OptimalCombineResponse\x12\x46\n\x0f\x63ombined_status\x18\x01 \x01(\x0e\x32\x1d.combiner_interface.v1.StatusR\x0e\x63ombinedStatus\x12%\n\x0e\x63ombine_result\x18\x02 \x01(\tR\rcombineResult*O\n\x06Status\x12\x12\n\x0eSTATUS_SUCCESS\x10\x00\x12\x12\n\x0eSTATUS_FAILURE\x10\x01\x12\x1d\n\x19STATUS_INVALID_QUBIT_SIZE\x10\x02\x32\xda\x01\n\x0f\x43ombinerService\x12X\n\x07\x43ombine\x12%.combiner_interface.v1.CombineRequest\x1a&.combiner_interface.v1.CombineResponse\x12m\n\x0eOptimalCombine\x12,.combiner_interface.v1.OptimalCombineRequest\x1a-.combiner_interface.v1.OptimalCombineResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\nCoqtopus_engine_core/interfaces/combiner_interface/v1/combiner.proto\x12\x15\x63ombiner_interface.v1\"N\n\x0e\x43ombineRequest\x12\x1d\n\nqasm_array\x18\x01 \x01(\tR\tqasmArray\x12\x1d\n\nmax_qubits\x18\x02 \x01(\x05R\tmaxQubits\"\xb0\x01\n\x0f\x43ombineResponse\x12\x46\n\x0f\x63ombined_status\x18\x01 \x01(\x0e\x32\x1d.combiner_interface.v1.StatusR\x0e\x63ombinedStatus\x12#\n\rcombined_qasm\x18\x02 \x01(\tR\x0c\x63ombinedQasm\x12\x30\n\x14\x63ombined_qubits_list\x18\x03 \x03(\x05R\x12\x63ombinedQubitsList*O\n\x06Status\x12\x12\n\x0eSTATUS_SUCCESS\x10\x00\x12\x12\n\x0eSTATUS_FAILURE\x10\x01\x12\x1d\n\x19STATUS_INVALID_QUBIT_SIZE\x10\x02\x32k\n\x0f\x43ombinerService\x12X\n\x07\x43ombine\x12%.combiner_interface.v1.CombineRequest\x1a&.combiner_interface.v1.CombineResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_STATUS']._serialized_start=580
-  _globals['_STATUS']._serialized_end=659
+  _globals['_STATUS']._serialized_start=353
+  _globals['_STATUS']._serialized_end=432
   _globals['_COMBINEREQUEST']._serialized_start=94
-  _globals['_COMBINEREQUEST']._serialized_end=169
-  _globals['_COMBINERESPONSE']._serialized_start=172
-  _globals['_COMBINERESPONSE']._serialized_end=354
-  _globals['_OPTIMALCOMBINEREQUEST']._serialized_start=356
-  _globals['_OPTIMALCOMBINEREQUEST']._serialized_end=440
-  _globals['_OPTIMALCOMBINERESPONSE']._serialized_start=443
-  _globals['_OPTIMALCOMBINERESPONSE']._serialized_end=578
-  _globals['_COMBINERSERVICE']._serialized_start=662
-  _globals['_COMBINERSERVICE']._serialized_end=880
+  _globals['_COMBINEREQUEST']._serialized_end=172
+  _globals['_COMBINERESPONSE']._serialized_start=175
+  _globals['_COMBINERESPONSE']._serialized_end=351
+  _globals['_COMBINERSERVICE']._serialized_start=434
+  _globals['_COMBINERSERVICE']._serialized_end=541
 # @@protoc_insertion_point(module_scope)
