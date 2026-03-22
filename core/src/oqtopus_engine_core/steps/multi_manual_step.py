@@ -154,11 +154,9 @@ class MultiManualStep(Step):
         max_qubits = len(device_info["qubits"])
 
         # Call combiner
-        qasm_array = json.dumps(job.job_info.program)
-        qasm_array = qasm_array.replace("\\n", "")
-        qasm_array = qasm_array.replace('\\"', '\\\\"')
+        programs = json.dumps(job.job_info.program)
         request = combiner_pb2.CombineRequest(
-            qasm_array=qasm_array,
+            programs=programs,
             max_qubits=max_qubits,
         )
         logger.info(
@@ -200,10 +198,10 @@ class MultiManualStep(Step):
             raise RuntimeError(message)
 
         # Update job object
-        job.job_info.combined_program = response.combined_qasm
+        job.job_info.combined_program = response.combined_program
         jctx[COMBINED_QUBITS_LIST_KEY] = response.combined_qubits_list
         jctx["max_qubits"] = max_qubits
-        jctx["combined_program"] = response.combined_qasm
+        jctx["combined_program"] = response.combined_program
         # Update job repository
         await gctx.job_repository.update_job_info_nowait(job)
 

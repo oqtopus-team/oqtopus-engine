@@ -66,11 +66,11 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
         start = time.perf_counter()
 
         # Update job status
-        if hasattr(jctx, "mp_auto_combining"):
-            # if mp auto combining, update status of child jobs
+        if jctx.get("has_actual_children", False):
+            # if there are child jobs, update their status
             await self._update_jobs_status(gctx, job.children)
         else:
-            await self._update_jobs_status(gctx, job)
+            await self._update_jobs_status(gctx, [job])
 
         # Check device status
         service_status = await self._stub.GetServiceStatus(
@@ -197,11 +197,8 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
         """
 
     @staticmethod
-    async def _update_jobs_status(gctx: GlobalContext, jobs: Job | list[Job]) -> None:
+    async def _update_jobs_status(gctx: GlobalContext, jobs: list[Job]) -> None:
         """Update the job status to "running" for the given jobs."""
-        if isinstance(jobs, Job):
-            jobs = [jobs]
-
         for job in jobs:
             job.status = "running"
             await gctx.job_repository.update_job_status_nowait(job)

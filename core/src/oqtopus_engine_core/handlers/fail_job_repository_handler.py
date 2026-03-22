@@ -21,22 +21,19 @@ class FailJobRepositoryHandler(PipelineExceptionHandler):
         job: Job,
     ) -> None:
         """Handle an exception raised during pipeline execution."""
-        if hasattr(jctx, "mp_auto_combining"):
-            # if mp auto combining, update status of child jobs
+        if jctx.get("has_actual_children", False):
+            # if there are child jobs, update their status
             await self._update_jobs_status(ex, gctx, job.children)
         else:
-            await self._update_jobs_status(ex, gctx, job)
+            await self._update_jobs_status(ex, gctx, [job])
 
     @staticmethod
     async def _update_jobs_status(
         ex: Exception,
         gctx: GlobalContext,
-        jobs: Job | list[Job]
+        jobs: list[Job]
     ) -> None:
         """Update the job status to "failed" for the given jobs."""
-        if isinstance(jobs, Job):
-            jobs = [jobs]
-
         for job in jobs:
             try:
                 job.status = "failed"

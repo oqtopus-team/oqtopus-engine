@@ -342,6 +342,7 @@ class MpAutoCombiningBuffer(Buffer):
             # set children
             combined_job.children = [job for _, _, job in original_jobs.values()]
             combined_jctx.children = [jctx for _, jctx, _ in original_jobs.values()]
+            combined_jctx.has_actual_children = True
 
             # take gctx from one of the original jobs. gctx is common among jobs.
             gctx = next(iter(original_jobs.values()))[0]
@@ -447,8 +448,6 @@ class MpAutoCombiningBuffer(Buffer):
             programs_dict.append({"job_id": job.job_id, "program": program})
 
         programs = json.dumps(programs_dict)
-        programs = programs.replace("\\n", "")
-        programs = programs.replace('\\"', '\\\\"')
         request = combiner_pb2.OptimalCombineRequest(
                 programs=programs,
                 device_info=jobs[0][0].device.device_info

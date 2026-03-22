@@ -6,9 +6,9 @@ pipeline_executor:
     - tranqu_step
     - estimator_step
     - ro_error_mitigation_step
+    - mp_auto_combining_step
     - buffer
     - sse_step
-    - mp_auto_combining_step
     - device_gateway_step
   job_buffer: buffer
   exception_handler: pipeline_exception_handler
@@ -63,8 +63,6 @@ di_container:
 
     _buffer:
       _target_: oqtopus_engine_core.mp.auto_combining.MpAutoCombiningBuffer
-      maxsize: ${MP_AUTO_COMBINING_BUFFER_MAXSIZE, 0}
-      max_concurrency: ${MP_AUTO_COMBINING_BUFFER_MAX_CONCURRENCY, 1}
       monitor_interval_seconds: 1
       max_batch_size: 30
       max_qsize_to_proceed: 5

@@ -4,11 +4,9 @@ This task consumes incoming jobs from `source_buffer`, performs combination logi
 (reduction of job count by merging circuits), and enqueues the processed jobs
 into `processed_buffer` for the pipeline's after-buffer steps.
 """
-import copy
 import logging
 
 import numpy as np
-from uuid_extensions import uuid7
 
 from oqtopus_engine_core.framework import GlobalContext, JobContext
 from oqtopus_engine_core.framework.model import Job, JobResult, SamplingResult
@@ -45,7 +43,7 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
 
         """
 
-    async def post_process(  # noqa: PLR6301
+    async def post_process(
             self,
             gctx: GlobalContext,  # noqa: ARG002
             jctx: JobContext,
@@ -64,7 +62,7 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
             RuntimeError: If failed to divide the results back to original jobs.
 
         """
-        if not hasattr(jctx, "mp_auto_combining"):
+        if "mp_auto_combining" not in jctx:
             logger.info(
                 "jctx does not have mp_auto_combining info, skipping post_process",
                 extra={
@@ -72,28 +70,11 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
                     "job_type": job.job_type,
                 },
             )
-            # If the job is not combined one, just pass it through. But to pass it to
-            # the next step, we need to treat the job same as the case of splitting.
-            # Therefore set a copy of the job to job.children.
-            job.children = [copy.copy(job)]
-            jctx.children = [copy.copy(jctx)]
-            # replace the parent's job_id to avoid confusion of parent and child jobs
-            job.job_id = f"mpa-uncomb-{uuid7(as_type='str')}"
+            if "split_enabled_steps" not in jctx:
+                jctx.split_enabled_steps = set()
             return
 
         n_total_qubits = jctx.mp_auto_combining["n_total_qubits"]
-        virtual_physical_mapping: dict[str, dict[int, int]] = {"qubit_mapping": {}}
-
-        # padding for unused qubits
-        idx = 0
-        for i in range(n_total_qubits):
-            if i in virtual_physical_mapping["qubit_mapping"]:
-                continue
-            while idx in virtual_physical_mapping["qubit_mapping"].values():
-                idx += 1
-                if idx >= n_total_qubits:
-                    idx = 0
-            virtual_physical_mapping["qubit_mapping"][i] = idx
 
         # get used qubits info
         combined_qubits_list = jctx.mp_auto_combining["combined_qubits_list"]
@@ -125,6 +106,10 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
                     )
                 )
                 child_job.execution_time = job.execution_time
+
+            if "split_enabled_steps" not in jctx:
+                jctx.split_enabled_steps = set()
+            jctx.split_enabled_steps.add(self.__class__.__name__)
 
         except Exception as e:
             logger.exception(
