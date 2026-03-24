@@ -28,6 +28,7 @@ class NullJobStorage(JobStorage):
         job: Job,
     ) -> dict[str, Any]:
         """No-op implementation."""
+        return {}
 
     async def upload_job_output(
         self,
@@ -37,6 +38,16 @@ class NullJobStorage(JobStorage):
         arcname_ext: str = ""
     ) -> None:
         """No-op implementation."""
+        logger.debug(
+            "NullJobStorage skipped upload",
+            extra={
+                "job_id": job.job_id,
+                "job_type": job.job_type,
+                "key": getattr(getattr(presigned_url, "fields", None), "key", None),
+                "arcname_ext": arcname_ext,
+            },
+        )
+        return None
 
     async def upload_job_output_nowait(
         self,
@@ -46,3 +57,13 @@ class NullJobStorage(JobStorage):
         arcname_ext: str = ""
     ) -> None:
         """No-op implementation."""
+        logger.debug(
+            "NullJobStorage skipped upload_nowait",
+            extra={
+                "job_id": job.job_id,
+                "job_type": job.job_type,
+                "key": getattr(getattr(presigned_url, "fields", None), "key", None),
+                "arcname_ext": arcname_ext,
+            },
+        )
+        return None
