@@ -1,8 +1,10 @@
 import logging
-from typing import Any
 
 from oqtopus_engine_core.framework import Job, JobRepository
-from oqtopus_engine_core.interfaces.oqtopus_cloud import JobsJobInfoUploadPresignedURL
+from oqtopus_engine_core.interfaces.oqtopus_cloud import (
+    JobsJobInfoUploadPresignedURL,
+    JobsJobInfoUploadPresignedURLFields,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +29,21 @@ class NullJobRepository(JobRepository):
         self, device_id: str, status: str = "submitted", limit: int = 10
     ) -> list[Job]:
         """No-op implementation."""
+        return []
 
     async def get_job_upload_url(
         self, job: Job, items: list[str]
     ) -> list[JobsJobInfoUploadPresignedURL]:
-        """No-op implementation."""
+        """Return placeholder upload URLs so callers can stay storage-agnostic."""
+        return [
+            JobsJobInfoUploadPresignedURL(
+                url="null://upload",
+                fields=JobsJobInfoUploadPresignedURLFields(
+                    key=f"{job.job_id}/{item}",
+                ),
+            )
+            for item in items
+        ]
 
     async def update_job_status(
         self,
@@ -39,6 +51,7 @@ class NullJobRepository(JobRepository):
         execution_time: float | None = None,
     ) -> None:
         """No-op implementation."""
+        return None
 
     async def update_job_status_nowait(
         self,
@@ -46,9 +59,12 @@ class NullJobRepository(JobRepository):
         execution_time: float | None = None,
     ) -> None:
         """No-op implementation."""
+        return None
 
     async def update_job_transpiler_info(self, job: Job) -> None:
         """No-op implementation."""
+        return None
 
     async def update_job_transpiler_info_nowait(self, job: Job) -> None:
         """No-op implementation."""
+        return None
