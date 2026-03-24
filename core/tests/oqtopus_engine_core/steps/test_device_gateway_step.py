@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -54,6 +55,44 @@ async def test_pre_process_internal_sampling_job_skips_repository_status_update(
     gateway_step._stub.CallJob.assert_awaited_once()
     assert job.job_info.result.sampling.counts == {"00": 10}
     assert job.job_info.message == "ok"
+
+
+@pytest.mark.asyncio
+async def test_pre_process_internal_jobs_serialize_gateway_execution(
+    gateway_step: DeviceGatewayStep,
+) -> None:
+    active_calls = 0
+    max_active_calls = 0
+
+    async def call_job_side_effect(request):
+        nonlocal active_calls, max_active_calls
+        active_calls += 1
+        max_active_calls = max(max_active_calls, active_calls)
+        await asyncio.sleep(0.01)
+        active_calls -= 1
+        return SimpleNamespace(
+            status=qpu_pb2.JobStatus.JOB_STATUS_SUCCESS,
+            result=SimpleNamespace(counts={"00": 10}, message=request.job_id),
+        )
+
+    gateway_step._stub.CallJob = AsyncMock(side_effect=call_job_side_effect)
+
+    gctx = MagicMock()
+    gctx.job_repository.update_job_status_nowait = AsyncMock()
+    jctx = {INTERNAL_JOB_KEY: True}
+    job_a = _make_job("sampling")
+    job_a.job_id = "child-a"
+    job_b = _make_job("sampling")
+    job_b.job_id = "child-b"
+
+    await asyncio.gather(
+        gateway_step.pre_process(gctx, jctx, job_a),
+        gateway_step.pre_process(gctx, jctx, job_b),
+    )
+
+    assert max_active_calls == 1
+    assert job_a.job_info.message == "child-a"
+    assert job_b.job_info.message == "child-b"
 
 
 @pytest.mark.asyncio
