@@ -13,6 +13,7 @@ from oqtopus_engine_core.framework import (
 )
 from oqtopus_engine_core.framework.step import DetachOnPostprocess
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2, qpu_pb2_grpc
+from oqtopus_engine_core.steps.estimator_step import INTERNAL_JOB_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -131,53 +132,9 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
                 sampling=SamplingResult(counts=job_response.result.counts)
             )
             job.job_info.message = job_response.result.message
-
         elif job.job_type == "estimation":
-            jctx["estimation_job_info"].counts_list = []
-            for program in jctx["estimation_job_info"].preprocessed_qasms:
-                logger.debug("program: %s", program)
-                job_request = qpu_pb2.CallJobRequest(
-                    job_id=job.job_id,
-                    shots=job.shots,
-                    program=program,
-                )
-                logger.info(
-                    "CallJob request",
-                    extra={
-                        "job_id": job.job_id,
-                        "job_type": job.job_type,
-                        "job_request": job_request,
-                    },
-                )
-                job_response = await self._stub.CallJob(job_request)
-                if job_response.status != qpu_pb2.JobStatus.JOB_STATUS_SUCCESS:
-                    logger.error(
-                        "failed to execute job on device gateway",
-                        extra={
-                            "job_id": job.job_id,
-                            "job_type": job.job_type,
-                            "job_response": job_response,
-                        },
-                    )
-                    msg = "failed to execute job on device"
-                    raise RuntimeError(msg)
-                logger.info(
-                    "CallJob response",
-                    extra={
-                        "job_id": job.job_id,
-                        "job_type": job.job_type,
-                        "job_response": job_response,
-                    },
-                )
-
-                jctx["estimation_job_info"].counts_list.append(
-                    job_response.result.counts
-                )
-            execution_time = time.perf_counter() - start
-
-            # Update job
-            job.execution_time = float(f"{execution_time:.3f}")
-            job.job_info.message = job_response.result.message
+            message = "estimation jobs must be split before reaching device gateway"
+            raise RuntimeError(message)
 
     async def post_process(
         self,

@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+POST_RETURN_SPLIT_INDEX_KEY = "_post_return_split_index"
+POST_RETURN_ACTIVE_INDEX_KEY = "_post_return_active_index"
+
 
 class StepPhase(StrEnum):
     """Execution phase of a pipeline step."""
@@ -198,6 +201,12 @@ class PipelineExecutor:
                     continue
             # backward finished: no more nodes to process.
             elif cursor < 0:
+                post_return_index = jctx.pop(POST_RETURN_SPLIT_INDEX_KEY, None)
+                if post_return_index is not None:
+                    jctx[POST_RETURN_ACTIVE_INDEX_KEY] = post_return_index
+                    cursor = post_return_index
+                    continue
+
                 # When a child job finishes its entire pipeline without
                 # triggering a join, we must decrement the pending-children
                 # counters to avoid resource leaks. This will also cascade
@@ -295,6 +304,7 @@ class PipelineExecutor:
                 if self._is_split_enabled(node, jctx, SplitOnPreprocess):
                     await self._handle_split(
                         step=node,
+                        step_index=cursor,
                         step_phase=StepPhase.PRE_PROCESS,
                         next_index=next_cursor,
                         gctx=gctx,
@@ -371,6 +381,7 @@ class PipelineExecutor:
                     # the step immediately after the splitter.
                     await self._handle_split(
                         step=node,
+                        step_index=cursor,
                         step_phase=StepPhase.POST_PROCESS,
                         next_index=next_cursor,
                         gctx=gctx,
@@ -378,6 +389,12 @@ class PipelineExecutor:
                         job=job,
                     )
                     return  # stop backward execution for the current job.
+
+            active_post_return_index = jctx.get(POST_RETURN_ACTIVE_INDEX_KEY)
+            if active_post_return_index == cursor:
+                del jctx[POST_RETURN_ACTIVE_INDEX_KEY]
+                cursor = -1
+                continue
 
             # for non-step nodes in POST_PROCESS (unexpected) or normal steps,
             # simply move to the previous index.
@@ -536,6 +553,7 @@ class PipelineExecutor:
     async def _handle_split(  # noqa: PLR0913, PLR0917
         self,
         step: Step,
+        step_index: int,
         step_phase: StepPhase,
         next_index: int,
         gctx: GlobalContext,
@@ -642,6 +660,14 @@ class PipelineExecutor:
             # Establish parent link
             child_job.parent = job
             child_jctx.parent = jctx
+
+            # Allow a PRE split step to receive child POST callbacks only when
+            # the same step also performs a POST join.
+            if (
+                step_phase == StepPhase.PRE_PROCESS
+                and isinstance(step, JoinOnPostprocess)
+            ):
+                child_jctx[POST_RETURN_SPLIT_INDEX_KEY] = step_index
 
             # Enqueue child pipelines as coroutines; they will run concurrently
             # via asyncio.gather below.
