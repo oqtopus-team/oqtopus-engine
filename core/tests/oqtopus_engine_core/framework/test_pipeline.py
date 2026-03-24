@@ -169,6 +169,31 @@ class CountJoinStep(Step, JoinOnPostprocess):
         parent_jctx["joined"] = True
 
 
+class SplitJoinSameStep(Step, SplitOnPreprocess, JoinOnPostprocess):
+    """Split in pre-process and join on this same step in post-process."""
+
+    async def pre_process(self, gctx, jctx, job):
+        if jctx.get("internal_job"):
+            return
+
+        child_jobs = []
+        child_ctxs = []
+        for i in range(2):
+            c_job = make_test_job(job_id=f"{job.job_id}-child{i}", job_type=job.job_type)
+            c_jctx = JobContext(initial={"internal_job": True})
+            child_jobs.append(c_job)
+            child_ctxs.append(c_jctx)
+
+        job.children = child_jobs
+        jctx.children = child_ctxs
+
+    async def post_process(self, gctx, jctx, job):
+        pass
+
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child):
+        parent_jctx["same_step_joined"] = last_child.job_id
+
+
 class TripleSplitStep(Step, SplitOnPreprocess):
     """Generate 3 children during pre-process."""
 
@@ -496,6 +521,36 @@ async def test_join_jobs_called_once():
         assert child_jctx.step_history == [
             ("pre_process", 1),
             ("post_process", 1),
+        ]
+
+
+@pytest.mark.asyncio
+async def test_same_step_split_pre_and_join_post():
+    """
+    A step combining SplitOnPreprocess and JoinOnPostprocess should be able to
+    receive child callbacks on its own post_process phase.
+    """
+    pipeline = [SplitJoinSameStep(), RecordStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    assert jctx["same_step_joined"] in ("root-child0", "root-child1")
+    assert jctx.step_history == [
+        ("pre_process", 0),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+            ("post_process", 1),
+            ("post_process", 0),
         ]
 
 
