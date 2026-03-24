@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 
@@ -31,6 +32,9 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
     def __init__(self, gateway_address: str = "localhost:50051") -> None:
         self._channel = grpc.aio.insecure_channel(gateway_address)
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
+        # Engine owns device access orchestration, so all jobs, including
+        # internal estimation children, must serialize gateway execution here.
+        self._execution_lock = asyncio.Lock()
         logger.info(
             "DeviceGatewayStep was initialized with gateway_address=%s",
             gateway_address,
@@ -64,75 +68,81 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
             )
             return
 
-        start = time.perf_counter()
+        async with self._execution_lock:
+            start = time.perf_counter()
 
-        # Update job status
-        if not jctx.get(INTERNAL_JOB_KEY):
-            job.status = "running"
-            await gctx.job_repository.update_job_status_nowait(job)
+            # Update externally visible job status only for non-internal jobs.
+            if not jctx.get(INTERNAL_JOB_KEY):
+                job.status = "running"
+                await gctx.job_repository.update_job_status_nowait(job)
 
-        # Check device status
-        service_status = await self._stub.GetServiceStatus(
-            qpu_pb2.GetServiceStatusRequest()
-        )
-        logger.info(
-            "GetServiceStatus response",
-            extra={
-                "job_id": job.job_id,
-                "job_type": job.job_type,
-                "service_status": service_status.service_status,
-            },
-        )
-        if service_status.service_status != qpu_pb2.ServiceStatus.SERVICE_STATUS_ACTIVE:
-            message = "device status is not available"
-            raise RuntimeError(message)
-
-        # Call device gateway
-        if job.job_type in {"sampling", "multi_manual"}:
-            job_request = qpu_pb2.CallJobRequest(
-                job_id=job.job_id,
-                shots=job.shots,
-                program=_select_program(job),
+            # Check device status immediately before using the gateway.
+            service_status = await self._stub.GetServiceStatus(
+                qpu_pb2.GetServiceStatusRequest()
             )
             logger.info(
-                "CallJob request",
+                "GetServiceStatus response",
                 extra={
                     "job_id": job.job_id,
                     "job_type": job.job_type,
-                    "job_request": job_request,
+                    "service_status": service_status.service_status,
                 },
             )
-            job_response = await self._stub.CallJob(job_request)
-            if job_response.status != qpu_pb2.JobStatus.JOB_STATUS_SUCCESS:
-                logger.error(
-                    "failed to execute job on device gateway",
+            if (
+                service_status.service_status
+                != qpu_pb2.ServiceStatus.SERVICE_STATUS_ACTIVE
+            ):
+                message = "device status is not available"
+                raise RuntimeError(message)
+
+            # Call device gateway
+            if job.job_type in {"sampling", "multi_manual"}:
+                job_request = qpu_pb2.CallJobRequest(
+                    job_id=job.job_id,
+                    shots=job.shots,
+                    program=_select_program(job),
+                )
+                logger.info(
+                    "CallJob request",
+                    extra={
+                        "job_id": job.job_id,
+                        "job_type": job.job_type,
+                        "job_request": job_request,
+                    },
+                )
+                job_response = await self._stub.CallJob(job_request)
+                if job_response.status != qpu_pb2.JobStatus.JOB_STATUS_SUCCESS:
+                    logger.error(
+                        "failed to execute job on device gateway",
+                        extra={
+                            "job_id": job.job_id,
+                            "job_type": job.job_type,
+                            "job_response": job_response,
+                        },
+                    )
+                    msg = "failed to execute job on device"
+                    raise RuntimeError(msg)
+                logger.info(
+                    "CallJob response",
                     extra={
                         "job_id": job.job_id,
                         "job_type": job.job_type,
                         "job_response": job_response,
                     },
                 )
-                msg = "failed to execute job on device"
-                raise RuntimeError(msg)
-            logger.info(
-                "CallJob response",
-                extra={
-                    "job_id": job.job_id,
-                    "job_type": job.job_type,
-                    "job_response": job_response,
-                },
-            )
-            execution_time = time.perf_counter() - start
+                execution_time = time.perf_counter() - start
 
-            # Update job
-            job.execution_time = float(f"{execution_time:.3f}")
-            job.job_info.result = JobResult(
-                sampling=SamplingResult(counts=job_response.result.counts)
-            )
-            job.job_info.message = job_response.result.message
-        elif job.job_type == "estimation":
-            message = "estimation jobs must be split before reaching device gateway"
-            raise RuntimeError(message)
+                # Update job
+                job.execution_time = float(f"{execution_time:.3f}")
+                job.job_info.result = JobResult(
+                    sampling=SamplingResult(counts=job_response.result.counts)
+                )
+                job.job_info.message = job_response.result.message
+            elif job.job_type == "estimation":
+                message = (
+                    "estimation jobs must be split before reaching device gateway"
+                )
+                raise RuntimeError(message)
 
     async def post_process(
         self,
