@@ -15,6 +15,7 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
     JobsJobStatusUpdate,
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
+from oqtopus_engine_core.utils.storage_util import OqtopusStorage, OqtopusStorageError
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ class OqtopusCloudJobRepository(JobRepository):
         api_key: str = "",
         proxy: str | None = None,
         workers: int = 5,
+        storage_op_timeout_seconds: int = 60,
+        max_file_size: int = 10485760,
     ) -> None:
         """Initialize the job repository with the API URL and interval.
 
@@ -59,6 +62,8 @@ class OqtopusCloudJobRepository(JobRepository):
         self._background_requests: set[asyncio.Task[Any]] = set()
 
         self._proxy = proxy
+        self._storage_op_timeout_seconds = storage_op_timeout_seconds
+        self._max_file_size = max_file_size
 
         logger.info(
             "OqtopusCloudJobRepository was initialized",
@@ -66,6 +71,7 @@ class OqtopusCloudJobRepository(JobRepository):
                 "url": url,
                 "proxy": proxy,
                 "workers": workers,
+                "storage_op_timeout_seconds": storage_op_timeout_seconds,
             },
         )
 
@@ -144,6 +150,34 @@ class OqtopusCloudJobRepository(JobRepository):
                 logger.exception("%s: failed", label, extra=extra)
 
         task.add_done_callback(_done)
+
+    async def _storage_request_with_error_logging(
+        self,
+        call: Callable[[], T],
+        label: str,
+        extra: dict[str, Any],
+    ) -> T | None:
+        """Call a storage request in a worker thread with logging and error handling."""
+        async with self._sem:
+            try:
+                return await asyncio.to_thread(call)
+            except OqtopusStorageError as ex:
+                logger.info(
+                    "%s: storage error",
+                    label,
+                    extra={
+                        "error": str(ex),
+                        **extra,
+                    },
+                )
+                raise
+            except Exception:
+                logger.info(
+                    "%s: unexpected error",
+                    label,
+                    extra=extra,
+                )
+                raise
 
     async def get_jobs(
         self, device_id: str, status: str = "submitted", limit: int = 10
@@ -248,6 +282,132 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         return response
+
+    async def download_job_input(
+        self,
+        job: Job,
+    ) -> dict[str, Any]:
+        """Download and extract job input .zip file from cloud storage."""
+
+        def _call() -> dict[str, Any]:
+            proxies = (
+                {"http": self._proxy, "https": self._proxy} if self._proxy else None
+            )
+            return OqtopusStorage.download(
+                presigned_url=job.input,
+                proxies=proxies,
+                timeout_s=self._storage_op_timeout_seconds,
+            )
+
+        extra: dict[str, Any] = {
+            "job_id": job.job_id,
+            "job_type": job.job_type,
+        }
+
+        logger.info(
+            "job input download started",
+            extra={
+                **extra,
+                "presigned_url": job.input,
+            },
+        )
+
+        start = time.perf_counter()
+        response = await self._storage_request_with_error_logging(
+            _call,
+            "job input download",
+            extra,
+        )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        logger.info(
+            "job input download completed",
+            extra={
+                "elapsed_ms": round(elapsed_ms, 3),
+                **extra,
+                "presigned_url": job.input,
+            },
+        )
+
+        return response
+
+    async def upload_job_output(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any] | str,
+        arcname_ext: str = "",
+    ) -> None:
+        """Upload job output data as a .zip file to cloud storage."""
+
+        def _call() -> None:
+            proxies = (
+                {"http": self._proxy, "https": self._proxy} if self._proxy else None
+            )
+            return OqtopusStorage.upload(
+                presigned_url=presigned_url,
+                data=data,
+                arcname_ext=arcname_ext,
+                max_size=self._max_file_size,
+                proxies=proxies,
+                timeout_s=self._storage_op_timeout_seconds,
+            )
+
+        extra: dict[str, Any] = {
+            "job_id": job.job_id,
+            "job_type": job.job_type,
+        }
+
+        logger.info(
+            "job output upload started",
+            extra={
+                **extra,
+                "url": presigned_url.url,
+                "key": presigned_url.fields.key,
+            },
+        )
+
+        start = time.perf_counter()
+        await self._storage_request_with_error_logging(
+            _call,
+            "job output upload",
+            extra,
+        )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        logger.info(
+            "job output upload completed",
+            extra={
+                "elapsed_ms": round(elapsed_ms, 3),
+                **extra,
+                "url": presigned_url.url,
+                "key": presigned_url.fields.key,
+            },
+        )
+
+        job.output_files.append(presigned_url.fields.key)
+
+    async def upload_job_output_nowait(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any] | str,
+        arcname_ext: str = "",
+    ) -> None:
+        """Upload job output data to cloud storage without waiting."""
+        task = asyncio.create_task(
+            self.upload_job_output(
+                job,
+                presigned_url,
+                data,
+                arcname_ext,
+            )
+        )
+        self._track_background_request(
+            task,
+            label="job output upload",
+            extra={"job_id": job.job_id, "job_type": job.job_type},
+        )
 
     async def update_job_status(
         self,

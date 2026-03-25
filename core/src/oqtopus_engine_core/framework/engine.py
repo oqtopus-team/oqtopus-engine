@@ -7,7 +7,6 @@ if TYPE_CHECKING:
     from .device_fetcher import DeviceFetcher
     from .job_fetcher import JobFetcher
     from .job_repository import JobRepository
-    from .job_storage import JobStorage
 
 from oqtopus_engine_core.utils.config_util import mask_sensitive_info
 from oqtopus_engine_core.utils.di_container import DiContainer
@@ -64,10 +63,6 @@ class Engine:
         # Initialize the job repository
         job_repository: JobRepository = self._dicon.get("job_repository")
         self._gctx.job_repository = job_repository
-
-        # Initialize the job storage
-        job_storage: JobStorage = self._dicon.get("job_storage")
-        self._gctx.job_storage = job_storage
 
         # Initialize the device fetcher
         device_fetcher: DeviceFetcher = self._dicon.get("device_fetcher")

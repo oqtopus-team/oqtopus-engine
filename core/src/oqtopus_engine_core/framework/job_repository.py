@@ -52,6 +52,79 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
+    async def download_job_input(
+        self,
+        job: Job,
+    ) -> dict[str, Any]:
+        """Download and extract the job input payload.
+
+        Args:
+            job: The job for input download.
+
+        Returns:
+            A dictionary containing downloaded and extracted job input items.
+
+        Raises:
+            NotImplementedError: If not implemented in subclass.
+
+        """
+        message = (
+            "`download_job_input` must be implemented in subclasses of JobRepository."
+        )
+        raise NotImplementedError(message)
+
+    @abstractmethod
+    async def upload_job_output(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any] | str,
+        arcname_ext: str = "",
+    ) -> None:
+        """Upload job output data to the backing storage.
+
+        Args:
+            job: The job for output upload.
+            presigned_url: Presigned URL for upload.
+            data: Data to be uploaded.
+            arcname_ext: Data file extension to be zipped, e.g. `.json`.
+
+        Raises:
+            NotImplementedError: If not implemented in subclass.
+
+        """
+        message = (
+            "`upload_job_output` must be implemented in subclasses of JobRepository."
+        )
+        raise NotImplementedError(message)
+
+    @abstractmethod
+    async def upload_job_output_nowait(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any] | str,
+        arcname_ext: str = "",
+    ) -> None:
+        """Upload job output data to the backing storage without waiting.
+
+        Args:
+            job: The job for output upload.
+            presigned_url: Presigned URL for upload.
+            data: Data to be uploaded.
+            arcname_ext: Data file extension to be zipped, e.g. `.json`.
+
+        Raises:
+            NotImplementedError: If not implemented in subclass.
+
+        """
+        message = (
+            "`upload_job_output_nowait` must be implemented in subclasses of "
+            "JobRepository."
+        )
+        raise NotImplementedError(message)
+
+    @abstractmethod
     async def update_job_status(
         self,
         job: Job,

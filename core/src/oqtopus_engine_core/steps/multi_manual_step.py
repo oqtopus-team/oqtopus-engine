@@ -213,7 +213,7 @@ class MultiManualStep(Step):
             items=["combined_program"],
         )
 
-        await gctx.job_storage.upload_job_output(
+        await gctx.job_repository.upload_job_output(
             job=job,
             presigned_url=urls[0],
             data=job.combined_program,
