@@ -59,7 +59,7 @@ class JobRepositoryUpdateStep(Step):
         if (job.result is None):
             message = "job result is None"
             raise ValueError(message)
-        await gctx.job_storage.upload_job_output(
+        await gctx.job_repository.upload_job_output(
             job=job,
             presigned_url=urls[0],
             data=job.result.model_dump(),
@@ -70,7 +70,7 @@ class JobRepositoryUpdateStep(Step):
             if (job.sse_log is None):
                 message = "job sse_log is None"
                 raise ValueError(message)
-            await gctx.job_storage.upload_job_output(
+            await gctx.job_repository.upload_job_output(
                 job=job,
                 presigned_url=urls[1],
                 data=job.sse_log,
