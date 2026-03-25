@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from oqtopus_engine_core.framework import Job, JobRepository
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
@@ -44,6 +45,51 @@ class NullJobRepository(JobRepository):
             )
             for item in items
         ]
+
+    async def download_job_input(
+        self,
+        job: Job,
+    ) -> dict[str, Any]:
+        """No-op implementation."""
+        return {}
+
+    async def upload_job_output(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any] | str,
+        arcname_ext: str = "",
+    ) -> None:
+        """No-op implementation."""
+        logger.debug(
+            "NullJobRepository skipped upload",
+            extra={
+                "job_id": job.job_id,
+                "job_type": job.job_type,
+                "key": getattr(getattr(presigned_url, "fields", None), "key", None),
+                "arcname_ext": arcname_ext,
+            },
+        )
+        return None
+
+    async def upload_job_output_nowait(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any] | str,
+        arcname_ext: str = "",
+    ) -> None:
+        """No-op implementation."""
+        logger.debug(
+            "NullJobRepository skipped upload_nowait",
+            extra={
+                "job_id": job.job_id,
+                "job_type": job.job_type,
+                "key": getattr(getattr(presigned_url, "fields", None), "key", None),
+                "arcname_ext": arcname_ext,
+            },
+        )
+        return None
 
     async def update_job_status(
         self,
