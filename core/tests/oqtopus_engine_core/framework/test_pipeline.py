@@ -993,3 +993,174 @@ async def test_join_enabled_but_no_split_raises_runtime_error():
             jctx,
             make_test_job("root"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Dynamic split/join gating via split_skip_steps / join_skip_steps
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_split_skip_steps_skips_named_step():
+    """
+    split_skip_steps={"SplitOnPreStep"} prevents the named step from
+    triggering a split while all other (unnamed) split steps still fire.
+
+    The pipeline continues as a plain forward/backward pass without fan-out.
+    """
+    pipeline = [RecordStep(), SplitOnPreStep(), RecordStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={"split_skip_steps": {"SplitOnPreStep"}})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    # Full forward + backward pass with no fan-out interruption.
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("pre_process", 1),
+        ("pre_process", 2),
+        ("post_process", 2),
+        ("post_process", 1),
+        ("post_process", 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_split_skip_steps_takes_priority_over_enabled_steps():
+    """
+    When both split_skip_steps and split_enabled_steps are present, a step
+    listed in split_skip_steps is NOT split even if it also appears in
+    split_enabled_steps.
+    """
+    pipeline = [RecordStep(), SplitOnPreStep(), RecordStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={
+        "split_skip_steps": {"SplitOnPreStep"},
+        "split_enabled_steps": {"SplitOnPreStep"},
+    })
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    # split_skip_steps wins: full forward + backward pass, no fan-out.
+    assert jctx.step_history == [
+        ("pre_process", 0),
+        ("pre_process", 1),
+        ("pre_process", 2),
+        ("post_process", 2),
+        ("post_process", 1),
+        ("post_process", 0),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_join_skip_steps_skips_named_step():
+    """
+    join_skip_steps={"JoinOnPostStep"} in child jctx disables the join for
+    that specific step.
+
+    A propagating split copies join_skip_steps to child contexts; children
+    traverse the join step without triggering the handler and exit normally
+    via cascade_cleanup.
+    """
+
+    class PropagatingSplitStep(Step, SplitOnPreprocess):
+        """Split that copies join_skip_steps from parent jctx to children."""
+
+        async def pre_process(self, gctx, jctx, job):
+            child_jobs = []
+            child_ctxs = []
+            for i in range(2):
+                c_job = make_test_job(f"{job.job_id}-child{i}", job_type="child")
+                initial = {}
+                if "join_skip_steps" in jctx:
+                    initial["join_skip_steps"] = jctx["join_skip_steps"]
+                c_jctx = JobContext(initial=initial)
+                child_jobs.append(c_job)
+                child_ctxs.append(c_jctx)
+            job.children = child_jobs
+            jctx.children = child_ctxs
+
+        async def post_process(self, gctx, jctx, job):
+            pass
+
+    pipeline = [PropagatingSplitStep(), JoinOnPostStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={"join_skip_steps": {"JoinOnPostStep"}})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    # Join was never triggered on the parent context.
+    assert "joined" not in jctx
+    # Children were still created by the split.
+    assert len(jctx.children) == 2
+    # All pending_children counters cleaned up by cascade_cleanup.
+    assert executor._pending_children == {}
+
+
+@pytest.mark.asyncio
+async def test_join_skip_steps_takes_priority_over_enabled_steps():
+    """
+    When both join_skip_steps and join_enabled_steps are present for a child
+    context, a step listed in join_skip_steps is NOT joined even if it also
+    appears in join_enabled_steps.
+    """
+
+    class PropagatingSplitStep(Step, SplitOnPreprocess):
+        """Split that copies both join context keys to children."""
+
+        async def pre_process(self, gctx, jctx, job):
+            child_jobs = []
+            child_ctxs = []
+            for i in range(2):
+                c_job = make_test_job(f"{job.job_id}-child{i}", job_type="child")
+                initial = {}
+                for key in ("join_skip_steps", "join_enabled_steps"):
+                    if key in jctx:
+                        initial[key] = jctx[key]
+                c_jctx = JobContext(initial=initial)
+                child_jobs.append(c_job)
+                child_ctxs.append(c_jctx)
+            job.children = child_jobs
+            jctx.children = child_ctxs
+
+        async def post_process(self, gctx, jctx, job):
+            pass
+
+    pipeline = [PropagatingSplitStep(), JoinOnPostStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    # join_skip_steps should win even though the step is in join_enabled_steps.
+    jctx = JobContext(initial={
+        "join_skip_steps": {"JoinOnPostStep"},
+        "join_enabled_steps": {"JoinOnPostStep"},
+    })
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    # join_skip_steps wins: join not triggered.
+    assert "joined" not in jctx
+    assert len(jctx.children) == 2
+    assert executor._pending_children == {}
