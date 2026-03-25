@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import io
 import json
 import logging
@@ -186,17 +185,10 @@ class SseStep(Step):
     async def _make_userprogram_file(
         userprogram_data: str, input_dir_path: Path, user_program_name: str
     ) -> None:
-        # base64 decode
-        try:
-            decoded = base64.b64decode(userprogram_data)
-        except Exception:
-            logger.exception("failed to decode user program data from base64")
-            raise
-
         # write to file
         file_path = input_dir_path / user_program_name
         try:
-            file_path.write_bytes(decoded)
+            file_path.write_text(userprogram_data, encoding="utf-8")
             file_path.chmod(0o600)
         except Exception:
             logger.exception("failed to write user program file")
