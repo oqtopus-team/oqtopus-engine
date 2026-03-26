@@ -141,7 +141,7 @@ class JobsApi(object):
         :param JobsJobStatus status: Additional search parameter:<br/> Search jobs with specified status only
         :param str fields: Allows to specify an exact list of job properties to fetch for a single job. Each element of the list must be a valid name of job property.  If parameter is specified and requested job field is not defined for a job null is returned.  If parameter is omitted all available job properties are returned.
         :param int limit: Additional search parameter:<br/> Set max number of quantum jobs to return in single request
-        :param str timestamp: Additional search parameter:<br/> Jobs created after the specified timetsamp
+        :param datetime timestamp: Additional search parameter:<br/> Jobs created after the specified timetsamp
         :return: list[JobsJob]
                  If the method is called asynchronously,
                  returns the request thread.
@@ -167,7 +167,7 @@ class JobsApi(object):
         :param JobsJobStatus status: Additional search parameter:<br/> Search jobs with specified status only
         :param str fields: Allows to specify an exact list of job properties to fetch for a single job. Each element of the list must be a valid name of job property.  If parameter is specified and requested job field is not defined for a job null is returned.  If parameter is omitted all available job properties are returned.
         :param int limit: Additional search parameter:<br/> Set max number of quantum jobs to return in single request
-        :param str timestamp: Additional search parameter:<br/> Jobs created after the specified timetsamp
+        :param datetime timestamp: Additional search parameter:<br/> Jobs created after the specified timetsamp
         :return: list[JobsJob]
                  If the method is called asynchronously,
                  returns the request thread.
