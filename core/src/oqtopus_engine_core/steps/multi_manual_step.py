@@ -78,6 +78,9 @@ def divide_result(
         logger.error(message, extra={"job_id": job.job_id})
         raise ValueError(message)
 
+    # reverse the order for the convenience
+    combined_qubits_list.reverse()
+
     # Divide results
     divided_job_result: dict[int, dict[str, int]] = {}
 

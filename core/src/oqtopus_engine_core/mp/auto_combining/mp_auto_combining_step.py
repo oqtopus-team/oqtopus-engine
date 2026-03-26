@@ -82,9 +82,9 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
         combined_qubits_list = jctx.mp_auto_combining["combined_qubits_list"]
         n_total_qubits = len(next(iter(job.job_info.result.sampling.counts.keys())))
         if n_total_qubits > sum(combined_qubits_list):
-            # add the number of unused qubits to the end of combined_qubits_list
-            # for the convenience of the measurement and division
-            combined_qubits_list.insert(0, n_total_qubits - sum(combined_qubits_list))
+            # add the number of unused qubits to combined_qubits_list
+            # for the convenience of division
+            combined_qubits_list.append(n_total_qubits - sum(combined_qubits_list))
 
         try:
             # divide the result
