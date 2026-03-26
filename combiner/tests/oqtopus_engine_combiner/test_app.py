@@ -67,7 +67,7 @@ def test_combine_circuits_positive_2circuits_clbits_qubits():
         input_list, max_qubits
     )
     assert status == 0
-    assert combined_qubits_list == [1, 2]
+    assert combined_qubits_list == [2, 1]
     assert combined_program == comb_circ_text
 
 
@@ -108,7 +108,7 @@ def test_combine_circuits_positive_3circuits():
         input_list, max_qubits
     )
     assert status == 0
-    assert combined_qubits_list == [1, 1, 2]
+    assert combined_qubits_list == [2, 1, 1]
     assert combined_program == comb_circ_text
 
 
@@ -148,7 +148,7 @@ def test_combine_circuits_positive_3circuits_nochange_by_deviceinfo_in_maxcubits
         input_list, max_qubits
     )
     assert status == 0
-    assert combined_qubits_list == [1, 1, 2]
+    assert combined_qubits_list == [2, 1, 1]
     assert combined_program == comb_circ_text
 
 

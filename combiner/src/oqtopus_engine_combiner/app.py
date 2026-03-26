@@ -136,8 +136,7 @@ class CircuitCombiner(CombinerService):
             )
             # e.g.
             # For combined circuits such as [c1 (3-qubit), c2 (2-qubit), c3 (1-qubit)]
-            # in total 6 qubits, combined_qubits_list is [1, 2, 3] (not [3, 2, 1]) for
-            # the convenience of the measurement and division
+            # in total 6 qubits, combined_qubits_list is [3, 2, 1].
 
             response = CombineResponse(
                 combined_status=combined_status,
@@ -253,9 +252,7 @@ class CircuitCombiner(CombinerService):
                 quantum_bit_index += one_circuit.num_qubits
                 classical_bit_index += one_circuit.num_clbits
                 # save combined_qubits_list
-                # the order of the combined_qubits_list is reversed for
-                # the convenience of the measurement and division
-                combined_qubits_list = [one_circuit.num_clbits, *combined_qubits_list]
+                combined_qubits_list.append(one_circuit.num_clbits)
             combined_circuit_obj = qiskit.qasm3.dumps(combined_circuit.decompose())
         except Exception:
             logger.exception("failed to combine circuits")
@@ -264,7 +261,6 @@ class CircuitCombiner(CombinerService):
             return (
                 Status.STATUS_SUCCESS,
                 combined_circuit_obj,
-                # re-order the list to match the order of the input circuits
                 combined_qubits_list,
             )
 

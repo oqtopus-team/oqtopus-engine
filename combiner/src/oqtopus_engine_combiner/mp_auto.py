@@ -250,10 +250,6 @@ class OptimalCircuitCombiner:
         for measure_instr, qargs, idx in final_measure_ops:
             qc.append(measure_instr, qargs, idx)
 
-        # the order of the combined_qubits_list is reversed for
-        # the convenience of the measurement and division
-        combined_qubits_list.reverse()
-
         return qiskit.qasm3.dumps(qc), combined_qubits_list, qc.num_qubits
 
     @staticmethod
