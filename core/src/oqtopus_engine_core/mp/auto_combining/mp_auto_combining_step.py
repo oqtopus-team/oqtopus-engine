@@ -70,8 +70,10 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
                     "job_type": job.job_type,
                 },
             )
-            if "split_enabled_steps" not in jctx:
-                jctx.split_enabled_steps = set()
+            # skip splitting in pipeline executor if the job is not auto-combined job
+            if "split_skip_steps" not in jctx:
+                jctx.split_skip_steps = set()
+            jctx.split_skip_steps.add(self.__class__.__name__)
             return
 
         n_total_qubits = jctx.mp_auto_combining["n_total_qubits"]
@@ -106,10 +108,6 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
                     )
                 )
                 child_job.execution_time = job.execution_time
-
-            if "split_enabled_steps" not in jctx:
-                jctx.split_enabled_steps = set()
-            jctx.split_enabled_steps.add(self.__class__.__name__)
 
         except Exception as e:
             logger.exception(
