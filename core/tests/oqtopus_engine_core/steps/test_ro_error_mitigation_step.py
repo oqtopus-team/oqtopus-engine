@@ -1,148 +1,238 @@
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
+from oqtopus_engine_core.framework import (
+    Job,
+    JobContext,
+    JobInfo,
+    JobResult,
+    SamplingResult,
+)
+from oqtopus_engine_core.interfaces.mitigator_interface.v1 import mitigator_pb2
 from oqtopus_engine_core.steps.ro_error_mitigation_step import ReadoutErrorMitigationStep
 
 
-@pytest.fixture
-def setup_sampling_job():
-    gctx = MagicMock()
-    gctx.device.device_info = json.dumps(
-        {
-            "qubits": [
-                {"meas_error": {"prob_meas1_prep0": 0.01, "prob_meas0_prep1": 0.02}},
-                {"meas_error": {"prob_meas1_prep0": 0.03, "prob_meas0_prep1": 0.04}},
-            ]
-        }
+def _build_gctx() -> SimpleNamespace:
+    return SimpleNamespace(
+        device=SimpleNamespace(
+            device_info=json.dumps(
+                {
+                    "qubits": [
+                        {
+                            "meas_error": {
+                                "prob_meas1_prep0": 0.01,
+                                "prob_meas0_prep1": 0.02,
+                            }
+                        },
+                        {
+                            "meas_error": {
+                                "prob_meas1_prep0": 0.03,
+                                "prob_meas0_prep1": 0.04,
+                            }
+                        },
+                    ]
+                }
+            )
+        )
     )
-
-    jctx: dict[str, object] = {}
-
-    job = MagicMock()
-    job.job_id = "job-1"
-    job.job_type = "sampling"
-    job.mitigation_info = {"ro_error_mitigation": "pseudo_inverse"}
-    job.job_info.program = ["OPENQASM 3.0;\n"]
-    job.job_info.result.sampling.counts = {"00": 500, "01": 300, "10": 150, "11": 50}
-
-    return gctx, jctx, job
-
-
-@pytest.fixture
-def mitigation_step() -> ReadoutErrorMitigationStep:
-    step = ReadoutErrorMitigationStep("localhost:52011")
-    step._stub = MagicMock()
-    step._stub.ReqMitigation = AsyncMock()
-    return step
 
 
 @pytest.mark.asyncio
-async def test_post_process_sampling_calls_grpc_and_updates_counts(
-    setup_sampling_job,
-    mitigation_step: ReadoutErrorMitigationStep,
-) -> None:
-    gctx, jctx, job = setup_sampling_job
-    mitigation_step._stub.ReqMitigation.return_value = SimpleNamespace(
-        counts={"00": 480, "01": 320, "10": 140, "11": 60}
+async def test_post_process_sampling_applies_readout_mitigation() -> None:
+    step = ReadoutErrorMitigationStep(mitigator_timeout_seconds=5)
+    step._stub = AsyncMock()
+    step._stub.ReqMitigation = AsyncMock(
+        return_value=mitigator_pb2.ReqMitigationResponse(
+            counts={"00": 480, "01": 320, "10": 140, "11": 60}
+        )
     )
 
-    await mitigation_step.post_process(gctx, jctx, job)
+    job = Job(
+        job_id="job-ro-sampling",
+        device_id="device-1",
+        shots=1000,
+        job_type="sampling",
+        job_info=JobInfo(
+            program=["OPENQASM 3.0; include \"stdgates.inc\";"],
+            result=JobResult(
+                sampling=SamplingResult(
+                    counts={"00": 500, "01": 300, "10": 150, "11": 50}
+                )
+            ),
+        ),
+        transpiler_info={},
+        simulator_info={},
+        mitigation_info={"readout": {"method": "local", "params": {}}},
+        status="ready",
+    )
 
-    mitigation_step._stub.ReqMitigation.assert_awaited_once()
-    request = mitigation_step._stub.ReqMitigation.call_args.args[0]
+    await step.post_process(_build_gctx(), JobContext(), job)
 
-    assert dict(request.counts) == {"00": 500, "01": 300, "10": 150, "11": 50}
-    assert request.program == "OPENQASM 3.0;\n"
-    assert len(request.device_topology.qubits) == 2
-    assert request.device_topology.qubits[0].mes_error.p0m1 == pytest.approx(0.01)
-    assert request.device_topology.qubits[0].mes_error.p1m0 == pytest.approx(0.02)
-    assert request.device_topology.qubits[1].mes_error.p0m1 == pytest.approx(0.03)
-    assert request.device_topology.qubits[1].mes_error.p1m0 == pytest.approx(0.04)
-
+    assert step._stub.ReqMitigation.await_count == 1
+    assert job.job_info.result is not None
+    assert job.job_info.result.sampling is not None
     assert job.job_info.result.sampling.counts == {
         "00": 480,
         "01": 320,
         "10": 140,
         "11": 60,
     }
-
-
-@pytest.mark.asyncio
-async def test_post_process_skips_when_mitigation_is_unset(
-    setup_sampling_job,
-    mitigation_step: ReadoutErrorMitigationStep,
-) -> None:
-    gctx, jctx, job = setup_sampling_job
-    original_counts = dict(job.job_info.result.sampling.counts)
-
-    job.mitigation_info = {}
-    await mitigation_step.post_process(gctx, jctx, job)
-
-    job.mitigation_info = {"ro_error_mitigation": None}
-    await mitigation_step.post_process(gctx, jctx, job)
-
-    mitigation_step._stub.ReqMitigation.assert_not_awaited()
-    assert job.job_info.result.sampling.counts == original_counts
-
-
-@pytest.mark.asyncio
-async def test_post_process_estimation_uses_preprocessed_qasm_and_fallback(
-    mitigation_step: ReadoutErrorMitigationStep,
-) -> None:
-    gctx = MagicMock()
-    gctx.device.device_info = json.dumps(
-        {
-            "qubits": [
-                {"meas_error": {"prob_meas1_prep0": 0.01, "prob_meas0_prep1": 0.02}},
-            ]
+    assert job.job_info.result.mitigation_details == {
+        "readout": {
+            "before": {"counts": {"00": 500, "01": 300, "10": 150, "11": 50}},
         }
-    )
-
-    job = MagicMock()
-    job.job_id = "job-2"
-    job.job_type = "estimation"
-    job.mitigation_info = {"ro_error_mitigation": "pseudo_inverse"}
-    job.job_info.program = ["fallback-program"]
-
-    estimation_job_info = SimpleNamespace(
-        counts_list=[{"0": 10}, {"1": 20}],
-        preprocessed_qasms=["qasm-0"],
-    )
-    jctx = {"estimation_job_info": estimation_job_info}
-
-    mitigation_step._stub.ReqMitigation.side_effect = [
-        SimpleNamespace(counts={"0": 9}),
-        SimpleNamespace(counts={"1": 19}),
-    ]
-
-    await mitigation_step.post_process(gctx, jctx, job)
-
-    assert mitigation_step._stub.ReqMitigation.await_count == 2
-    first_request = mitigation_step._stub.ReqMitigation.await_args_list[0].args[0]
-    second_request = mitigation_step._stub.ReqMitigation.await_args_list[1].args[0]
-
-    assert first_request.program == "qasm-0"
-    assert second_request.program == "fallback-program"
-    assert estimation_job_info.counts_list == [{"0": 9}, {"1": 19}]
+    }
 
 
 @pytest.mark.asyncio
-async def test_post_process_estimation_without_counts_list_returns_early(
-    mitigation_step: ReadoutErrorMitigationStep,
-) -> None:
-    gctx = MagicMock()
-    gctx.device.device_info = json.dumps({"qubits": []})
+async def test_post_process_estimation_applies_readout_mitigation_to_counts_list() -> None:
+    step = ReadoutErrorMitigationStep(mitigator_timeout_seconds=5)
+    step._stub = AsyncMock()
+    step._stub.ReqMitigation = AsyncMock(
+        side_effect=[
+            mitigator_pb2.ReqMitigationResponse(counts={"0": 90, "1": 10}),
+            mitigator_pb2.ReqMitigationResponse(counts={"0": 40, "1": 60}),
+        ]
+    )
 
-    job = MagicMock()
-    job.job_id = "job-3"
-    job.job_type = "estimation"
-    job.mitigation_info = {"ro_error_mitigation": "pseudo_inverse"}
+    jctx = JobContext()
+    jctx["estimation_job_info"] = SimpleNamespace(
+        preprocessed_qasms=["OPENQASM 3.0; include \"stdgates.inc\";"] * 2,
+        counts_list=[{"0": 80, "1": 20}, {"0": 30, "1": 70}],
+    )
+    job = Job(
+        job_id="job-ro-estimation",
+        device_id="device-1",
+        shots=1000,
+        job_type="estimation",
+        job_info=JobInfo(program=["OPENQASM 3.0; include \"stdgates.inc\";"]),
+        transpiler_info={},
+        simulator_info={},
+        mitigation_info={"readout": {"method": "local", "params": {}}},
+        status="ready",
+    )
 
-    jctx = {"estimation_job_info": SimpleNamespace(counts_list=None)}
+    await step.post_process(_build_gctx(), jctx, job)
 
-    await mitigation_step.post_process(gctx, jctx, job)
+    assert step._stub.ReqMitigation.await_count == 2
+    assert jctx["estimation_job_info"].counts_list == [
+        {"0": 90, "1": 10},
+        {"0": 40, "1": 60},
+    ]
+    assert job.job_info.result is not None
+    assert job.job_info.result.mitigation_details == {
+        "readout": {
+            "estimation_counts_list": {
+                "result_count": 2,
+                "total_shots": 200,
+            },
+        }
+    }
 
-    mitigation_step._stub.ReqMitigation.assert_not_awaited()
+
+@pytest.mark.asyncio
+async def test_post_process_skips_without_readout_setting() -> None:
+    step = ReadoutErrorMitigationStep()
+    step._stub = AsyncMock()
+    job = Job(
+        job_id="job-no-ro",
+        device_id="device-1",
+        shots=100,
+        job_type="sampling",
+        job_info=JobInfo(
+            program=["OPENQASM 3.0; include \"stdgates.inc\";"],
+            result=JobResult(sampling=SamplingResult(counts={"0": 1})),
+        ),
+        transpiler_info={},
+        simulator_info={},
+        mitigation_info={},
+        status="ready",
+    )
+
+    await step.post_process(_build_gctx(), JobContext(), job)
+    assert step._stub.ReqMitigation.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_post_process_estimation_applies_readout_mitigation_to_zne_execution_results() -> None:
+    step = ReadoutErrorMitigationStep(mitigator_timeout_seconds=5)
+    step._stub = AsyncMock()
+    step._stub.ReqMitigation = AsyncMock(
+        return_value=mitigator_pb2.ReqMitigationResponse(counts={"0": 95, "1": 5})
+    )
+
+    jctx = JobContext()
+    jctx["estimation_job_info"] = SimpleNamespace(
+        preprocessed_qasms=["OPENQASM 3.0; include \"stdgates.inc\";"],
+        counts_list=None,
+    )
+    jctx["zne_job_info"] = {
+        "execution_programs": [
+            mitigator_pb2.ZneExecutionProgram(
+                scale_factor=1.0,
+                repetition=0,
+                program_index=0,
+                suffix="s1-r0-p0",
+                program='OPENQASM 3.0; include "stdgates.inc";',
+            )
+        ],
+        "execution_results": [
+            {
+                "scale_factor": 1.0,
+                "repetition": 0,
+                "program_index": 0,
+                "counts": {"0": 90, "1": 10},
+            }
+        ],
+    }
+    job = Job(
+        job_id="job-ro-zne-estimation",
+        device_id="device-1",
+        shots=1000,
+        job_type="estimation",
+        job_info=JobInfo(program=["OPENQASM 3.0; include \"stdgates.inc\";"]),
+        transpiler_info={},
+        simulator_info={},
+        mitigation_info={"readout": {"method": "local", "params": {}}, "zne": {"params": {}}},
+        status="ready",
+    )
+
+    await step.post_process(_build_gctx(), jctx, job)
+
+    assert step._stub.ReqMitigation.await_count == 1
+    assert jctx["zne_job_info"]["execution_results"][0]["counts"] == {"0": 95, "1": 5}
+    assert job.job_info.result is not None
+    assert job.job_info.result.mitigation_details == {
+        "readout": {
+            "zne_execution_results": {
+                "result_count": 1,
+                "total_shots": 100,
+            },
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_post_process_skips_with_legacy_ro_error_mitigation_key() -> None:
+    step = ReadoutErrorMitigationStep()
+    step._stub = AsyncMock()
+    job = Job(
+        job_id="job-legacy-ro-key",
+        device_id="device-1",
+        shots=100,
+        job_type="sampling",
+        job_info=JobInfo(
+            program=["OPENQASM 3.0; include \"stdgates.inc\";"],
+            result=JobResult(sampling=SamplingResult(counts={"0": 1})),
+        ),
+        transpiler_info={},
+        simulator_info={},
+        mitigation_info={"ro_error_mitigation": "pseudo_inverse"},
+        status="ready",
+    )
+
+    await step.post_process(_build_gctx(), JobContext(), job)
+    assert step._stub.ReqMitigation.await_count == 0

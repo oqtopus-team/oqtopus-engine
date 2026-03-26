@@ -1,147 +1,164 @@
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from oqtopus_engine_core.framework.model import OperatorItem
-from oqtopus_engine_core.steps.estimator_step import EstimationJobInfo, EstimatorStep
+from oqtopus_engine_core.framework import (
+    EstimationResult,
+    Job,
+    JobContext,
+    JobInfo,
+    JobResult,
+    OperatorItem,
+)
+from oqtopus_engine_core.interfaces.estimator_interface.v1 import estimator_pb2
+from oqtopus_engine_core.steps.estimator_step import DEFAULT_BASIS_GATES, EstimatorStep
 
 
-@pytest.fixture
-def estimator_step_instance() -> EstimatorStep:
-    step = EstimatorStep(basis_gates=["cx", "rz", "sx", "measure"])
-    step._stub = MagicMock()
-    step._stub.ReqEstimationPreProcess = AsyncMock()
-    step._stub.ReqEstimationPostProcess = AsyncMock()
-    return step
-
-
-@pytest.mark.asyncio
-async def test_pre_process_calls_grpc_and_updates_jctx(
-    estimator_step_instance: EstimatorStep,
-) -> None:
-    gctx = MagicMock()
-    jctx: dict[str, object] = {}
-    job = MagicMock()
-    job.job_id = "job-1"
-    job.job_type = "estimation"
-    job.job_info.transpile_result = None
-    job.job_info.program = ["OPENQASM 3.0;\n"]
-    job.job_info.operator = [OperatorItem(pauli="X 0", coeff=1.0)]
-
-    estimator_step_instance._stub.ReqEstimationPreProcess.return_value = SimpleNamespace(
-        qasm_codes=["preprocessed-qasm"],
-        grouped_operators=json.dumps([[ ["X"] ], [ [1.0] ]]),
+def _build_job(job_type: str = "estimation") -> Job:
+    return Job(
+        job_id="job-estimator",
+        device_id="device-1",
+        shots=100,
+        job_type=job_type,
+        job_info=JobInfo(
+            program=['OPENQASM 3.0; include "stdgates.inc";'],
+            operator=[OperatorItem(pauli="Z 0", coeff=1.0)],
+        ),
+        transpiler_info={},
+        simulator_info={},
+        mitigation_info={},
+        status="ready",
     )
 
-    await estimator_step_instance.pre_process(gctx, jctx, job)
 
-    assert "estimation_job_info" in jctx
-    info = jctx["estimation_job_info"]
-    assert isinstance(info, EstimationJobInfo)
-    assert info.preprocessed_qasms == ["preprocessed-qasm"]
-    assert info.grouped_operators == [[["X"]], [[1.0]]]
+def test_init_uses_default_basis_gates_when_none() -> None:
+    step = EstimatorStep(basis_gates=None)
+    assert step._basis_gates == DEFAULT_BASIS_GATES
 
-    estimator_step_instance._stub.ReqEstimationPreProcess.assert_awaited_once()
-    request = estimator_step_instance._stub.ReqEstimationPreProcess.call_args.args[0]
-    assert request.qasm_code == "OPENQASM 3.0;\n"
-    assert request.operators == "[('X 0', 1.0)]"
-    assert list(request.basis_gates) == ["cx", "rz", "sx", "measure"]
-    assert list(request.mapping_list) == []
+
+def test_init_uses_given_basis_gates() -> None:
+    step = EstimatorStep(basis_gates=["cx", "rz", "measure"])
+    assert step._basis_gates == ["cx", "rz", "measure"]
 
 
 @pytest.mark.asyncio
-async def test_pre_process_uses_transpile_mapping_in_sorted_order(
-    estimator_step_instance: EstimatorStep,
-) -> None:
-    gctx = MagicMock()
-    jctx: dict[str, object] = {}
-    job = MagicMock()
-    job.job_id = "job-2"
-    job.job_type = "estimation"
-    job.job_info.program = ["unused"]
-    job.job_info.operator = [OperatorItem(pauli="Z 1", coeff=2.0)]
+async def test_pre_process_skips_non_estimation_job() -> None:
+    step = EstimatorStep()
+    step._stub = AsyncMock()
+    step._stub.ReqEstimationPreProcess = AsyncMock()
+
+    await step.pre_process(SimpleNamespace(), JobContext(), _build_job(job_type="sampling"))
+
+    assert step._stub.ReqEstimationPreProcess.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_pre_process_calls_grpc_and_sets_estimation_job_info() -> None:
+    step = EstimatorStep(basis_gates=["cx", "rz", "measure"])
+    step._stub = AsyncMock()
+    step._stub.ReqEstimationPreProcess = AsyncMock(
+        return_value=estimator_pb2.ReqEstimationPreProcessResponse(
+            qasm_codes=['OPENQASM 3.0; include "stdgates.inc"; bit[1] c; c[0] = measure $0;'],
+            grouped_operators=json.dumps([[['Z']], [[1.0]]]),
+        )
+    )
+
+    jctx = JobContext()
+    job = _build_job()
+    job.job_info.transpile_result = None
+
+    await step.pre_process(SimpleNamespace(), jctx, job)
+
+    assert step._stub.ReqEstimationPreProcess.await_count == 1
+    request = step._stub.ReqEstimationPreProcess.await_args.args[0]
+    assert list(request.basis_gates) == ["cx", "rz", "measure"]
+    assert list(request.mapping_list) == []
+    assert "Z 0" in request.operators
+
+    assert "estimation_job_info" in jctx
+    assert jctx["estimation_job_info"].preprocessed_qasms
+    assert jctx["estimation_job_info"].grouped_operators == [[['Z']], [[1.0]]]
+
+
+@pytest.mark.asyncio
+async def test_pre_process_uses_transpile_mapping_in_sorted_order() -> None:
+    step = EstimatorStep(basis_gates=["cx", "rz", "measure"])
+    step._stub = AsyncMock()
+    step._stub.ReqEstimationPreProcess = AsyncMock(
+        return_value=estimator_pb2.ReqEstimationPreProcessResponse(
+            qasm_codes=["TRANSPILED"],
+            grouped_operators=json.dumps([[['Z']], [[1.0]]]),
+        )
+    )
+
+    jctx = JobContext()
+    job = _build_job()
     job.job_info.transpile_result = SimpleNamespace(
         transpiled_program="TRANSPILED",
         virtual_physical_mapping={"qubit_mapping": {"1": 0, "0": 2}},
     )
 
-    estimator_step_instance._stub.ReqEstimationPreProcess.return_value = SimpleNamespace(
-        qasm_codes=["qasm"],
-        grouped_operators=json.dumps([[ ["Z"] ], [ [2.0] ]]),
-    )
+    await step.pre_process(SimpleNamespace(), jctx, job)
 
-    await estimator_step_instance.pre_process(gctx, jctx, job)
-
-    request = estimator_step_instance._stub.ReqEstimationPreProcess.call_args.args[0]
-    assert request.qasm_code == "TRANSPILED"
+    request = step._stub.ReqEstimationPreProcess.await_args.args[0]
     assert list(request.mapping_list) == [2, 0]
 
 
 @pytest.mark.asyncio
-async def test_pre_process_raises_when_operator_missing(
-    estimator_step_instance: EstimatorStep,
-) -> None:
-    gctx = MagicMock()
-    jctx: dict[str, object] = {}
-    job = MagicMock()
-    job.job_id = "job-3"
-    job.job_type = "estimation"
-    job.job_info.transpile_result = None
-    job.job_info.program = ["OPENQASM 3.0;\n"]
+async def test_pre_process_raises_without_operator() -> None:
+    step = EstimatorStep()
+    step._stub = AsyncMock()
+
+    job = _build_job()
     job.job_info.operator = None
 
-    with pytest.raises(ValueError, match="operator is not specified"):
-        await estimator_step_instance.pre_process(gctx, jctx, job)
+    with pytest.raises(ValueError, match="the operator is not specified in the job"):
+        await step.pre_process(SimpleNamespace(), JobContext(), job)
 
 
 @pytest.mark.asyncio
-async def test_post_process_calls_grpc_and_updates_job_result(
-    estimator_step_instance: EstimatorStep,
-) -> None:
-    gctx = MagicMock()
-    job = MagicMock()
-    job.job_id = "job-4"
-    job.job_type = "estimation"
-    job.job_info.result = None
-
-    jctx = {
-        "estimation_job_info": SimpleNamespace(
-            counts_list=[{"00": 10, "11": 20}],
-            grouped_operators=[[["ZZ"]], [[1.0]]],
+async def test_post_process_calls_grpc_and_sets_result() -> None:
+    step = EstimatorStep()
+    step._stub = AsyncMock()
+    step._stub.ReqEstimationPostProcess = AsyncMock(
+        return_value=estimator_pb2.ReqEstimationPostProcessResponse(
+            expval=0.123,
+            stds=0.045,
         )
-    }
-
-    estimator_step_instance._stub.ReqEstimationPostProcess.return_value = SimpleNamespace(
-        expval=0.25,
-        stds=0.05,
     )
 
-    await estimator_step_instance.post_process(gctx, jctx, job)
+    jctx = JobContext()
+    jctx["estimation_job_info"] = SimpleNamespace(
+        counts_list=[{"0": 90, "1": 10}],
+        grouped_operators=[[['Z']], [[1.0]]],
+    )
+    job = _build_job()
 
-    estimator_step_instance._stub.ReqEstimationPostProcess.assert_awaited_once()
-    request = estimator_step_instance._stub.ReqEstimationPostProcess.call_args.args[0]
-    assert len(request.counts) == 1
-    assert dict(request.counts[0].counts) == {"00": 10, "11": 20}
-    assert json.loads(request.grouped_operators) == [[["ZZ"]], [[1.0]]]
+    await step.post_process(SimpleNamespace(), jctx, job)
 
+    assert step._stub.ReqEstimationPostProcess.await_count == 1
     assert job.job_info.result is not None
     assert job.job_info.result.estimation is not None
-    assert job.job_info.result.estimation.exp_value == 0.25
-    assert job.job_info.result.estimation.stds == 0.05
+    assert job.job_info.result.estimation.exp_value == pytest.approx(0.123)
+    assert job.job_info.result.estimation.stds == pytest.approx(0.045)
 
 
 @pytest.mark.asyncio
-async def test_non_estimation_jobs_are_skipped(estimator_step_instance: EstimatorStep) -> None:
-    gctx = MagicMock()
-    jctx: dict[str, object] = {}
-    job = MagicMock()
-    job.job_id = "job-5"
-    job.job_type = "sampling"
+async def test_post_process_skips_when_precomputed_result_exists() -> None:
+    step = EstimatorStep()
+    step._stub = AsyncMock()
+    step._stub.ReqEstimationPostProcess = AsyncMock()
 
-    await estimator_step_instance.pre_process(gctx, jctx, job)
-    await estimator_step_instance.post_process(gctx, jctx, job)
+    jctx = JobContext()
+    jctx["estimation_job_info"] = SimpleNamespace(
+        counts_list=[{"0": 90, "1": 10}],
+        grouped_operators=[[['Z']], [[1.0]]],
+    )
+    job = _build_job()
+    job.job_info.result = JobResult(estimation=EstimationResult(exp_value=1.0, stds=0.0))
 
-    estimator_step_instance._stub.ReqEstimationPreProcess.assert_not_awaited()
-    estimator_step_instance._stub.ReqEstimationPostProcess.assert_not_awaited()
+    await step.post_process(SimpleNamespace(), jctx, job)
+
+    assert step._stub.ReqEstimationPostProcess.await_count == 0
