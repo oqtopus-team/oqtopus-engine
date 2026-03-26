@@ -465,13 +465,16 @@ class PipelineExecutor:
     ) -> bool:
         """Determine whether a split should be triggered for the given step.
 
-        The decision is gated by the ``split_enabled_steps`` key in *jctx*:
+        The decision is gated by ``split_skip_steps`` and/or
+        ``split_enabled_steps`` keys in *jctx*, checked in that order:
 
-        - If *step* is not an instance of *target_type*, return ``False``.
-        - If ``jctx["split_enabled_steps"]`` is absent, return ``True``
-          (backward-compatible: all splits are allowed).
-        - Otherwise return ``True`` only when the step's class name appears in
-          the enabled set.
+        1. If *step* is not an instance of *target_type*, return ``False``.
+        2. If ``jctx["split_skip_steps"]`` is present and the step's class
+           name is in the set, return ``False`` (skip takes priority).
+        3. If ``jctx["split_enabled_steps"]`` is absent, return ``True``
+           (backward-compatible: all splits are allowed).
+        4. Otherwise return ``True`` only when the step's class name appears in
+           the enabled set.
 
         Args:
             step: The current step instance.
@@ -483,6 +486,9 @@ class PipelineExecutor:
 
         """
         if not isinstance(step, target_type):
+            return False
+        skip_steps: set[str] | None = jctx.get("split_skip_steps")
+        if skip_steps is not None and step.__class__.__name__ in skip_steps:
             return False
         enabled_steps: set[str] | None = jctx.get("split_enabled_steps")
         if enabled_steps is None:
@@ -497,13 +503,16 @@ class PipelineExecutor:
     ) -> bool:
         """Determine whether a join should be triggered for the given step.
 
-        The decision is gated by the ``join_enabled_steps`` key in *jctx*:
+        The decision is gated by ``join_skip_steps`` and/or
+        ``join_enabled_steps`` keys in *jctx*, checked in that order:
 
-        - If *step* is not an instance of *target_type*, return ``False``.
-        - If ``jctx["join_enabled_steps"]`` is absent, return ``True``
-          (backward-compatible: all joins are allowed).
-        - Otherwise return ``True`` only when the step's class name appears in
-          the enabled set.
+        1. If *step* is not an instance of *target_type*, return ``False``.
+        2. If ``jctx["join_skip_steps"]`` is present and the step's class
+           name is in the set, return ``False`` (skip takes priority).
+        3. If ``jctx["join_enabled_steps"]`` is absent, return ``True``
+           (backward-compatible: all joins are allowed).
+        4. Otherwise return ``True`` only when the step's class name appears in
+           the enabled set.
 
         Args:
             step: The current step instance.
@@ -515,6 +524,9 @@ class PipelineExecutor:
 
         """
         if not isinstance(step, target_type):
+            return False
+        skip_steps: set[str] | None = jctx.get("join_skip_steps")
+        if skip_steps is not None and step.__class__.__name__ in skip_steps:
             return False
         enabled_steps: set[str] | None = jctx.get("join_enabled_steps")
         if enabled_steps is None:
