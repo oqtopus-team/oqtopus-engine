@@ -26,10 +26,11 @@ class JobWithCircuitGraph:
 
     """
 
-    def __init__(self,
-                 job_id: str,
-                 program: str,
-        ) -> None:
+    def __init__(
+        self,
+        job_id: str,
+        program: str,
+    ) -> None:
         self.job_id = job_id
         self.program = program
         self.qiskit_circuit = qiskit.qasm3.loads(program)
@@ -149,9 +150,10 @@ class OptimalCircuitCombiner:
 
         return g
 
-    def combine_circuits_for_groups(self,
-                                    assigned_groups: list
-                                    ) -> list[dict[str, Any]]:
+    def combine_circuits_for_groups(
+        self,
+        assigned_groups: list[list[JobWithCircuitGraph]]
+    ) -> list[dict[str, Any]]:
         """Combine circuits for each assigned group.
 
         Args:
@@ -183,7 +185,10 @@ class OptimalCircuitCombiner:
             })
         return combined_groups
 
-    def combine_circuits(self, grouped_jobs: list) -> tuple[str, list[int], int]:
+    def combine_circuits(
+        self,
+        grouped_jobs: list[JobWithCircuitGraph]
+    ) -> tuple[str, list[int], int]:
         """Combine multiple quantum circuits into a single circuit.
 
         Args:
@@ -253,12 +258,11 @@ class OptimalCircuitCombiner:
         return qiskit.qasm3.dumps(qc), combined_qubits_list, qc.num_qubits
 
     @staticmethod
-    def _copy_gates_with_mapping(source_circuit: QuantumCircuit,
-                                 target_circuit: QuantumCircuit,
-                                 qubit_mapping: dict[int, int]
-                                 ) -> tuple[QuantumCircuit,
-                                            list[tuple[Any, list[Any], list[Any]]]
-                                            ]:
+    def _copy_gates_with_mapping(
+        source_circuit: QuantumCircuit,
+        target_circuit: QuantumCircuit,
+        qubit_mapping: dict[int, int]
+    ) -> tuple[QuantumCircuit, list[tuple[Any, list[Any], list[Any]]]]:
         """Copy gates from source circuit to target circuit with qubit mapping.
 
         This function copies gates from the source quantum circuit
@@ -294,10 +298,11 @@ class OptimalCircuitCombiner:
                 qc.append(instr, q_regs, [])
         return qc, measure_ops
 
-    def assign_circuits(self,
-                        jobs: list[dict[str, str]],
-                        device_info: dict[str, Any]
-                        ) -> tuple[list[str], list[list[JobWithCircuitGraph]]]:
+    def assign_circuits(
+        self,
+        jobs: list[dict[str, str]],
+        device_info: dict[str, Any]
+    ) -> tuple[list[str], list[list[JobWithCircuitGraph]]]:
         """Assign qubits to each circuit based on the device topology.
 
         Args:
@@ -374,11 +379,12 @@ class OptimalCircuitCombiner:
         return list(assigned_ids), assigned_groups
 
     @staticmethod
-    def _draw_graph(g: nx.MultiDiGraph,
-                    topology_json: dict,
-                    matches: list[dict[str, Any]],
-                    filename: str
-                    ) -> None:
+    def _draw_graph(
+        g: nx.MultiDiGraph,
+        topology_json: dict,
+        matches: list[dict[str, Any]],
+        filename: str
+    ) -> None:
         """Draw the topology graph with assigned nodes highlighted for debugging."""
         try:
             colors = ["Red", "Green", "Blue", "Purple", "Magenta",
@@ -403,9 +409,10 @@ class OptimalCircuitCombiner:
             logger.exception("failed to draw graph for debugging")
 
     @staticmethod
-    def _find_nonoverlapping_subgraphs_with_t_nodes(t: nx.Graph,
-                                                    jobs: list[JobWithCircuitGraph]
-                                                    ) -> list[dict[str, Any]]:
+    def _find_nonoverlapping_subgraphs_with_t_nodes(
+        t: nx.Graph,
+        jobs: list[JobWithCircuitGraph]
+    ) -> list[dict[str, Any]]:
         """Find subgraphs in jobs' circuit graphs that can be mapped to T.
 
         Args:
