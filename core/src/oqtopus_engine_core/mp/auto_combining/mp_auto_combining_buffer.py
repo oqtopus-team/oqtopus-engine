@@ -60,7 +60,7 @@ class MpAutoCombiningBuffer(Buffer):
         maxsize: int = 0,
         max_concurrency: int = 1,
         combiner_address: str = "localhost:52013",
-        monitor_interval_seconds: float = 0.1,
+        monitor_interval_seconds: float = 1,
         max_batch_size: int = 60,
         max_qsize_to_proceed: int = 5
     ) -> None:
@@ -229,7 +229,7 @@ class MpAutoCombiningBuffer(Buffer):
         Drain jobs from the input buffer without blocking too long.
 
         Returns:
-            A list of drained (GlobalContext, JobContext, Job) tuples.
+            A list of drained `(GlobalContext, JobContext, Job)` tuples.
 
         """
         items: list[tuple[GlobalContext, JobContext, Job]] = []
@@ -280,11 +280,11 @@ class MpAutoCombiningBuffer(Buffer):
         """Combine the given jobs using the combiner gRPC service.
 
         Args:
-            jobs: List of (GlobalContext, JobContext, Job) tuples to be combined.
+            jobs: List of `(GlobalContext, JobContext, Job)` tuples to be combined.
 
         Returns:
             A tuple containing:
-            - List of combined jobs as (GlobalContext, JobContext, Job) tuples.
+            - List of combined jobs as `(GlobalContext, JobContext, Job)` tuples.
             - List of unassigned jobs that could not be combined.
 
         """
@@ -293,7 +293,12 @@ class MpAutoCombiningBuffer(Buffer):
             response = await self._request_combine(jobs)
         except Exception:
             # return empty combined jobs and all original jobs as uncombined
-            logger.exception("gRPC error during combine request")
+            logger.exception(
+                "gRPC error during combine request",
+                extra={
+                    "jobs": jobs,
+                },
+            )
             return [], jobs
 
         # process response
@@ -370,6 +375,15 @@ class MpAutoCombiningBuffer(Buffer):
     ) -> JobResult.TranspileResult:
         """Update transpile_result according to the qubits assigned when combining.
 
+        This method updates the `virtual_physical_mapping` and `transpiled_program`
+        in the transpile_result. The qubits are re-mapped according to the qubits
+        assigned during the combination process.
+        For instance, if the original circuit's `virtual_physical_mapping` is
+        `{0:1, 1:0}` and it is re-mapped as `{0:5, 1:4}` when combining, `q0` is first
+        assigned to `q1` when per-circuit transpiling and then `q1` is assigned to `q4`
+        when combining. So the end-to-end `virtual_physical_mapping` is `{0:4, 1:5}` and
+        transpiled_program is updated by replacing `q0` with `q1` and `q1` with `q4`.
+
         Args:
             transpile_result: Original transpile result to be updated.
             transpiled_combined_mapping:
@@ -379,13 +393,6 @@ class MpAutoCombiningBuffer(Buffer):
             Updated transpile result with remapped qubits.
 
         """
-        # Update virtual_physical_mapping according to the qubits
-        # qubits assigned when combining
-        # For instance, if the original circuit's virtual_physical_mapping is {0:1,1:0}
-        # and the mapping is {0:5,1:4},q0 is assigned to q1 in the per-circuit
-        # transpile and q1 is assigned to q4 in the combine.
-        # So the overall virtual_physical_mapping should be {0:4,1:5}.
-
         # convert the type of keys of qubit mapping from str to int
         transpiled_combined_mapping = {int(k): v
                                        for k, v in transpiled_combined_mapping.items()
@@ -397,8 +404,7 @@ class MpAutoCombiningBuffer(Buffer):
         transpile_result.virtual_physical_mapping["qubit_mapping"] = \
                                                 new_virtual_physical_mapping
 
-        # Update transpiled_program according to the qubits
-        # assigned when combining
+        # Update transpiled_program according to the qubits assigned when combining
         transpiled_program = transpile_result.transpiled_program
         transpiled_circuit = qiskit.qasm3.loads(transpiled_program)
         # construct new circuit with remapped qubits
@@ -435,7 +441,7 @@ class MpAutoCombiningBuffer(Buffer):
         """Send combine request to the combiner gRPC service.
 
         Args:
-            jobs: List of (GlobalContext, JobContext, Job) tuples to be combined.
+            jobs: List of `(GlobalContext, JobContext, Job)` tuples to be combined.
 
         Returns:
             The gRPC response from the combiner service.
@@ -480,12 +486,12 @@ def filter_combinable_jobs(
     """Filter jobs that are eligible for combination.
 
     Args:
-        jobs: List of (GlobalContext, JobContext, Job) tuples to filter.
+        jobs: List of `(GlobalContext, JobContext, Job)` tuples to filter.
 
     Returns:
         A tuple containing:
-        - List of combinable jobs as (GlobalContext, JobContext, Job) tuples.
-        - List of uncombinable jobs as (GlobalContext, JobContext, Job) tuples.
+        - List of combinable jobs as `(GlobalContext, JobContext, Job)` tuples.
+        - List of uncombinable jobs as `(GlobalContext, JobContext, Job)` tuples.
 
     """
     combinable_jobs = []

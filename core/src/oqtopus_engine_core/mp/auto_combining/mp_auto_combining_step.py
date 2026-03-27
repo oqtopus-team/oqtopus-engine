@@ -22,7 +22,7 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
     """Multi-programming auto combining worker.
 
     This step divides the results of auto-combined job back to original jobs.
-    The automatic combining process is done in MpAutoCombiningBuffer class.
+    The automatic combining process is done in `MpAutoCombiningBuffer` class.
     """
 
     async def pre_process(
@@ -34,7 +34,7 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
         """Pre-process the job.
 
         Do nothing.
-        The automatic combining process is done in MpAutoCombiningBuffer class.
+        The automatic combining process is done in `MpAutoCombiningBuffer` class.
 
         Args:
             gctx: The global context.
@@ -76,21 +76,20 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
             jctx.split_skip_steps.add(self.__class__.__name__)
             return
 
-        n_total_qubits = jctx.mp_auto_combining["n_total_qubits"]
-
         # get used qubits info
         combined_qubits_list = jctx.mp_auto_combining["combined_qubits_list"]
         n_total_qubits = len(next(iter(job.job_info.result.sampling.counts.keys())))
         if n_total_qubits > sum(combined_qubits_list):
             # add the number of unused qubits to combined_qubits_list
             # for the convenience of division
-            combined_qubits_list.append(n_total_qubits - sum(combined_qubits_list))
+            combined_qubits_list = \
+                [*combined_qubits_list, n_total_qubits - sum(combined_qubits_list)]
 
         try:
             # divide the result
             divided_counts_list = divide_result(
                 job,
-                combined_qubits_list
+                combined_qubits_list,
             )
 
             # set counts to all child jobs
@@ -138,6 +137,15 @@ def resample_counts(
     keys = list(counts.keys())
     values = list(counts.values())
     total_counts = sum(values)
+    if total_counts == 0:
+        logger.warning(
+            "total counts is zero, cannot resample counts",
+            extra={
+                "counts": counts,
+                "shots": shots,
+            },
+        )
+        return counts
     probs = [v / total_counts for v in values]
 
     # resampling
