@@ -1,32 +1,36 @@
 import argparse
-import ast
 import datetime
+import json
 import logging
 import logging.config
 import os
+import time
 from concurrent import futures
 from io import TextIOWrapper
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
+from typing import Any
 
-import grpc
-from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
+import grpc  # type: ignore[import-untyped]
 import numpy as np
-import qiskit.qasm3
+import qiskit.qasm3  # type: ignore[import-untyped]
+import yaml  # type: ignore[import-untyped]
+from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
 from qiskit import QuantumCircuit
-import yaml
 
-from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2 import (
+from oqtopus_engine_combiner.mp_auto import OptimalCircuitCombiner
+from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2 import (  # type: ignore[attr-defined]
     DESCRIPTOR,
     CombineRequest,
     CombineResponse,
+    OptimalCombineRequest,
+    OptimalCombineResponse,
     Status,
 )
 from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2_grpc import (
     CombinerService,
     add_CombinerServiceServicer_to_server,
 )
-
 
 logger = logging.getLogger("oqtopus_engine_combiner")
 
@@ -94,7 +98,7 @@ class InvalidQubitsError(Exception):
 class CircuitCombiner(CombinerService):
     """Combine quantum circuits.
 
-    This class combines quantum circuits and returns the combined circuit qasm.
+    This class combines quantum circuits and returns the combined circuit program.
 
     """
 
@@ -106,84 +110,96 @@ class CircuitCombiner(CombinerService):
         """Combine quantum circuits.
 
         Args:
-            request: request with the array of qasm strings and max qubits.
+            request: request with the array of program strings and max qubits.
             context: servicer context.
 
         Returns:
-            CombineResponse: response with the combined circuit qasm.
+            CombineResponse: response with the combined circuit program.
 
         """
+        start = time.perf_counter()
+
         try:
             # deal with request JSON-array
-            logger.debug("start combine_circuit with request: %s", request)
-            qasm_list = self.deal_with_request_qasm(request=request)
+            logger.debug(
+                "start combine_circuit",
+                extra={
+                    "request": request,
+                },
+            )
+
+            program_list = self.deal_with_request_programs(programs=request.programs)
             maxqubits = request.max_qubits
             # combine circuits
-            logger.debug("maxqubits: %s", maxqubits)
             combined_status, combined_circuit, combined_qubits_list = (
-                self.combine_circuits(qasm_list, maxqubits)
+                self.combine_circuits(program_list, maxqubits)
             )
             # e.g.
             # For combined circuits such as [c1 (3-qubit), c2 (2-qubit), c3 (1-qubit)]
-            # in total 6 qubits, combined_qubits_list is [1, 2, 3] (not [3, 2, 1]) for
-            # the convenience of the measurement and division
-            logger.debug("finish combine_circuit")
-            logger.debug("combined_status: %s", combined_status)
-            logger.debug("combined_circuit: %s", combined_circuit)
-            logger.debug("combined_qubits_list: %s", combined_qubits_list)
-            return CombineResponse(
+            # in total 6 qubits, combined_qubits_list is [3, 2, 1].
+
+            response = CombineResponse(
                 combined_status=combined_status,
-                combined_qasm=combined_circuit,
+                combined_program=combined_circuit,
                 combined_qubits_list=combined_qubits_list,
             )
+
         except ValueError:
-            logger.exception("Invalid Request")
-            return CombineResponse(
+            logger.exception("invalid request")
+            response = CombineResponse(
                 combined_status=Status.STATUS_FAILURE,
-                combined_qasm="",
+                combined_program="",
                 combined_qubits_list=[],
             )
         except Exception:
-            logger.exception("Exception")
-            return CombineResponse(
+            logger.exception("failed to combine circuits")
+            response = CombineResponse(
                 combined_status=Status.STATUS_FAILURE,
-                combined_qasm="",
+                combined_program="",
                 combined_qubits_list=[],
             )
 
-    def deal_with_request_qasm(self, request: CombineRequest) -> list[str]:
-        """Convert the input string of qasm array to list of qasm strings.
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        logger.info(
+                "finish combine_circuit",
+                extra={
+                    "elapsed_ms": round(elapsed_ms, 3),
+                    "response": response,
+                },
+            )
+        return response
+
+    @staticmethod
+    def deal_with_request_programs(programs: str) -> list[Any]:
+        """Convert the input string of program array to list of program strings.
 
         Args:
-            request: request with the array of qasm strings.
+            programs: request with the array of program strings.
 
         Returns:
-            list[str]: list of qasm strings.
+            list[str]: list of program strings.
 
         Raises:
-            ValueError: If invalid input QASM array.
+            ValueError: If invalid input program array.
 
         """
         try:
-            # remove double-quote
-            input_qasm_array = request.qasm_array.replace(r"\"", '"')
-            # convert str to list[str]
-            return ast.literal_eval(f"{input_qasm_array}")
+            return json.loads(programs)
         except Exception as e:
-            self.logger.exception("Invalid input QASM array")
-            msg = f"Invalid input QASM array: {request}"
+            logger.exception("invalid input program array")
+            msg = f"invalid input program array: {programs}"
             raise ValueError(msg) from e
 
     # Combine quantum circuits
+    @staticmethod
     def combine_circuits(
-        self,
-        qasm_list: list[str],
+        program_list: list[str],
         max_qubits: int = 64,
     ) -> tuple:
         """Combine quantum circuits.
 
         Args:
-            qasm_list: list of qasm strings.
+            program_list: list of program strings.
             max_qubits: maximum number of total qubits allowed.
 
         Returns:
@@ -198,9 +214,14 @@ class CircuitCombiner(CombinerService):
         total_clbits = 0
         try:
             # count total num of bits, and append circuits
-            for one_qasm in qasm_list:
-                logger.debug(one_qasm)
-                circuit = qiskit.qasm3.loads(one_qasm)
+            for single_program in program_list:
+                logger.debug(
+                    "combining circuit",
+                    extra={
+                        "program": single_program,
+                    },
+                )
+                circuit = qiskit.qasm3.loads(single_program)
                 circuits.append(circuit)
                 total_qbits += circuit.num_qubits
                 total_clbits += circuit.num_clbits
@@ -208,9 +229,11 @@ class CircuitCombiner(CombinerService):
             max_limit_qubits = max(max_qubits, 0)
             if total_qbits > max_limit_qubits:
                 logger.error(
-                    "total qubits must be less than %s. current qubits: %s",
-                    max_limit_qubits,
-                    total_qbits,
+                    "failed to combine circuits; invalid qubit size",
+                    extra={
+                        "total_qubits": total_qbits,
+                        "max_limit_qubits": max_limit_qubits,
+                    },
                 )
                 return Status.STATUS_INVALID_QUBIT_SIZE, None, []
             # combine circuits
@@ -229,20 +252,111 @@ class CircuitCombiner(CombinerService):
                 quantum_bit_index += one_circuit.num_qubits
                 classical_bit_index += one_circuit.num_clbits
                 # save combined_qubits_list
-                # the order of the combined_qubits_list is reversed for
-                # the convenience of the measurement and division
-                combined_qubits_list = [one_circuit.num_clbits, *combined_qubits_list]
+                combined_qubits_list.append(one_circuit.num_clbits)
             combined_circuit_obj = qiskit.qasm3.dumps(combined_circuit.decompose())
         except Exception:
-            logger.exception("Exception")
+            logger.exception("failed to combine circuits")
             return Status.STATUS_FAILURE, None, []
         else:
             return (
                 Status.STATUS_SUCCESS,
                 combined_circuit_obj,
-                # re-order the list to match the order of the input circuits
                 combined_qubits_list,
             )
+
+    def OptimalCombine(  # noqa: N802
+        self,
+        request: OptimalCombineRequest,
+        context: grpc.ServicerContext,  # noqa: ARG002
+    ) -> CombineResponse:
+        """Combine quantum circuits.
+
+        Args:
+            request: request with the array of program strings and max qubits.
+            context: servicer context.
+
+        Returns:
+            CombineResponse: response with the combined circuit program.
+
+        """
+        start = time.perf_counter()
+
+        try:
+            # deal with request JSON-array
+            logger.info(
+                "start optimal_combine_circuit",
+                extra={
+                    "request": request,
+                },
+            )
+
+            jobs = self.deal_with_request_programs(programs=request.programs)
+            logger.debug(
+                "received jobs",
+                extra={
+                    "jobs": jobs,
+                },
+            )
+            device_info = json.loads(request.device_info)
+
+            combined_groups = []
+            combiner = OptimalCircuitCombiner()
+            # assign qubits to each circuit and create groups to be combined
+            assigned_ids, assigned_groups = combiner.assign_circuits(jobs=jobs,
+                                                                     device_info=device_info
+                                                                     )
+            # create combined circuits for each group
+            combined_groups = combiner.combine_circuits_for_groups(assigned_groups)
+
+            combine_result = {
+                "assigned_ids": assigned_ids,
+                "combined_groups": combined_groups,
+            }
+            response = OptimalCombineResponse(
+                combined_status=Status.STATUS_SUCCESS,
+                combine_result=json.dumps(combine_result),
+            )
+
+            logger.debug(
+                "combined circuits",
+                extra={
+                    "combine_result": combine_result,
+                    "num_input_circuits": len(jobs),
+                    "num_combined_circuits": len(combined_groups),
+                    "num_unassigned_circuits": len(jobs) - len(assigned_ids),
+                },
+            )
+            # message to make log easier to read
+            achievement_msg = (
+                f"combined {len(assigned_ids)}/{len(jobs)} circuits into "
+                f"{len(combined_groups)} combined circuits."
+            )
+
+        except ValueError:
+            logger.exception("invalid request")
+            achievement_msg = "failed to combine circuits due to invalid request."
+            response = OptimalCombineResponse(
+                combined_status=Status.STATUS_FAILURE,
+                combine_result="",
+            )
+        except Exception:
+            logger.exception("failed to combine circuits")
+            achievement_msg = "failed to combine circuits due to internal error."
+            response = OptimalCombineResponse(
+                combined_status=Status.STATUS_FAILURE,
+                combine_result="",
+            )
+
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        logger.info(
+            "finish optimal_combine_circuit",
+            extra={
+                "elapsed_ms": round(elapsed_ms, 3),
+                "response": response,
+            },
+        )
+        logger.debug(achievement_msg)
+        return response
 
 
 class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
@@ -310,7 +424,6 @@ class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
         return f"{self.log_dir}/circuit_combiner-{current_time}.log"
 
 
-
 # boot server
 def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     """Start the gRPC server with the specified configuration and logging settings.
@@ -335,8 +448,8 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
         logging.config.dictConfig(logging_yaml)
 
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
-    address = str(config_yaml["proto"].get("address") or "[::]:52013")    # create a gRPC server
-
+    # create a gRPC server
+    address = str(config_yaml["proto"].get("address") or "[::]:52013")
     # create the gRPC server
     server = grpc.server(futures.ThreadPoolExecutor(max_workers))
     add_CombinerServiceServicer_to_server(CircuitCombiner(), server)
@@ -347,7 +460,13 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     )
     reflection.enable_server_reflection(service_names, server)
     server.add_insecure_port(address)
-    logger.info("Server is running on %s. max_workers=%d", address, max_workers)
+    logger.info(
+        "server is running",
+        extra={
+            "address": address,
+            "max_workers": max_workers,
+        },
+    )
 
     # start the server
     server.start()

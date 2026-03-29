@@ -20,7 +20,10 @@ requires-python = ">=3.13,<4.0"
 dependencies = [
   "grpcio>=1.76.0",
   "grpcio-reflection>=1.76.0",
+  "matplotlib>=3.10.8",
+  "networkx>=3.6.1",
   "numpy>=2.3.5",
+  "ortools>=9.15.6755",
   "protobuf>=6.33.2",
   "python-json-logger>=4.0.0",
   "pyyaml>=6.0.3",
