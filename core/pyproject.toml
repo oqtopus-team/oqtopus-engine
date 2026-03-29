@@ -30,6 +30,7 @@ dependencies = [
   "qiskit-qasm3-import>=0.6.0",
   "six>=1.17.0",
   "urllib3>=2.6.1",
+  "uuid7>=0.1.0",
 ]
 
 [project.urls]
