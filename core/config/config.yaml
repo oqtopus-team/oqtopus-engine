@@ -6,6 +6,7 @@ pipeline_executor:
     - tranqu_step
     - estimator_step
     - ro_error_mitigation_step
+    - mp_auto_combining_step
     - buffer
     - sse_step
     - device_gateway_step
@@ -60,6 +61,12 @@ di_container:
     buffer:
       _target_: oqtopus_engine_core.buffers.QueueBuffer
 
+    _buffer:
+      _target_: oqtopus_engine_core.mp.auto_combining.MpAutoCombiningBuffer
+      monitor_interval_seconds: 1
+      max_batch_size: 30
+      max_qsize_to_proceed: 5
+
     # step configurations
     debug_step:
       _target_: oqtopus_engine_core.steps.DebugStep
@@ -95,6 +102,9 @@ di_container:
     ro_error_mitigation_step:
       _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
       mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+
+    mp_auto_combining_step:
+      _target_: oqtopus_engine_core.mp.auto_combining.MpAutoCombiningStep
 
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep
