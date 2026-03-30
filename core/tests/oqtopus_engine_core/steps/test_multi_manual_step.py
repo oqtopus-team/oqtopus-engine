@@ -80,7 +80,7 @@ def test_divide_string_by_lengths(input_str, lengths, expected, error):
                 "0110": 32,
                 "1011": 64,
             },
-            [3, 1],
+            [1, 3],
             {
                 "0001": 1,
                 "0100": 2,
