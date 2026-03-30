@@ -63,9 +63,9 @@ di_container:
 
     _buffer:
       _target_: oqtopus_engine_core.mp.auto_combining.MpAutoCombiningBuffer
-      monitor_interval_seconds: 1
-      max_batch_size: 30
-      max_qsize_to_proceed: 5
+      monitor_interval_seconds: ${MP_AUTO_BUFFER_MONITOR_INTERVAL_SECONDS, 1}
+      max_batch_size: ${MP_AUTO_BUFFER_MAX_BATCH_SIZE, 30}
+      max_qsize_to_proceed: ${MP_AUTO_BUFFER_MAX_QSIZE_TO_PROCEED, 5}
 
     # step configurations
     debug_step:
