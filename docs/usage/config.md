@@ -1,3 +1,12 @@
+# Configuration
+
+This page describes the configuration files used to customize the behavior of OQTOPUS Engine components.
+
+## config.yaml
+
+This is the configuration file for the core engine (`oqtopus-engine-core`).
+
+```yaml
 # Pipeline Executor Configuration (get instances from DI container)
 pipeline_executor:
   pipeline:
@@ -47,8 +56,6 @@ di_container:
       url: ${JOB_REPOSITORY_URL, "http://localhost:8888"}
       api_key: ${JOB_REPOSITORY_API_KEY, ""}
       workers: ${JOB_REPOSITORY_WORKERS, 10}
-      storage_op_timeout_seconds: ${JOB_STORAGE_OP_TIMEOUT_SECONDS, 60}
-      max_file_size: ${MAX_FILE_SIZE, 10485760}
 
     _device_repository:
       _target_: oqtopus_engine_core.repositories.NullDeviceRepository
@@ -122,6 +129,7 @@ di_container:
         container_work_path: ${SSE_CONTAINER_PATH, "/sse"}
         userprogram_name: ${SSE_USER_PROGRAM_NAME, "userprogram.py"}
         result_file_name: ${SSE_RESULT_NAME, "result.json"}
+        log_file_name: ${SSE_LOG_NAME, "sse_runtime.log"}
         container_image: ${SSE_CONTAINER_IMAGE, "sse-v2/python3.13:latest"}
         container_disk_quota: ${SSE_CONTAINER_DISK_QUOTA, 67108864}
         container_memory: ${SSE_CONTAINER_MEMORY, 268435456}
@@ -130,7 +138,112 @@ di_container:
         container_extra_hosts:
           - sse_engine:${SSE_ENGINE_IP, localhost}
         timeout: ${SSE_TIMEOUT, 600}
+        max_file_size: ${SSE_MAX_FILE_SIZE, 10485760}
 
     # exception handler configurations
     pipeline_exception_handler:
       _target_: oqtopus_engine_core.handlers.FailJobRepositoryHandler
+```
+
+## sse_engine_config.yaml
+
+This is the configuration file for the SSE engine.
+
+```yaml
+# Pipeline Executor Configuration (get instances from DI container)
+pipeline_executor:
+  pipeline:
+    - job_repository_update_step
+    - multi_manual_step
+    - tranqu_step
+    - estimator_step
+    - ro_error_mitigation_step
+    - buffer
+    - sse_step
+    - device_gateway_step
+  job_buffer: buffer
+  exception_handler: pipeline_exception_handler
+
+# Dependency Injection Container Configuration
+di_container:
+  registry:
+    # fetcher configurations
+    _job_fetcher:
+      _target_: oqtopus_engine_core.fetchers.MockJobFetcher
+      interval_seconds: ${JOB_FETCHER_INTERVAL_SECONDS, 10}
+      limit: ${JOB_FETCHER_LIMIT, 10}
+      job_fetch_threshold: ${JOB_FETCHER_THRESHOLD, 10}
+
+    job_fetcher:
+      _target_: oqtopus_engine_core.fetchers.SseEngineGateway
+      sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:52014"}
+
+    device_fetcher:
+      _target_: oqtopus_engine_core.fetchers.DeviceGatewayFetcher
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      initial_interval_seconds: ${DEVICE_FETCHER_INITIAL_INTERVAL_SECONDS, 10}
+      initial_backoff_max_seconds: ${DEVICE_FETCHER_INITIAL_BACKOFF_MAX_SECONDS, 60}
+      loop_interval_seconds: ${DEVICE_FETCHER_LOOP_INTERVAL_SECONDS, 60}
+      loop_backoff_max_seconds: ${DEVICE_FETCHER_LOOP_BACKOFF_MAX_SECONDS, 300}
+      enable_device_info_update: ${DEVICE_FETCHER_ENABLE_DEVICE_INFO_UPDATE, true}
+
+    # repository configurations
+    job_repository:
+      _target_: oqtopus_engine_core.repositories.NullJobRepository
+
+    device_repository:
+      _target_: oqtopus_engine_core.repositories.NullDeviceRepository
+
+    # buffer configurations
+    buffer:
+      _target_: oqtopus_engine_core.buffers.QueueBuffer
+
+    # step configurations
+    debug_step:
+      _target_: oqtopus_engine_core.steps.DebugStep
+
+    job_repository_update_step:
+      _target_: oqtopus_engine_core.steps.JobRepositoryUpdateStep
+
+    multi_manual_step:
+      _target_: oqtopus_engine_core.steps.MultiManualStep
+      combiner_address: ${COMBINER_ADDRESS, "localhost:52013"}
+
+    tranqu_step:
+      _target_: oqtopus_engine_core.steps.TranquStep
+      tranqu_address: ${TRANQU_ADDRESS, "localhost:52020"}
+      default_transpiler_info:
+        transpiler_lib: qiskit
+        transpiler_options:
+          optimization_level: 1
+
+    estimator_step:
+      _target_: oqtopus_engine_core.steps.EstimatorStep
+      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:52012"}
+      basis_gates:
+        - "cx"
+        - "id"
+        - "rz"
+        - "sx"
+        - "x"
+        - "reset"
+        - "delay"
+        - "measure"
+
+    ro_error_mitigation_step:
+      _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
+      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+
+    device_gateway_step:
+      _target_: oqtopus_engine_core.steps.DeviceGatewayStep
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+
+    sse_step:
+      _target_: oqtopus_engine_core.steps.sse_step.SseStep
+      runner_settings:
+        sse_engine_port: ${SSE_GATEWAY_ROUTER_LISTEN_PORT, 52014}
+
+    # exception handler configurations
+    pipeline_exception_handler:
+      _target_: oqtopus_engine_core.handlers.FailJobRepositoryHandler
+```

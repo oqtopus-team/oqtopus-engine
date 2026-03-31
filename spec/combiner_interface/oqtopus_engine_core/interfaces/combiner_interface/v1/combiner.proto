@@ -5,6 +5,7 @@ package combiner_interface.v1;
 // RPC service for circuit combiner
 service CombinerService {
   rpc Combine (CombineRequest) returns (CombineResponse);
+  rpc OptimalCombine (OptimalCombineRequest) returns (OptimalCombineResponse);
 }
 
 enum Status {
@@ -13,23 +14,89 @@ enum Status {
   STATUS_INVALID_QUBIT_SIZE = 2;
 }
 
-// request to circuit_combiner of gRPC server
+// request to combiner of gRPC server
 message CombineRequest {
-  // string of json array
-  // example: "{\\\"qasm\\\": [\\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\", \\\"OPENQASM 3;\\ninclude \\\\\"stdgates.inc\\\\\";\\nqubit[2] q;\\n\\nh q[0];\\nx q[0];\\ncx q[0], q[1];\\\"]}" # noqa
-  string qasm_array = 1;
-  // device information like "qubit_index" or "measurement_windows_index"
+  // string of QASM array
+  // example:
+  //  [
+  //   "OPENQASM 3;\ninclude \"stdgates.inc\";\nqubit[1] q;\nbit[1] c;\n\nh q[0];\nc = measure q;",
+  //   "OPENQASM 3;\ninclude \"stdgates.inc\";\nqubit[2] q;\nbit[2] c;\n\nh q[0];\ncx q[0], q[1];\nc = measure q;"
+  //  ]
+  string programs = 1;
+  // available number of qubits to be combined
   int32 max_qubits = 2;
 }
 
-// response from circuit_combiner of gRPC server
+// response from combiner of gRPC server
 message CombineResponse {
   // status of the response
   Status combined_status = 1;
-  // combined circuit qasm
-  string combined_qasm = 2;
-  // combined qasm bit information
+  // combined circuit program
+  string combined_program = 2;
+  // combined program bit information
   repeated int32 combined_qubits_list = 3;
 }
 
+// request to combiner of gRPC server
+message OptimalCombineRequest {
+  // string of json array
+  // example:
+  // [
+  //  {"job_id": "069bfcd5-da9f-7dd1-8000-19e2b91e46de", "program": "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nbit[1] c;\nrz(pi/2) $0;\nsx $0;\nrz(pi/2) $0;\nc[0] = measure $0;\n"},
+  //  {"job_id": "069bfcd5-d983-7901-8000-67a2101ab5f0", "program": "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nbit[3] c;\nx $2;\nc[0] = measure $2;\nc[1] = measure $0;\nc[2] = measure $1;\n"}
+  // ]
+  string programs = 1;
+  // string of device topology json
+  string device_info = 2;
+}
 
+// response from circuit_combiner of gRPC server
+message OptimalCombineResponse {
+  // status of the response
+  Status combined_status = 1;
+  // string of combined programs and related information json
+  // example:
+  // {
+  //   # job IDs of original jobs
+  //   "assigned_ids": [
+  //     "069bfd54-c763-7a6a-8000-48520e45b138",
+  //     "069bfd54-c3eb-7702-8000-3944ba1e843e"
+  //   ],
+  //   # groups of combined program, original jobs' info it contains and other info
+  //   "combined_groups": [
+  //     {
+  //       "combined_program": "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nbit[3] c;\nqubit[3] q;\nrz(pi/2) q[0];\nsx q[0];\nrz(pi/2) q[0];\nrz(pi/2) q[1];\nsx q[1];\nrz(pi/2) q[1];\nc[0] = measure q[0];\nc[1] = measure q[1];\nc[2] = measure q[2];\n",
+  //       "combine_info": {
+  //         "assigned_ids": [
+  //           "069bfd54-c763-7a6a-8000-48520e45b138",
+  //           "069bfd54-c3eb-7702-8000-3944ba1e843e"
+  //         ],
+  //         # original jobs
+  //         "assigned_group": [
+  //           {
+  //             "job_id": "069bfd54-c763-7a6a-8000-48520e45b138",
+  //             "program": "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nbit[1] c;\nrz(pi/2) $0;\nsx $0;\nrz(pi/2) $0;\nc[0] = measure $0;\n",
+  //             "qubit_mapping": {
+  //               "0": 0
+  //             }
+  //           },
+  //           {
+  //             "job_id": "069bfd54-c3eb-7702-8000-3944ba1e843e",
+  //             "program": "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nbit[2] c;\nrz(pi/2) $1;\nsx $1;\nrz(pi/2) $1;\nc[0] = measure $1;\nc[1] = measure $0;\n",
+  //             "qubit_mapping": {
+  //               "1": 1,
+  //               "0": 2
+  //             }
+  //           }
+  //         ],
+  //         # the numbers of measured qubits in assigned jobs
+  //         "combined_qubits_list": [
+  //           1,
+  //           2
+  //         ],
+  //         "n_total_qubits": 3
+  //       }
+  //     }
+  //   ]
+  string combine_result = 2;
+}

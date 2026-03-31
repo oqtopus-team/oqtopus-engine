@@ -78,6 +78,8 @@ class NullJobRepository(JobRepository):
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
         arcname_ext: str = "",
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """No-op implementation."""
         logger.debug(
@@ -103,6 +105,8 @@ class NullJobRepository(JobRepository):
         self,
         job: Job,
         execution_time: float | None = None,
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """No-op implementation."""
         return None
@@ -111,6 +115,11 @@ class NullJobRepository(JobRepository):
         """No-op implementation."""
         return None
 
-    async def update_job_transpiler_info_nowait(self, job: Job) -> None:
+    async def update_job_transpiler_info_nowait(
+        self,
+        job: Job,
+        *,
+        preserve_order: bool = True,
+    ) -> None:
         """No-op implementation."""
         return None

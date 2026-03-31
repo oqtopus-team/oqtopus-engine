@@ -195,6 +195,77 @@ Valid:
 
 If a step violates these constraints, the engine will raise a `TypeError` during class construction.
 
+## 5.2 Dynamic Enabling/Disabling via JobContext
+
+The executor reads four optional keys from `jctx` to gate split and join
+execution at runtime.  For each operation the skip key is checked **before**
+the enabled key.
+
+| Key | Type | Effect when absent | Effect when present |
+|---|---|---|---|
+| `split_skip_steps` | `set[str]` | No steps skipped | Steps whose `__class__.__name__` is in the set are **never** split |
+| `split_enabled_steps` | `set[str]` | All splits are executed (default) | Only steps whose `__class__.__name__` is in the set are split |
+| `join_skip_steps` | `set[str]` | No steps skipped | Steps whose `__class__.__name__` is in the set are **never** joined |
+| `join_enabled_steps` | `set[str]` | All joins are executed (default) | Only steps whose `__class__.__name__` is in the set are joined |
+
+### Precedence rules
+
+When both the skip key and the enabled key are present, the skip key takes
+priority:
+
+1. If the step's class name is in `split_skip_steps` → split is **disabled**
+   (regardless of `split_enabled_steps`).
+2. Otherwise, if `split_enabled_steps` is absent → split is **enabled**.
+3. Otherwise → split is enabled only if the class name is in
+   `split_enabled_steps`.
+
+The same three-step rule applies to `join_skip_steps` / `join_enabled_steps`.
+
+### Usage example
+
+```python
+# Disable all splits and joins for this job.
+jctx = JobContext(initial={
+    "split_enabled_steps": set(),
+    "join_enabled_steps": set(),
+})
+
+# Enable split only for MySplitStep.
+jctx = JobContext(initial={
+    "split_enabled_steps": {"MySplitStep"},
+})
+
+# Skip split for a specific step while keeping all others enabled.
+jctx = JobContext(initial={
+    "split_skip_steps": {"MySplitStep"},
+})
+
+# Skip join for a specific step while keeping all others enabled.
+jctx = JobContext(initial={
+    "join_skip_steps": {"MyJoinStep"},
+})
+
+# skip takes priority: MySplitStep is skipped even though it appears
+# in split_enabled_steps.
+jctx = JobContext(initial={
+    "split_skip_steps": {"MySplitStep"},
+    "split_enabled_steps": {"MySplitStep", "OtherSplitStep"},
+})
+```
+
+### Caveats
+
+- **Split disabled, children created**: If a step's `pre_process` or
+  `post_process` populates `job.children` / `jctx.children` but the split
+  is disabled, those children are silently ignored.  Cleaning them up is
+  the responsibility of the step implementation.
+
+- **Join enabled without a preceding split**: If `join_enabled_steps`
+  contains a step name but no split has occurred (so the root job reaches
+  the join step directly), the executor will raise a `RuntimeError` because
+  `job.parent` is `None`.  This is expected behavior and must be avoided by
+  ensuring that split and join configuration are always consistent.
+
 ## 6. JobContext Usage
 
 ### 6.1 How JobContext Participates in Split/Join

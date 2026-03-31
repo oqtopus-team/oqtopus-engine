@@ -40,7 +40,6 @@ class Engine:
         logger.info("gctx.config=%s", mask_sensitive_info(self._gctx.config))
 
         # Initialize the DI container
-        logger.error("di_container.config=%s", self._gctx.config["di_container"])
         self._dicon = DiContainer(**self._gctx.config["di_container"])
 
         # Build the pipeline executor using the PipelineBuilder

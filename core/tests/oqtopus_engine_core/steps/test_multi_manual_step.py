@@ -80,7 +80,7 @@ def test_divide_string_by_lengths(input_str, lengths, expected, error):
                 "0110": 32,
                 "1011": 64,
             },
-            [3, 1],
+            [1, 3],
             {
                 "0001": 1,
                 "0100": 2,
@@ -137,14 +137,14 @@ def test_divide_result(
         result=job_result,
         operator=[],
     )
-    jctx = {"combined_qubits_list": combined_qubits_list}
     if error:
         with pytest.raises(ValueError) as e:
-            divide_result(job=job, jctx=jctx)
+            divide_result(job=job, combined_qubits_list=combined_qubits_list)
         assert error in str(e.value)
     else:
         divided_counts = divide_result(
-            job=job, jctx=jctx
+            job=job,
+            combined_qubits_list=combined_qubits_list,
         )
         assert job.result.sampling.counts == expected_counts
         assert divided_counts == expected_divided

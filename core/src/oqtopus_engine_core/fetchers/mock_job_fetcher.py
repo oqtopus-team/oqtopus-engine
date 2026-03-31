@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+from uuid_extensions import uuid7
+
 from oqtopus_engine_core.framework import Job, JobContext, JobFetcher, OperatorItem
 from oqtopus_engine_core.framework.job_fetcher import wait_until_fetchable
 
@@ -68,7 +70,7 @@ class MockJobFetcher(JobFetcher):
                 for index in range(self._limit):
                     # sampling
                     job = Job(
-                        job_id=f"{count}-{index}",
+                        job_id=f"sampling-{uuid7(as_type='str')}-{count}-{index}",
                         device_id="qulacs",
                         shots=1000,
                         job_type="sampling",
@@ -88,7 +90,7 @@ class MockJobFetcher(JobFetcher):
 
                     # mitigation
                     job = Job(
-                        job_id=f"{count}-{index}",
+                        job_id=f"mitigation-{uuid7(as_type='str')}-{count}-{index}",
                         device_id="qulacs",
                         shots=1000,
                         job_type="sampling",
@@ -107,7 +109,7 @@ class MockJobFetcher(JobFetcher):
 
                     # estimation
                     job = Job(
-                        job_id=f"{count}-{index}",
+                        job_id=f"estimation-{uuid7(as_type='str')}-{count}-{index}",
                         device_id="qulacs",
                         shots=1000,
                         job_type="estimation",
@@ -128,7 +130,7 @@ class MockJobFetcher(JobFetcher):
 
                     # multi_manual
                     job = Job(
-                        job_id=f"{count}-{index}",
+                        job_id=f"multi-manual-{uuid7(as_type='str')}-{count}-{index}",
                         device_id="qulacs",
                         shots=1000,
                         job_type="multi_manual",
