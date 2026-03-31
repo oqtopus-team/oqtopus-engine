@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from oqtopus_engine_core.framework.model import Job, JobInfo
+from oqtopus_engine_core.framework.model import Job
 from oqtopus_engine_core.repositories.oqtopus_cloud_job_repository import (
     OqtopusCloudJobRepository,
 )
@@ -21,7 +21,7 @@ def make_test_job(job_id: str = "job-1") -> Job:
         job_type="sampling",
         device_id="test-device",
         shots=1,
-        job_info=JobInfo(program=[]),
+        program=[],
         transpiler_info={},
         simulator_info={},
         mitigation_info={},
