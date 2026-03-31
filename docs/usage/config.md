@@ -4,7 +4,7 @@ This page describes the configuration files used to customize the behavior of OQ
 
 ## config.yaml
 
-This is the configuration file for the core engine (`oqtopus-engine-core`). It defines the pipeline steps, dependency injection container settings, fetchers, repositories, buffers, and exception handlers used by the core processing pipeline.
+This is the configuration file for the core engine (`oqtopus-engine-core`).
 
 ```yaml
 # Pipeline Executor Configuration (get instances from DI container)
@@ -147,7 +147,7 @@ di_container:
 
 ## sse_engine_config.yaml
 
-This is the configuration file for the SSE (Secure Supercomputer Execution) engine. It defines the pipeline steps and dependency injection settings specific to the SSE engine, where job fetching is handled via the SSE engine gateway and job/device repositories are set to null implementations.
+This is the configuration file for the SSE engine.
 
 ```yaml
 # Pipeline Executor Configuration (get instances from DI container)
