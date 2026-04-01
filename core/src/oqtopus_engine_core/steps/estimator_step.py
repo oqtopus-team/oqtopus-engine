@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 ESTIMATION_JOIN_INFO_KEY = "estimation_join_info"
 ESTIMATION_CHILD_INDEX_KEY = "estimation_child_index"
+ESTIMATOR_STEP_NAME = "EstimatorStep"
 
 
 class EstimationJoinInfo:
@@ -45,6 +46,15 @@ def _is_split_child_context(jctx: JobContext) -> bool:
 
     """
     return jctx.get("has_actual_parent", False)
+
+
+def _add_skip_step(jctx: JobContext, key: str, step_name: str) -> None:
+    """Mark a step as skipped for split/join gating in the pipeline executor."""
+    skip_steps = jctx.get(key)
+    if skip_steps is None:
+        skip_steps = set()
+        jctx[key] = skip_steps
+    skip_steps.add(step_name)
 
 
 def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
@@ -130,6 +140,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
 
         """
         if job.job_type != "estimation":
+            _add_skip_step(jctx, "split_skip_steps", ESTIMATOR_STEP_NAME)
             logger.debug(
                 "job_type is not 'estimation', skipping pre_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
@@ -137,6 +148,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             return
 
         if _is_split_child_context(jctx):
+            _add_skip_step(jctx, "split_skip_steps", ESTIMATOR_STEP_NAME)
             logger.debug(
                 "estimation child skips pre_process body",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
@@ -208,6 +220,8 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
     ) -> None:
         """Gate post-process so only split child jobs reach the join point."""
         if job.job_type != "estimation":
+            if not _is_split_child_context(jctx):
+                _add_skip_step(jctx, "join_skip_steps", ESTIMATOR_STEP_NAME)
             logger.debug(
                 "job_type is not 'estimation', skipping post_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
@@ -215,6 +229,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             return
 
         if not _is_split_child_context(jctx):
+            _add_skip_step(jctx, "join_skip_steps", ESTIMATOR_STEP_NAME)
             logger.debug(
                 "parent estimation job skips join gate post_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},

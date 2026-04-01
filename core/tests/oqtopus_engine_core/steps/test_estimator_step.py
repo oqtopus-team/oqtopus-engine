@@ -21,6 +21,7 @@ from oqtopus_engine_core.framework.pipeline import StepPhase
 from oqtopus_engine_core.steps.estimator_step import (
     ESTIMATION_CHILD_INDEX_KEY,
     ESTIMATION_JOIN_INFO_KEY,
+    ESTIMATOR_STEP_NAME,
     EstimationJoinInfo,
     EstimatorStep,
 )
@@ -277,3 +278,18 @@ async def test_non_estimation_jobs_are_skipped(
 
     estimator_step_instance._stub.ReqEstimationPreProcess.assert_not_awaited()
     estimator_step_instance._stub.ReqEstimationPostProcess.assert_not_awaited()
+    assert ESTIMATOR_STEP_NAME in jctx["split_skip_steps"]
+    assert ESTIMATOR_STEP_NAME in jctx["join_skip_steps"]
+
+
+@pytest.mark.asyncio
+async def test_estimation_parent_skips_join_gate(
+    estimator_step_instance: EstimatorStep,
+) -> None:
+    gctx = MagicMock()
+    jctx = JobContext(initial={})
+    job = _make_estimation_job("job-6")
+
+    await estimator_step_instance.post_process(gctx, jctx, job)
+
+    assert ESTIMATOR_STEP_NAME in jctx["join_skip_steps"]
