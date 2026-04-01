@@ -7,7 +7,6 @@ import pytest
 
 from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.framework import (
-    HAS_ACTUAL_CHILDREN_KEY,
     Job,
     JobContext,
     JobInfo,
@@ -82,7 +81,8 @@ async def test_pre_process_calls_grpc_and_creates_children(
     assert len(jctx.children) == 2
     assert join_info.child_order == [child.job_id for child in job.children]
     assert all(child.job_type == "sampling" for child in job.children)
-    assert jctx.children[0][HAS_ACTUAL_CHILDREN_KEY] is False
+    assert "has_actual_children" not in jctx.children[0]
+    assert jctx.children[0]["has_actual_parent"] is True
     assert jctx.children[0][ESTIMATION_CHILD_INDEX_KEY] == 0
     assert jctx.children[1][ESTIMATION_CHILD_INDEX_KEY] == 1
 
@@ -204,8 +204,7 @@ class FakeSamplingExecutionStep(Step):
 
     async def post_process(self, gctx, jctx, job):
         if (
-            HAS_ACTUAL_CHILDREN_KEY in jctx
-            and not jctx.get(HAS_ACTUAL_CHILDREN_KEY, False)
+            jctx.get("has_actual_parent", False)
         ):
             index = jctx[ESTIMATION_CHILD_INDEX_KEY]
             job.job_info.result = JobResult(

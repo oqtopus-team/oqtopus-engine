@@ -8,7 +8,6 @@ import grpc
 from oqtopus_engine_core.framework import (
     EstimationResult,
     GlobalContext,
-    HAS_ACTUAL_CHILDREN_KEY,
     Job,
     JobContext,
     JobInfo,
@@ -40,10 +39,7 @@ class EstimationJoinInfo:
 
 def _is_split_child_context(jctx: JobContext) -> bool:
     """Return True only for contexts explicitly marked as split children."""
-    return (
-        HAS_ACTUAL_CHILDREN_KEY in jctx
-        and not jctx.get(HAS_ACTUAL_CHILDREN_KEY, False)
-    )
+    return jctx.get("has_actual_parent", False)
 
 
 def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
@@ -169,7 +165,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             child_ctxs.append(
                 JobContext(
                     initial={
-                        HAS_ACTUAL_CHILDREN_KEY: False,
+                        "has_actual_parent": True,
                         ESTIMATION_CHILD_INDEX_KEY: index,
                     }
                 )

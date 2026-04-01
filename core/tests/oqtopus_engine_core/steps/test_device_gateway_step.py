@@ -108,3 +108,35 @@ async def test_pre_process_estimation_job_raises_configuration_error(
         match="estimation jobs must be split before reaching device gateway",
     ):
         await gateway_step.pre_process(gctx, {}, job)
+
+
+@pytest.mark.asyncio
+async def test_pre_process_internal_child_skips_repository_status_update(
+    gateway_step: DeviceGatewayStep,
+) -> None:
+    gctx = MagicMock()
+    gctx.job_repository.update_job_status_nowait = AsyncMock()
+    job = _make_job("sampling")
+
+    await gateway_step.pre_process(gctx, {"has_actual_parent": True}, job)
+
+    gctx.job_repository.update_job_status_nowait.assert_not_awaited()
+    gateway_step._stub.CallJob.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pre_process_parent_updates_children_repository_statuses(
+    gateway_step: DeviceGatewayStep,
+) -> None:
+    gctx = MagicMock()
+    gctx.job_repository.update_job_status_nowait = AsyncMock()
+    child_a = _make_job("sampling")
+    child_a.job_id = "child-a"
+    child_b = _make_job("sampling")
+    child_b.job_id = "child-b"
+    parent = _make_job("sampling")
+    parent.children = [child_a, child_b]
+
+    await gateway_step.pre_process(gctx, {"has_actual_children": True}, parent)
+
+    assert gctx.job_repository.update_job_status_nowait.await_count == 2

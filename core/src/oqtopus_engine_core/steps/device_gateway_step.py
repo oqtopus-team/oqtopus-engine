@@ -71,10 +71,17 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
         async with self._execution_lock:
             start = time.perf_counter()
 
-            # Update externally visible job status only for non-internal jobs.
-            if not jctx.get(INTERNAL_JOB_KEY):
-                job.status = "running"
-                await gctx.job_repository.update_job_status_nowait(job)
+            # Update job status for the combined children if this job is a parent,
+            # otherwise update only the current job.
+            if jctx.get("has_actual_children", False):
+                await self._update_jobs_status(gctx, job.children)
+            elif jctx.get("has_actual_parent", False):
+                logger.info(
+                    "skip repository status update for internal child job",
+                    extra={"job_id": job.job_id, "job_type": job.job_type},
+                )
+            else:
+                await self._update_jobs_status(gctx, [job])
 
             # Check device status immediately before using the gateway.
             service_status = await self._stub.GetServiceStatus(
