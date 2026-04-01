@@ -162,7 +162,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         child_ctxs: list[JobContext] = []
         child_order: list[str] = []
         for index, program in enumerate(response.qasm_codes):
-            child_job_id = f"{job.job_id}-estimation-child-{index}"
+            child_job_id = f"{job.job_id}-{index}"
             child_jobs.append(
                 _build_child_job(job, child_job_id=child_job_id, program=program)
             )

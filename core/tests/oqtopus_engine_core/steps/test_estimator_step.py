@@ -133,7 +133,7 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     parent_job = _make_estimation_job("job-4")
     parent_job.children = [
         Job(
-            job_id="job-4-estimation-child-1",
+            job_id="job-4-1",
             job_type="sampling",
             device_id="device-1",
             shots=100,
@@ -149,7 +149,7 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
             execution_time=0.4,
         ),
         Job(
-            job_id="job-4-estimation-child-0",
+            job_id="job-4-0",
             job_type="sampling",
             device_id="device-1",
             shots=100,
@@ -169,8 +169,8 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     join_info = EstimationJoinInfo()
     join_info.grouped_operators = [[["ZZ"]], [[1.0]]]
     join_info.child_order = [
-        "job-4-estimation-child-0",
-        "job-4-estimation-child-1",
+        "job-4-0",
+        "job-4-1",
     ]
     join_info.started_at = time.perf_counter() - 0.25
     parent_jctx = JobContext(initial={ESTIMATION_JOIN_INFO_KEY: join_info})
