@@ -69,7 +69,7 @@ class ReadoutErrorMitigationStep(Step):
     async def post_process(
         self,
         gctx: GlobalContext,
-        jctx: JobContext,
+        jctx: JobContext,  # noqa: ARG002
         job: Job,
     ) -> None:
         """Post-process the job by sending a request to mitigator service via gRPC.

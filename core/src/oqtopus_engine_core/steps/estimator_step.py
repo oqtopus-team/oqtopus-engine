@@ -38,17 +38,29 @@ class EstimationJoinInfo:
 
 
 def _is_split_child_context(jctx: JobContext) -> bool:
-    """Return True only for contexts explicitly marked as split children."""
+    """Return True only for contexts explicitly marked as split children.
+
+    Returns:
+        True when the context belongs to an internal split child job.
+
+    """
     return jctx.get("has_actual_parent", False)
 
 
 def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
-    """Build the base QASM and mapping list for estimator preprocess."""
+    """Build the base QASM and mapping list for estimator preprocess.
+
+    Returns:
+        A tuple of transpilation-ready QASM and the qubit mapping list.
+
+    """
     if job.job_info.transpile_result is None:
         return job.job_info.program[0], []
 
     transpile_result = job.job_info.transpile_result
-    virtual_physical_mapping = transpile_result.virtual_physical_mapping["qubit_mapping"]
+    virtual_physical_mapping = transpile_result.virtual_physical_mapping[
+        "qubit_mapping"
+    ]
     sorted_vpm = sorted(
         virtual_physical_mapping.items(),
         key=lambda item: int(item[0]),
@@ -58,7 +70,12 @@ def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
 
 
 def _build_child_job(parent_job: Job, *, child_job_id: str, program: str) -> Job:
-    """Create an internal sampling child job for a single measurement circuit."""
+    """Create an internal sampling child job for a single measurement circuit.
+
+    Returns:
+        A sampling child job derived from the estimation parent job.
+
+    """
     return Job(
         job_id=child_job_id,
         name=parent_job.name,
@@ -106,6 +123,12 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         jctx: JobContext,
         job: Job,
     ) -> None:
+        """Split an estimation job into sampling child jobs during pre-process.
+
+        Raises:
+            ValueError: If the estimation operator is not specified.
+
+        """
         if job.job_type != "estimation":
             logger.debug(
                 "job_type is not 'estimation', skipping pre_process",
@@ -177,12 +200,13 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         job.children = child_jobs
         jctx.children = child_ctxs
 
-    async def post_process(
+    async def post_process(  # noqa: PLR6301
         self,
         gctx: GlobalContext,  # noqa: ARG002
         jctx: JobContext,
         job: Job,
     ) -> None:
+        """Gate post-process so only split child jobs reach the join point."""
         if job.job_type != "estimation":
             logger.debug(
                 "job_type is not 'estimation', skipping post_process",
@@ -204,12 +228,20 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         parent_job: Job,
         last_child: Job,
     ) -> None:
+        """Aggregate child sampling results into the parent estimation result.
+
+        Raises:
+            RuntimeError: If join metadata or child sampling counts are missing.
+
+        """
         join_info: EstimationJoinInfo | None = parent_jctx.get(ESTIMATION_JOIN_INFO_KEY)
         if join_info is None or join_info.grouped_operators is None:
             message = "estimation_join_info is not initialized"
             raise RuntimeError(message)
 
-        child_order = join_info.child_order or [child.job_id for child in parent_job.children]
+        child_order = join_info.child_order or [
+            child.job_id for child in parent_job.children
+        ]
         child_by_id = {child.job_id: child for child in parent_job.children}
 
         counts_pb_list = []
