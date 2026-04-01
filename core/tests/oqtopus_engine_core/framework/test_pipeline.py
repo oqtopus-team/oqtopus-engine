@@ -7,6 +7,7 @@ from oqtopus_engine_core.framework.buffer import Buffer
 from oqtopus_engine_core.framework.context import GlobalContext, JobContext
 from oqtopus_engine_core.framework.model import Job, JobInfo
 from oqtopus_engine_core.framework.pipeline import (
+    HAS_ACTUAL_CHILDREN_KEY,
     PipelineExecutor,
     StepPhase,
 )
@@ -173,14 +174,17 @@ class SplitJoinSameStep(Step, SplitOnPreprocess, JoinOnPostprocess):
     """Split in pre-process and join on this same step in post-process."""
 
     async def pre_process(self, gctx, jctx, job):
-        if jctx.get("internal_job"):
+        if (
+            HAS_ACTUAL_CHILDREN_KEY in jctx
+            and not jctx.get(HAS_ACTUAL_CHILDREN_KEY, False)
+        ):
             return
 
         child_jobs = []
         child_ctxs = []
         for i in range(2):
             c_job = make_test_job(job_id=f"{job.job_id}-child{i}", job_type=job.job_type)
-            c_jctx = JobContext(initial={"internal_job": True})
+            c_jctx = JobContext(initial={HAS_ACTUAL_CHILDREN_KEY: False})
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
 

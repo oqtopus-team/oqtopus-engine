@@ -8,6 +8,7 @@ import grpc
 from oqtopus_engine_core.framework import (
     EstimationResult,
     GlobalContext,
+    HAS_ACTUAL_CHILDREN_KEY,
     Job,
     JobContext,
     JobInfo,
@@ -25,7 +26,6 @@ from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
 logger = logging.getLogger(__name__)
 
 ESTIMATION_JOIN_INFO_KEY = "estimation_join_info"
-INTERNAL_JOB_KEY = "internal_job"
 ESTIMATION_CHILD_INDEX_KEY = "estimation_child_index"
 
 
@@ -36,6 +36,14 @@ class EstimationJoinInfo:
     child_order: list[str] | None = None
     started_at: float | None = None
     internal_children: bool = True
+
+
+def _is_split_child_context(jctx: JobContext) -> bool:
+    """Return True only for contexts explicitly marked as split children."""
+    return (
+        HAS_ACTUAL_CHILDREN_KEY in jctx
+        and not jctx.get(HAS_ACTUAL_CHILDREN_KEY, False)
+    )
 
 
 def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
@@ -109,9 +117,9 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             )
             return
 
-        if jctx.get(INTERNAL_JOB_KEY):
+        if _is_split_child_context(jctx):
             logger.debug(
-                "internal estimation child skips pre_process body",
+                "estimation child skips pre_process body",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
             return
@@ -161,7 +169,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             child_ctxs.append(
                 JobContext(
                     initial={
-                        INTERNAL_JOB_KEY: True,
+                        HAS_ACTUAL_CHILDREN_KEY: False,
                         ESTIMATION_CHILD_INDEX_KEY: index,
                     }
                 )
@@ -186,7 +194,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             )
             return
 
-        if not jctx.get(INTERNAL_JOB_KEY):
+        if not _is_split_child_context(jctx):
             logger.debug(
                 "parent estimation job skips join gate post_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},

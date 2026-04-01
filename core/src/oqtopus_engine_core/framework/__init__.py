@@ -16,7 +16,7 @@ from .model import (
     SamplingResult,
     TranspileResult,
 )
-from .pipeline import PipelineExecutor
+from .pipeline import HAS_ACTUAL_CHILDREN_KEY, PipelineExecutor
 from .pipeline_builder import PipelineBuilder
 from .step import (
     DetachOnPostprocess,
@@ -38,6 +38,7 @@ __all__ = [
     "Engine",
     "EstimationResult",
     "GlobalContext",
+    "HAS_ACTUAL_CHILDREN_KEY",
     "Job",
     "JobContext",
     "JobFetcher",

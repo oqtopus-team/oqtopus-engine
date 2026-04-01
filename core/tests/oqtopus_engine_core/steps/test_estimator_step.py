@@ -7,6 +7,7 @@ import pytest
 
 from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.framework import (
+    HAS_ACTUAL_CHILDREN_KEY,
     Job,
     JobContext,
     JobInfo,
@@ -21,7 +22,6 @@ from oqtopus_engine_core.framework.pipeline import StepPhase
 from oqtopus_engine_core.steps.estimator_step import (
     ESTIMATION_CHILD_INDEX_KEY,
     ESTIMATION_JOIN_INFO_KEY,
-    INTERNAL_JOB_KEY,
     EstimationJoinInfo,
     EstimatorStep,
 )
@@ -82,7 +82,7 @@ async def test_pre_process_calls_grpc_and_creates_children(
     assert len(jctx.children) == 2
     assert join_info.child_order == [child.job_id for child in job.children]
     assert all(child.job_type == "sampling" for child in job.children)
-    assert jctx.children[0][INTERNAL_JOB_KEY] is True
+    assert jctx.children[0][HAS_ACTUAL_CHILDREN_KEY] is False
     assert jctx.children[0][ESTIMATION_CHILD_INDEX_KEY] == 0
     assert jctx.children[1][ESTIMATION_CHILD_INDEX_KEY] == 1
 
@@ -201,7 +201,10 @@ class FakeSamplingExecutionStep(Step):
         """Populate counts for internal sampling children."""
 
     async def post_process(self, gctx, jctx, job):
-        if jctx.get(INTERNAL_JOB_KEY):
+        if (
+            HAS_ACTUAL_CHILDREN_KEY in jctx
+            and not jctx.get(HAS_ACTUAL_CHILDREN_KEY, False)
+        ):
             index = jctx[ESTIMATION_CHILD_INDEX_KEY]
             job.job_info.result = JobResult(
                 sampling=SamplingResult(counts={f"{index}": index + 1})

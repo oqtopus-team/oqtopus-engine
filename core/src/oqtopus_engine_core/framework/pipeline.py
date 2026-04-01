@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+HAS_ACTUAL_CHILDREN_KEY = "has_actual_children"
+
 
 class StepPhase(StrEnum):
     """Execution phase of a pipeline step."""
@@ -610,6 +612,7 @@ class PipelineExecutor:
         # ------------------------------------------------------------
         parent_id = job.job_id
         child_count = len(job.children)
+        jctx[HAS_ACTUAL_CHILDREN_KEY] = True
         async with self._pending_children_lock:
             # Overwrite is allowed but indicates a nested split on the same parent.
             # For now we just log it to make debugging easier.
@@ -642,6 +645,7 @@ class PipelineExecutor:
             # Establish parent link
             child_job.parent = job
             child_jctx.parent = jctx
+            child_jctx.setdefault(HAS_ACTUAL_CHILDREN_KEY, False)
 
             # Enqueue child pipelines as coroutines; they will run concurrently
             # via asyncio.gather below.
