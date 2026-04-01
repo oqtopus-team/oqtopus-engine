@@ -146,6 +146,7 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
             simulator_info={},
             mitigation_info={},
             status="running",
+            execution_time=0.4,
         ),
         Job(
             job_id="job-4-estimation-child-0",
@@ -161,6 +162,7 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
             simulator_info={},
             mitigation_info={},
             status="running",
+            execution_time=0.3,
         ),
     ]
 
@@ -192,7 +194,7 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     assert json.loads(request.grouped_operators) == [[["ZZ"]], [[1.0]]]
     assert parent_job.job_info.result.estimation.exp_value == 0.25
     assert parent_job.job_info.result.estimation.stds == 0.05
-    assert parent_job.execution_time is not None
+    assert parent_job.execution_time == 0.7
     assert parent_job.job_info.message == "child-0-message"
 
 

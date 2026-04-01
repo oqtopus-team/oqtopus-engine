@@ -262,8 +262,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             parent_job.job_info.result.estimation = EstimationResult()
         parent_job.job_info.result.estimation.exp_value = float(response.expval)
         parent_job.job_info.result.estimation.stds = float(response.stds)
-        if join_info.started_at is not None:
-            parent_job.execution_time = float(
-                f"{time.perf_counter() - join_info.started_at:.3f}"
-            )
+        parent_job.execution_time = float(
+            f"{sum(child.execution_time or 0.0 for child in parent_job.children):.3f}"
+        )
         parent_job.job_info.message = last_child.job_info.message
