@@ -1,6 +1,6 @@
 [project]
 name = "sse-runtime"
-version = "2.0.2"
+version = "2.0.3"
 description = "SSE Runtime: A runtime container for SSE"
 license = "Apache-2.0"
 authors = [{ name = "oqtopus-team", email = "oqtopus-team@googlegroups.com" }]

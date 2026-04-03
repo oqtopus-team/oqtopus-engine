@@ -2,6 +2,10 @@ version = 1
 revision = 3
 requires-python = ">=3.13, <4.0"
 
+[options]
+exclude-newer = "2026-03-27T06:07:20.82525758Z"
+exclude-newer-span = "P1W"
+
 [[package]]
 name = "absl-py"
 version = "2.3.1"
@@ -527,7 +531,7 @@ parser = [
 
 [[package]]
 name = "oqtopus-engine-combiner"
-version = "2.0.2"
+version = "2.0.3"
 source = { editable = "." }
 dependencies = [
     { name = "grpcio" },
