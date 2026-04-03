@@ -1,6 +1,6 @@
 [project]
 name = "oqtopus-engine-combiner"
-version = "2.0.2"
+version = "2.0.3"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "oqtopus-team", email = "oqtopus-team@googlegroups.com" }]
