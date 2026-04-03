@@ -2,6 +2,10 @@ version = 1
 revision = 3
 requires-python = ">=3.13, <4.0"
 
+[options]
+exclude-newer = "2026-03-27T06:06:37.419353239Z"
+exclude-newer-span = "P1W"
+
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -306,7 +310,7 @@ parser = [
 
 [[package]]
 name = "oqtopus-engine-mitigator"
-version = "2.0.2"
+version = "2.0.3"
 source = { editable = "." }
 dependencies = [
     { name = "grpcio" },
