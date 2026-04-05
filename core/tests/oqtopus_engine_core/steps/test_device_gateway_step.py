@@ -90,7 +90,8 @@ async def test_pre_process_internal_jobs_serialize_gateway_execution(
         gateway_step.pre_process(gctx, jctx, job_b),
     )
 
-    assert max_active_calls == 1
+    assert max_active_calls == 2
+    assert gctx.job_repository.update_job_status_nowait.await_count == 2
     assert job_a.job_info.message == "child-a"
     assert job_b.job_info.message == "child-b"
 
@@ -140,3 +141,50 @@ async def test_pre_process_parent_updates_children_repository_statuses(
     await gateway_step.pre_process(gctx, {"has_actual_children": True}, parent)
 
     assert gctx.job_repository.update_job_status_nowait.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_pre_process_parent_job_updates_status_only_once(
+    gateway_step: DeviceGatewayStep,
+) -> None:
+    # Setup: Mock the job repository
+    gctx = MagicMock()
+    gctx.job_repository.update_job_status_nowait = AsyncMock()
+
+    # Create child jobs
+    child_a = _make_job("sampling")
+    child_a.job_id = "child-a"
+    child_b = _make_job("sampling")
+    child_b.job_id = "child-b"
+
+    # Create parent job and associate children
+    parent = _make_job("sampling")
+    parent.job_id = "parent-job"
+    parent.status = "ready"
+    parent.children = [child_a, child_b]
+    child_a.parent = parent
+    child_b.parent = parent
+
+    jctx = {"has_actual_parent": True}
+
+    # Execute: Set context flag to indicate this is a parent job with children
+    await gateway_step.pre_process(gctx, {"has_actual_parent": True}, child_a)
+    await gateway_step.pre_process(gctx, {"has_actual_parent": True}, child_b)
+
+    # Verification 1: Ensure repository update is called exactly once for the parent
+    # If the implementation incorrectly updates for each child, this will fail.
+    gctx.job_repository.update_job_status_nowait.assert_awaited_once_with(parent)
+
+    # Verification 2: Explicitly check that the argument was the parent object
+    calls = gctx.job_repository.update_job_status_nowait.await_args_list
+    assert len(calls) == 1
+    assert calls[0].args[0] == parent
+    assert calls[0].args[0].job_id == "parent-job"
+
+    # Verification 3: Confirm that the QPU (stub) was still called for each child
+    # (Assuming the logic is to call the device for each child job)
+    assert gateway_step._stub.CallJob.await_count == 2
+
+    # Verification 4: Verify the parent job's status is updated to "running"
+    # This ensures the parent state reflects that its sub-tasks are in progress or completed
+    assert parent.status == "running"
