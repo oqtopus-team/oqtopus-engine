@@ -17,6 +17,7 @@ from oqtopus_engine_core.framework import (
     Step,
 )
 from oqtopus_engine_core.framework.context import GlobalContext
+from oqtopus_engine_core.framework.model import TranspileResult
 from oqtopus_engine_core.framework.pipeline import StepPhase
 from oqtopus_engine_core.steps.estimator_step import (
     ESTIMATION_CHILD_INDEX_KEY,
@@ -96,8 +97,9 @@ async def test_pre_process_uses_transpile_mapping_in_sorted_order(
     jctx = JobContext(initial={})
     job = _make_estimation_job("job-2")
     job.job_info.program = ["unused"]
-    job.job_info.transpile_result = SimpleNamespace(
+    job.job_info.transpile_result = TranspileResult(
         transpiled_program="TRANSPILED",
+        stats={},
         virtual_physical_mapping={"qubit_mapping": {"1": 0, "0": 2}},
     )
 

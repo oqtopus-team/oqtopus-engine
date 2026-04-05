@@ -17,6 +17,7 @@ from oqtopus_engine_core.framework import (
     SplitOnPreprocess,
     Step,
 )
+from oqtopus_engine_core.framework.model import TranspileResult
 from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
     estimator_pb2,
     estimator_pb2_grpc,
@@ -79,13 +80,24 @@ def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
     return transpile_result.transpiled_program, mapping_list
 
 
-def _build_child_job(parent_job: Job, *, child_job_id: str, program: str) -> Job:
+def _build_child_job(
+        parent_job: Job,
+        *,
+        child_job_id: str,
+        program: str,
+        transpile_result: TranspileResult
+    ) -> Job:
     """Create an internal sampling child job for a single measurement circuit.
 
     Returns:
         A sampling child job derived from the estimation parent job.
 
     """
+    child_transpile_result = deepcopy(transpile_result) if transpile_result else None
+    if child_transpile_result and transpile_result.transpiled_program:
+        # Update the transpiled program to the child's specific circuit
+        child_transpile_result.transpiled_program = program
+
     return Job(
         job_id=child_job_id,
         name=parent_job.name,
@@ -96,6 +108,7 @@ def _build_child_job(parent_job: Job, *, child_job_id: str, program: str) -> Job
         job_info=JobInfo(
             program=[program],
             result=JobResult(sampling=SamplingResult()),
+            transpile_result=child_transpile_result,
             message=parent_job.job_info.message,
         ),
         transpiler_info=deepcopy(parent_job.transpiler_info),
@@ -195,7 +208,12 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         for index, program in enumerate(response.qasm_codes):
             child_job_id = f"{job.job_id}-estimation-{index}"
             child_jobs.append(
-                _build_child_job(job, child_job_id=child_job_id, program=program)
+                _build_child_job(
+                    job,
+                    child_job_id=child_job_id,
+                    program=program,
+                    transpile_result=job.job_info.transpile_result
+                )
             )
             child_ctxs.append(
                 JobContext(
