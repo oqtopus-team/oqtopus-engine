@@ -610,7 +610,6 @@ class PipelineExecutor:
         # ------------------------------------------------------------
         parent_id = job.job_id
         child_count = len(job.children)
-        jctx["has_actual_children"] = True
         async with self._pending_children_lock:
             # Overwrite is allowed but indicates a nested split on the same parent.
             # For now we just log it to make debugging easier.
@@ -643,7 +642,6 @@ class PipelineExecutor:
             # Establish parent link
             child_job.parent = job
             child_jctx.parent = jctx
-            child_jctx.setdefault("has_actual_parent", True)
 
             # Enqueue child pipelines as coroutines; they will run concurrently
             # via asyncio.gather below.
