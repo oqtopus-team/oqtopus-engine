@@ -639,10 +639,6 @@ class PipelineExecutor:
                 },
             )
 
-            # Establish parent link
-            child_job.parent = job
-            child_jctx.parent = jctx
-
             # Enqueue child pipelines as coroutines; they will run concurrently
             # via asyncio.gather below.
             child_coroutines.append(
