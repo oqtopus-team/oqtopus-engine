@@ -24,6 +24,11 @@ class FailJobRepositoryHandler(PipelineExceptionHandler):
         if jctx.get("has_actual_children", False):
             # if there are child jobs, update their status
             await self._update_jobs_status(ex, gctx, job.children)
+        elif jctx.get("has_actual_parent", False):
+            logger.info(
+                "skip repository failure update for internal child job",
+                extra={"job_id": job.job_id, "job_type": job.job_type},
+            )
         else:
             await self._update_jobs_status(ex, gctx, [job])
 

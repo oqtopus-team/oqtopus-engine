@@ -4,12 +4,9 @@ import pytest
 
 from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.framework.buffer import Buffer
-from oqtopus_engine_core.framework.context import GlobalContext, JobContext
+from oqtopus_engine_core.framework.context import GlobalContext, JobContext, PipelineDirective, link_parent_and_children
 from oqtopus_engine_core.framework.model import Job, JobInfo
-from oqtopus_engine_core.framework.pipeline import (
-    PipelineExecutor,
-    StepPhase,
-)
+from oqtopus_engine_core.framework.pipeline import PipelineExecutor, StepPhase
 from oqtopus_engine_core.framework.step import (
     JoinOnPostprocess,
     JoinOnPreprocess,
@@ -57,8 +54,7 @@ class SplitOnPreStep(Step, SplitOnPreprocess):
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
 
-        job.children = child_jobs
-        jctx.children = child_ctxs
+        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
     async def post_process(self, gctx, jctx, job):
         pass
@@ -79,8 +75,7 @@ class SplitOnPostStep(Step, SplitOnPostprocess):
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
 
-        job.children = child_jobs
-        jctx.children = child_ctxs
+        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
 
 class JoinOnPreStep(Step, JoinOnPreprocess):
@@ -169,6 +164,33 @@ class CountJoinStep(Step, JoinOnPostprocess):
         parent_jctx["joined"] = True
 
 
+class SplitJoinSameStep(Step, SplitOnPreprocess, JoinOnPostprocess):
+    """Split in pre-process and join on this same step in post-process."""
+
+    async def pre_process(self, gctx, jctx, job):
+        if (
+            jctx.get("has_actual_parent", False)
+        ):
+            return
+
+        child_jobs = []
+        child_ctxs = []
+        for i in range(2):
+            c_job = make_test_job(job_id=f"{job.job_id}-child{i}", job_type=job.job_type)
+            c_jctx = JobContext(initial={"has_actual_parent": True})
+            child_jobs.append(c_job)
+            child_ctxs.append(c_jctx)
+
+        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+
+
+    async def post_process(self, gctx, jctx, job):
+        pass
+
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child):
+        parent_jctx["same_step_joined"] = last_child.job_id
+
+
 class TripleSplitStep(Step, SplitOnPreprocess):
     """Generate 3 children during pre-process."""
 
@@ -181,8 +203,8 @@ class TripleSplitStep(Step, SplitOnPreprocess):
             c_job.parent = job
             jobs.append(c_job)
             ctxs.append(c_ctx)
-        job.children = jobs
-        jctx.children = ctxs
+
+        link_parent_and_children(jctx, job, ctxs, jobs)
 
     async def post_process(self, gctx, jctx, job):
         """No-op post-process (required for abstract base class)."""
@@ -496,6 +518,36 @@ async def test_join_jobs_called_once():
         assert child_jctx.step_history == [
             ("pre_process", 1),
             ("post_process", 1),
+        ]
+
+
+@pytest.mark.asyncio
+async def test_same_step_split_pre_and_join_post():
+    """
+    A step combining SplitOnPreprocess and JoinOnPostprocess should be able to
+    receive child callbacks on its own post_process phase.
+    """
+    pipeline = [SplitJoinSameStep(), RecordStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    assert jctx["same_step_joined"] in ("root-child0", "root-child1")
+    assert jctx.step_history == [
+        ("pre_process", 0),
+    ]
+    for child_jctx in jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+            ("post_process", 1),
+            ("post_process", 0),
         ]
 
 
@@ -948,8 +1000,7 @@ async def test_join_disabled_via_empty_enabled_steps():
                 c_jctx = JobContext(initial=initial)
                 child_jobs.append(c_job)
                 child_ctxs.append(c_jctx)
-            job.children = child_jobs
-            jctx.children = child_ctxs
+            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
         async def post_process(self, gctx, jctx, job):
             pass
@@ -1089,8 +1140,7 @@ async def test_join_skip_steps_skips_named_step():
                 c_jctx = JobContext(initial=initial)
                 child_jobs.append(c_job)
                 child_ctxs.append(c_jctx)
-            job.children = child_jobs
-            jctx.children = child_ctxs
+            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
         async def post_process(self, gctx, jctx, job):
             pass
@@ -1138,8 +1188,7 @@ async def test_join_skip_steps_takes_priority_over_enabled_steps():
                 c_jctx = JobContext(initial=initial)
                 child_jobs.append(c_job)
                 child_ctxs.append(c_jctx)
-            job.children = child_jobs
-            jctx.children = child_ctxs
+            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
         async def post_process(self, gctx, jctx, job):
             pass
@@ -1164,3 +1213,135 @@ async def test_join_skip_steps_takes_priority_over_enabled_steps():
     assert "joined" not in jctx
     assert len(jctx.children) == 2
     assert executor._pending_children == {}
+
+
+@pytest.mark.asyncio
+async def test_ignore_split_tracking_skips_pending_children():
+    """
+    When jctx.pipeline_directive is set to IGNORE_SPLIT_TRACKING before a split,
+    _handle_split must NOT register a pending-children counter for the parent job.
+    After the split, _pending_children should remain empty.
+    """
+
+    class SplitWithDirectiveStep(Step, SplitOnPostprocess):
+        """Sets IGNORE_SPLIT_TRACKING directive and then creates children."""
+
+        async def pre_process(self, gctx, jctx, job):
+            pass
+
+        async def post_process(self, gctx, jctx, job):
+            # Signal to the pipeline engine to skip tracking
+            jctx.pipeline_directive = PipelineDirective.IGNORE_SPLIT_TRACKING
+
+            child_jobs = []
+            child_ctxs = []
+            for i in range(2):
+                c_job = make_test_job(job_id=f"{job.job_id}-child{i}", job_type="child")
+                c_jctx = JobContext(initial={})
+                child_jobs.append(c_job)
+                child_ctxs.append(c_jctx)
+            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+
+    pipeline = [SplitWithDirectiveStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext()
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    # No pending-children counter should have been registered.
+    assert executor._pending_children == {}
+    # Children were still created.
+    assert len(jctx.children) == 2
+    # Directive was reset to NONE after use.
+    assert jctx.pipeline_directive is PipelineDirective.NONE
+
+
+@pytest.mark.asyncio
+async def test_ignore_split_tracking_directive_is_consumed_once():
+    """
+    IGNORE_SPLIT_TRACKING must be reset to NONE after the first split so that
+    subsequent splits on the same context use the normal tracking path.
+    """
+
+    class PostSplitWithDirectiveStep(Step, SplitOnPostprocess):
+        """Sets IGNORE_SPLIT_TRACKING on the second (post-process) split."""
+
+        async def pre_process(self, gctx, jctx, job):
+            pass
+
+        async def post_process(self, gctx, jctx, job):
+            jctx.pipeline_directive = PipelineDirective.IGNORE_SPLIT_TRACKING
+            child_jobs = []
+            child_ctxs = []
+            for i in range(2):
+                c_job = make_test_job(job_id=f"{job.job_id}-post-child{i}", job_type="child")
+                c_jctx = JobContext(initial={})
+                child_jobs.append(c_job)
+                child_ctxs.append(c_jctx)
+            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+
+    # Use only the directive step to keep the test simple
+    pipeline = [PostSplitWithDirectiveStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext()
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    # IGNORE_SPLIT_TRACKING was active: no pending-children counter.
+    assert executor._pending_children == {}
+    # Directive was consumed (reset to NONE).
+    assert jctx.pipeline_directive is PipelineDirective.NONE
+
+
+@pytest.mark.asyncio
+async def test_normal_split_tracking_unaffected_by_directive_feature():
+    """
+    A standard split (no directive set) must still register a pending-children
+    counter exactly as before, confirming no regression.
+    """
+
+    class NormalSplitStep(Step, SplitOnPostprocess):
+        """Standard split without any directive."""
+
+        async def pre_process(self, gctx, jctx, job):
+            pass
+
+        async def post_process(self, gctx, jctx, job):
+            child_jobs = []
+            child_ctxs = []
+            for i in range(2):
+                c_job = make_test_job(job_id=f"{job.job_id}-child{i}", job_type="child")
+                c_jctx = JobContext(initial={})
+                child_jobs.append(c_job)
+                child_ctxs.append(c_jctx)
+            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+
+    pipeline = [NormalSplitStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext()
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    # No join step in the pipeline: cascade_cleanup removes the counter.
+    assert executor._pending_children == {}
+    assert len(jctx.children) == 2
+    # Directive remains NONE (was never changed).
+    assert jctx.pipeline_directive is PipelineDirective.NONE
