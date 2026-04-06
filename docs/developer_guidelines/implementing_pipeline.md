@@ -21,7 +21,7 @@ This guide explains:
 - how to implement split steps,
 - how to implement join steps,
 - what constraints apply when combining mixins,
-- how `JobContext` is used across the pipeline,
+- how `JobContext` is used across steps,
 - how to use `PipelineDirective` to communicate execution intent to the engine,
 - practical examples and best practices.
 
@@ -327,8 +327,8 @@ Final accumulated histories:
 
 ### 7.1 Overview
 
-`PipelineDirective` is an enum that a step can set on `jctx` to change the pipeline engine's default behaviour **after** the current step completes.
-It provides a lightweight, one-shot channel from a step implementation to the executor.
+`PipelineDirective` is an enum that a step can set on `jctx` to change the pipeline executor's default behaviour **after** the current step completes.
+It provides a lightweight, one-shot channel from a step implementation to the pipeline executor.
 
 ```python
 from oqtopus_engine_core.framework import PipelineDirective
@@ -337,7 +337,7 @@ from oqtopus_engine_core.framework import PipelineDirective
 Available values:
 
 | Value | Effect |
-|---|---|
+| ----- | ------ |
 | `PipelineDirective.NONE` | Default — no change to executor behaviour |
 | `PipelineDirective.IGNORE_SPLIT_TRACKING` | After splitting, skip registration of the pending-children counter for the parent job |
 
@@ -350,7 +350,7 @@ Without it, the executor registers a `_pending_children` counter for the parent 
 
 #### When to use
 
-- The step spreads results to child jobs in its `post_process()` and then allows the children to complete their own pipelines independently.
+- The step spreads results to child jobs in its `pre_process()` or `post_process()` and then allows the children to complete their own pipelines independently.
 - No `JoinOn*` mixin is present downstream for these children.
 
 #### How to use
