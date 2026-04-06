@@ -74,6 +74,7 @@ Once **all** child jobs have passed through the join step, the `join_jobs()` met
 
 ```python
 from oqtopus_engine_core.framework import Step, SplitOnPreprocess
+from oqtopus_engine_core.framework.context import link_parent_and_children
 
 class MySplitStep(Step, SplitOnPreprocess):
     async def pre_process(
@@ -91,10 +92,9 @@ class MySplitStep(Step, SplitOnPreprocess):
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
 
-        # When implementing a split step manually, you must explicitly assign
-        # the children to both job.children and jctx.children.
-        job.children = child_jobs
-        jctx.children = child_ctxs
+        # Use the utility to establish bidirectional links between parent and children.
+        # This replaces manual assignments to job.children and jctx.children.
+        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
     async def post_process(
         self,
@@ -109,8 +109,6 @@ class MySplitStep(Step, SplitOnPreprocess):
 
 The executor automatically:
 
-- sets the parent attribute on both the child job and child JobContext
-  (establishing a bidirectional link between the parent job and each child),
 - pauses parent execution at the split point,
 - schedules child pipelines independently,
 - resumes the parent only after join.
