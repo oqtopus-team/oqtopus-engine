@@ -17,6 +17,7 @@ from oqtopus_engine_core.framework import (
     SplitOnPreprocess,
     Step,
 )
+from oqtopus_engine_core.framework.context import link_parent_and_children
 from oqtopus_engine_core.framework.model import TranspileResult
 from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
     estimator_pb2,
@@ -227,8 +228,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
 
         join_info.child_order = child_order
         jctx[ESTIMATION_JOIN_INFO_KEY] = join_info
-        job.children = child_jobs
-        jctx.children = child_ctxs
+        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
     async def post_process(  # noqa: PLR6301
         self,

@@ -19,6 +19,114 @@ from oqtopus_engine_core.steps.estimator_step import INTERNAL_JOB_KEY
 logger = logging.getLogger(__name__)
 
 
+def _collect_status_update_targets(
+    jctx: JobContext,
+    job: Job,
+) -> list[Job]:
+    """Collect jobs to be updated.
+
+    Follows these steps:
+    1. Traverse down to find all reachable leaf children.
+    2. For each leaf children, traverse up to find all reachable root parents.
+
+    Args:
+        jctx: The job context of the current job.
+        job: The current job.
+
+    Returns:
+        A list of (JobContext, Job) tuples to be updated.
+
+    """
+    # Step 1: Find all terminal nodes at the bottom of the graph
+    # Returns a list[tuple[JobContext, Job]]
+    leaf_pairs = _find_all_leaf_jobs(jctx, job)
+
+    # Step 2: From each leaf, identify all paths leading to the top-level roots.
+    # We use a dictionary keyed by job_id for O(1) deduplication.
+    unique_jobs: dict[str, Job] = {}
+    visited_up: set[str] = set()
+
+    for leaf_jctx, leaf_job in leaf_pairs:
+        # Traverse upwards to find all roots
+        root_pairs = _find_all_root_jobs(leaf_jctx, leaf_job, visited=visited_up)
+        for _, root_job in root_pairs:
+            unique_jobs[root_job.job_id] = root_job
+
+    return list(unique_jobs.values())
+
+
+def _find_all_leaf_jobs(
+    jctx: JobContext,
+    job: Job,
+    visited: set[str] | None = None,
+) -> list[tuple[JobContext, Job]]:
+    """Recursively find all terminal leaf jobs.
+
+    Args:
+        jctx: The job context of the current job.
+        job: The current job.
+        visited: A set of job IDs that have already been visited to prevent cycles.
+
+    Returns:
+        A list of (JobContext, Job) tuples for all leaf jobs
+
+    """
+    if visited is None:
+        visited = set()
+
+    if job.job_id in visited:
+        return []
+    visited.add(job.job_id)
+
+    leaves: list[tuple[JobContext, Job]] = []
+
+    if jctx.get("has_actual_children", False):
+        # Continue traversing down if children exist
+        for child_jctx, child_job in zip(jctx.children, job.children, strict=True):
+            leaves.extend(_find_all_leaf_jobs(child_jctx, child_job, visited))
+    else:
+        # Reached a leaf node, append the pair to the list
+        leaves.append((jctx, job))
+
+    return leaves
+
+
+def _find_all_root_jobs(
+    jctx: JobContext,
+    job: Job,
+    visited: set[str] | None = None,
+) -> list[tuple[JobContext, Job]]:
+    """Recursively find all root jobs.
+
+    Args:
+        jctx: The job context of the current job.
+        job: The current job.
+        visited: A set of job IDs that have already been visited to prevent cycles.
+
+    Returns:
+        A list of (JobContext, Job) tuples for all root jobs
+
+    """
+    if visited is None:
+        visited = set()
+
+    if job.job_id in visited:
+        return []
+    visited.add(job.job_id)
+
+    roots: list[tuple[JobContext, Job]] = []
+
+    if jctx.get("has_actual_parent", False) and job.parent is not None:
+        if jctx.parent is not None:
+            # Continue traversing up to find the entry point of the job graph
+            roots.extend(_find_all_root_jobs(jctx.parent, job.parent, visited))
+    else:
+        # Reached a root node, append the pair to the list
+        roots.append((jctx, job))
+
+    return roots
+
+
 def _select_program(job: Job) -> str:
     transpile_result = job.job_info.transpile_result
     if transpile_result is None or transpile_result.transpiled_program is None:
@@ -70,23 +178,10 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
 
         start = time.perf_counter()
 
-        # Update job status for the combined children if this job is a parent,
-        # otherwise update only the current job.
         async with self._execution_lock:
-            if jctx.get("has_actual_children", False):
-                await self._update_jobs_status(gctx, job.children)
-            elif jctx.get("has_actual_parent", False):
-                parent_job = job.parent
-                # Update parent status if it is "ready"; otherwise, skip
-                if parent_job.status == "ready":
-                    await self._update_jobs_status(gctx, [parent_job])
-                else:
-                    logger.info(
-                        "skip repository status update for internal child job",
-                        extra={"job_id": job.job_id, "job_type": job.job_type},
-                    )
-            else:
-                await self._update_jobs_status(gctx, [job])
+            # Identify all jobs that require a status update (roots and leaves)
+            update_targets = _collect_status_update_targets(jctx, job)
+            await self._update_jobs_status(gctx, update_targets)
 
         # Check device status immediately before using the gateway.
         service_status = await self._stub.GetServiceStatus(
@@ -177,5 +272,6 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
     async def _update_jobs_status(gctx: GlobalContext, jobs: list[Job]) -> None:
         """Update the job status to "running" for the given jobs."""
         for job in jobs:
-            job.status = "running"
-            await gctx.job_repository.update_job_status_nowait(job)
+            if job.status == "ready":
+                job.status = "running"
+                await gctx.job_repository.update_job_status_nowait(job)

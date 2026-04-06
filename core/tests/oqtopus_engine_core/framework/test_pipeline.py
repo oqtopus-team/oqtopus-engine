@@ -4,7 +4,7 @@ import pytest
 
 from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.framework.buffer import Buffer
-from oqtopus_engine_core.framework.context import GlobalContext, JobContext
+from oqtopus_engine_core.framework.context import GlobalContext, JobContext, link_parent_and_children
 from oqtopus_engine_core.framework.model import Job, JobInfo
 from oqtopus_engine_core.framework.pipeline import PipelineExecutor, StepPhase
 from oqtopus_engine_core.framework.step import (
@@ -54,8 +54,7 @@ class SplitOnPreStep(Step, SplitOnPreprocess):
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
 
-        job.children = child_jobs
-        jctx.children = child_ctxs
+        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
     async def post_process(self, gctx, jctx, job):
         pass
@@ -76,8 +75,7 @@ class SplitOnPostStep(Step, SplitOnPostprocess):
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
 
-        job.children = child_jobs
-        jctx.children = child_ctxs
+        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
 
 class JoinOnPreStep(Step, JoinOnPreprocess):
@@ -183,8 +181,8 @@ class SplitJoinSameStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
 
-        job.children = child_jobs
-        jctx.children = child_ctxs
+        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+
 
     async def post_process(self, gctx, jctx, job):
         pass
@@ -205,8 +203,8 @@ class TripleSplitStep(Step, SplitOnPreprocess):
             c_job.parent = job
             jobs.append(c_job)
             ctxs.append(c_ctx)
-        job.children = jobs
-        jctx.children = ctxs
+
+        link_parent_and_children(jctx, job, ctxs, jobs)
 
     async def post_process(self, gctx, jctx, job):
         """No-op post-process (required for abstract base class)."""
@@ -1002,8 +1000,7 @@ async def test_join_disabled_via_empty_enabled_steps():
                 c_jctx = JobContext(initial=initial)
                 child_jobs.append(c_job)
                 child_ctxs.append(c_jctx)
-            job.children = child_jobs
-            jctx.children = child_ctxs
+            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
         async def post_process(self, gctx, jctx, job):
             pass
@@ -1143,8 +1140,7 @@ async def test_join_skip_steps_skips_named_step():
                 c_jctx = JobContext(initial=initial)
                 child_jobs.append(c_job)
                 child_ctxs.append(c_jctx)
-            job.children = child_jobs
-            jctx.children = child_ctxs
+            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
         async def post_process(self, gctx, jctx, job):
             pass
@@ -1192,8 +1188,7 @@ async def test_join_skip_steps_takes_priority_over_enabled_steps():
                 c_jctx = JobContext(initial=initial)
                 child_jobs.append(c_job)
                 child_ctxs.append(c_jctx)
-            job.children = child_jobs
-            jctx.children = child_ctxs
+            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
         async def post_process(self, gctx, jctx, job):
             pass
