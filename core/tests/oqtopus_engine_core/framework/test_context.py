@@ -1,6 +1,6 @@
 import pytest
 
-from oqtopus_engine_core.framework.context import JobContext, link_parent_and_children
+from oqtopus_engine_core.framework.context import JobContext, PipelineDirective, link_parent_and_children
 from oqtopus_engine_core.framework.model import Job, JobInfo
 
 
@@ -80,3 +80,39 @@ def test_job_context_reserved_attributes_isolation():
     assert "parent" not in child_jctx.data
     # Normal data should remain intact
     assert child_jctx["user_data"] == "value"
+
+
+def test_pipeline_directive_default_is_none():
+    """Test that pipeline_directive is initialized to PipelineDirective.NONE."""
+    jctx = JobContext()
+    assert jctx.pipeline_directive is PipelineDirective.NONE
+
+
+def test_pipeline_directive_can_be_set():
+    """Test that pipeline_directive can be set to a non-NONE value."""
+    jctx = JobContext()
+    jctx.pipeline_directive = PipelineDirective.IGNORE_SPLIT_TRACKING
+    assert jctx.pipeline_directive is PipelineDirective.IGNORE_SPLIT_TRACKING
+
+
+def test_pipeline_directive_reset_to_none():
+    """Test that pipeline_directive can be reset back to NONE."""
+    jctx = JobContext()
+    jctx.pipeline_directive = PipelineDirective.IGNORE_SPLIT_TRACKING
+    jctx.pipeline_directive = PipelineDirective.NONE
+    assert jctx.pipeline_directive is PipelineDirective.NONE
+
+
+def test_pipeline_directive_not_in_data_dict():
+    """Test that pipeline_directive does not leak into the internal data dictionary."""
+    jctx = JobContext()
+    jctx.pipeline_directive = PipelineDirective.IGNORE_SPLIT_TRACKING
+    assert "pipeline_directive" not in jctx.data
+
+
+def test_pipeline_directive_cannot_be_deleted():
+    """Test that pipeline_directive raises AttributeError on deletion attempt."""
+    jctx = JobContext()
+    with pytest.raises(AttributeError, match="reserved attribute"):
+        del jctx.pipeline_directive
+
