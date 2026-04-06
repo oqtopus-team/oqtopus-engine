@@ -7,6 +7,10 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 
+[options]
+exclude-newer = "2026-03-27T06:07:34.6775405Z"
+exclude-newer-span = "P1W"
+
 [[package]]
 name = "appdirs"
 version = "1.4.4"
