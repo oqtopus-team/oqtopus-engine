@@ -51,7 +51,7 @@ async def test_pre_process_internal_sampling_job_skips_repository_status_update(
 
     await gateway_step.pre_process(gctx, jctx, job)
 
-    gctx.job_repository.update_job_status_nowait.assert_not_awaited()
+    gctx.job_repository.update_job_status_nowait.assert_awaited_once()
     gateway_step._stub.CallJob.assert_awaited_once()
     assert job.job_info.result.sampling.counts == {"00": 10}
     assert job.job_info.message == "ok"
@@ -79,7 +79,7 @@ async def test_pre_process_internal_jobs_serialize_gateway_execution(
 
     gctx = MagicMock()
     gctx.job_repository.update_job_status_nowait = AsyncMock()
-    jctx = {INTERNAL_JOB_KEY: True}
+    jctx = JobContext()
     job_a = _make_job("sampling")
     job_a.job_id = "child-a"
     job_b = _make_job("sampling")

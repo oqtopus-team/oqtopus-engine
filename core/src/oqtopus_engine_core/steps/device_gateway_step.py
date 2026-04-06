@@ -14,7 +14,6 @@ from oqtopus_engine_core.framework import (
 )
 from oqtopus_engine_core.framework.step import DetachOnPostprocess
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2, qpu_pb2_grpc
-from oqtopus_engine_core.steps.estimator_step import INTERNAL_JOB_KEY
 
 logger = logging.getLogger(__name__)
 
