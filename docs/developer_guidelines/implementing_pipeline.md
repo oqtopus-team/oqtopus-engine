@@ -21,6 +21,7 @@ This guide explains:
 - how to implement split steps,
 - how to implement join steps,
 - what constraints apply when combining mixins,
+- how to use `PipelineDirective` to communicate execution intent to the engine,
 - practical examples and best practices.
 
 ## 2. Writing a Standard Step
@@ -264,14 +265,94 @@ jctx = JobContext(initial={
   `job.parent` is `None`.  This is expected behavior and must be avoided by
   ensuring that split and join configuration are always consistent.
 
-## 6. JobContext Usage
+## 6. PipelineDirective
 
-### 6.1 How JobContext Participates in Split/Join
+### 6.1 Overview
+
+`PipelineDirective` is an enum that a step can set on `jctx` to change the pipeline engine's default behaviour **after** the current step completes.
+It provides a lightweight, one-shot channel from a step implementation to the executor.
+
+```python
+from oqtopus_engine_core.framework import PipelineDirective
+```
+
+Available values:
+
+| Value | Effect |
+|---|---|
+| `PipelineDirective.NONE` | Default — no change to executor behaviour |
+| `PipelineDirective.IGNORE_SPLIT_TRACKING` | After splitting, skip registration of the pending-children counter for the parent job |
+
+The directive is **consumed once**: the executor resets it to `NONE` immediately after acting on it, so it does not affect any subsequent split.
+
+### 6.2 `IGNORE_SPLIT_TRACKING`
+
+Use this directive when a step performs a split but **no corresponding join is expected**.
+Without it, the executor registers a `_pending_children` counter for the parent job and waits for a join that will never arrive, causing a memory leak and the parent job hanging indefinitely.
+
+#### When to use
+
+- The step spreads results to child jobs in its `post_process()` and then allows the children to complete their own pipelines independently.
+- No `JoinOn*` mixin is present downstream for these children.
+
+#### How to use
+
+Set the directive **inside** the step method that also creates the child jobs, before returning:
+
+```python
+from oqtopus_engine_core.framework import PipelineDirective, Step, SplitOnPostprocess
+from oqtopus_engine_core.framework.context import link_parent_and_children
+
+class MySplitWithoutJoinStep(Step, SplitOnPostprocess):
+    async def pre_process(self, gctx, jctx, job):
+        pass
+
+    async def post_process(self, gctx, jctx, job):
+        # Signal to the executor: do not register a pending-children counter.
+        jctx.pipeline_directive = PipelineDirective.IGNORE_SPLIT_TRACKING
+
+        child_jobs = []
+        child_ctxs = []
+        for i in range(len(job.children)):
+            c_job = ...  # populate child Job fields
+            c_jctx = JobContext(initial={})
+            child_jobs.append(c_job)
+            child_ctxs.append(c_jctx)
+
+        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+```
+
+#### Guarantees
+
+- When `IGNORE_SPLIT_TRACKING` is active the executor **still** performs the split and starts all child pipelines.
+- The only thing skipped is the `_pending_children` counter update — the parent job will not wait for a join.
+- The directive is reset to `NONE` after the split regardless of whether it was acted on or not.
+
+### 6.3 `pipeline_directive` as a Reserved Attribute
+
+`pipeline_directive` is stored as a **Python attribute** on `JobContext`, not inside the underlying data dictionary.
+This means it is never serialised with the rest of the context and is always re-initialised to `NONE` for each new `JobContext`.
+
+```python
+jctx = JobContext()
+print(jctx.pipeline_directive)          # PipelineDirective.NONE
+print("pipeline_directive" in jctx)     # False  (not in the data dict)
+```
+
+Like `parent` and `children`, it **cannot** be deleted:
+
+```python
+del jctx.pipeline_directive  # raises AttributeError
+```
+
+## 7. JobContext Usage
+
+### 7.1 How JobContext Participates in Split/Join
 
 - Both `job` and `jctx` form **parent/children trees** during split.
 - Step implementations should treat each child JobContext independently.
 
-### 6.2 Step History Recording
+### 7.2 Step History Recording
 
 The executor writes execution history to:
 
@@ -321,7 +402,7 @@ Final accumulated histories:
 - **Children**:  
   `[("pre-process", 2), ("post-process", 2), ("post-process", 1)]`
 
-## 7. Best Practices
+## 8. Best Practices
 
 ### Do
 
@@ -329,19 +410,22 @@ Final accumulated histories:
 - Use JobContext to store per-child metadata.
 - Clearly indicate split or join behavior in class names.
 - Keep `join_jobs()` idempotent and aggregation-only.
+- Use `PipelineDirective.IGNORE_SPLIT_TRACKING` when performing a split that has no corresponding join.
 
 ### Do Not
 
 - Spawn unmanaged background tasks.
 - Perform blocking I/O inside a step.
+- Leave `pipeline_directive` set to a non-`NONE` value after the step — the executor resets it automatically, but relying on that for control flow is an anti-pattern.
 
-## 8. Summary
+## 9. Summary
 
 To implement steps correctly in the OQTOPUS Engine:
 
 - choose the appropriate mixins (split/join, pre/post),
 - implement only the necessary lifecycle methods,
 - let the executor handle concurrency and synchronization,
+- use `PipelineDirective` when a step needs to alter the executor's default split-tracking behaviour,
 - keep logic simple, deterministic, and phase-appropriate.
 
 This structured model ensures predictable behavior across parallel execution paths and allows complex quantum job workflows to be expressed cleanly.
