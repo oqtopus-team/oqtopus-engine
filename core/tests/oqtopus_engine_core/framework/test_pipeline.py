@@ -1269,25 +1269,6 @@ async def test_ignore_split_tracking_directive_is_consumed_once():
     subsequent splits on the same context use the normal tracking path.
     """
 
-    split_count = []
-
-    class DoubleSplitStep(Step, SplitOnPreprocess, SplitOnPostprocess):
-        """Splits on pre-process (normal) and again on post-process (directive)."""
-
-        async def pre_process(self, gctx, jctx, job):
-            # First split - no directive, tracking should happen normally
-            child_jobs = []
-            child_ctxs = []
-            for i in range(2):
-                c_job = make_test_job(job_id=f"{job.job_id}-pre-child{i}", job_type="child")
-                c_jctx = JobContext(initial={})
-                child_jobs.append(c_job)
-                child_ctxs.append(c_jctx)
-            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
-
-        async def post_process(self, gctx, jctx, job):
-            pass
-
     class PostSplitWithDirectiveStep(Step, SplitOnPostprocess):
         """Sets IGNORE_SPLIT_TRACKING on the second (post-process) split."""
 
