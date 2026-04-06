@@ -17,6 +17,8 @@ from .step import (
     Step,
 )
 
+from .context import PipelineDirective
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -607,22 +609,36 @@ class PipelineExecutor:
 
         # ------------------------------------------------------------
         # 2. Initialize pending-child counter for join handling
+        # (skipped when IGNORE_SPLIT_TRACKING directive is set)
         # ------------------------------------------------------------
         parent_id = job.job_id
         child_count = len(job.children)
-        async with self._pending_children_lock:
-            # Overwrite is allowed but indicates a nested split on the same parent.
-            # For now we just log it to make debugging easier.
-            if parent_id in self._pending_children:
-                logger.warning(
-                    "overwriting pending-children counter for parent (nested split?)",
+        try:
+            if jctx.pipeline_directive is not PipelineDirective.IGNORE_SPLIT_TRACKING:
+                async with self._pending_children_lock:
+                    # Overwrite is allowed but indicates a nested split on the same parent.
+                    # For now we just log it to make debugging easier.
+                    if parent_id in self._pending_children:
+                        logger.warning(
+                            "overwriting pending-children counter for parent (nested split?)",
+                            extra={
+                                "parent_job_id": parent_id,
+                                "old_value": self._pending_children[parent_id],
+                                "new_value": child_count,
+                            },
+                        )
+                    self._pending_children[parent_id] = child_count
+            else:
+                logger.info(
+                    "IGNORE_SPLIT_TRACKING directive set; skipping pending-children registration",
                     extra={
                         "parent_job_id": parent_id,
-                        "old_value": self._pending_children[parent_id],
-                        "new_value": child_count,
+                        "child_count": child_count,
                     },
                 )
-            self._pending_children[parent_id] = child_count
+        finally:
+            # Consume the directive: reset to NONE so it is not reused on the next split.
+            jctx.pipeline_directive = PipelineDirective.NONE
 
         # ------------------------------------------------------------
         # 3. Start child pipelines (and wait for them)
