@@ -17,13 +17,13 @@ pipeline_executor:
 di_container:
   registry:
     # fetcher configurations
-    job_fetcher:
+    _job_fetcher:
       _target_: oqtopus_engine_core.fetchers.MockJobFetcher
       interval_seconds: ${JOB_FETCHER_INTERVAL_SECONDS, 10}
       limit: ${JOB_FETCHER_LIMIT, 10}
       job_fetch_threshold: ${JOB_FETCHER_THRESHOLD, 10}
 
-    _job_fetcher:
+    job_fetcher:
       _target_: oqtopus_engine_core.fetchers.RepositoryJobFetcher
       interval_seconds: ${JOB_FETCHER_INTERVAL_SECONDS, 10}
       limit: ${JOB_FETCHER_LIMIT, 10}
@@ -39,19 +39,19 @@ di_container:
       enable_device_info_update: ${DEVICE_FETCHER_ENABLE_DEVICE_INFO_UPDATE, true}
 
     # repository configurations
-    job_repository:
+    _job_repository:
       _target_: oqtopus_engine_core.repositories.NullJobRepository
 
-    _job_repository:
+    job_repository:
       _target_: oqtopus_engine_core.repositories.OqtopusCloudJobRepository
       url: ${JOB_REPOSITORY_URL, "http://localhost:8888"}
       api_key: ${JOB_REPOSITORY_API_KEY, ""}
       workers: ${JOB_REPOSITORY_WORKERS, 10}
 
-    device_repository:
+    _device_repository:
       _target_: oqtopus_engine_core.repositories.NullDeviceRepository
 
-    _device_repository:
+    device_repository:
       _target_: oqtopus_engine_core.repositories.OqtopusCloudDeviceRepository
       url: ${DEVICE_REPOSITORY_URL, "http://localhost:8888"}
       api_key: ${DEVICE_REPOSITORY_API_KEY, ""}
