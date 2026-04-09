@@ -1,11 +1,46 @@
 import json
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from oqtopus_engine_core.framework.model import OperatorItem
-from oqtopus_engine_core.steps.estimator_step import EstimationJobInfo, EstimatorStep
+from oqtopus_engine_core.buffers import QueueBuffer
+from oqtopus_engine_core.framework import (
+    Job,
+    JobContext,
+    JobResult,
+    OperatorItem,
+    PipelineExecutor,
+    SamplingResult,
+    Step,
+)
+from oqtopus_engine_core.framework.context import GlobalContext
+from oqtopus_engine_core.framework.model import TranspileResult
+from oqtopus_engine_core.framework.pipeline import StepPhase
+from oqtopus_engine_core.steps.estimator_step import (
+    ESTIMATION_CHILD_INDEX_KEY,
+    ESTIMATION_JOIN_INFO_KEY,
+    ESTIMATOR_STEP_NAME,
+    EstimationJoinInfo,
+    EstimatorStep,
+)
+
+
+def _make_estimation_job(job_id: str = "job-1") -> Job:
+    return Job(
+        job_id=job_id,
+        job_type="estimation",
+        device_id="device-1",
+        shots=100,
+        input=f"{job_id}/input.zip",
+        program=["OPENQASM 3.0;\n"],
+        operator=[OperatorItem(pauli="X 0", coeff=1.0)],
+        transpiler_info={},
+        simulator_info={},
+        mitigation_info={"ro_error_mitigation": "pseudo_inverse"},
+        status="submitted",
+    )
 
 
 @pytest.fixture
@@ -18,30 +53,19 @@ def estimator_step_instance() -> EstimatorStep:
 
 
 @pytest.mark.asyncio
-async def test_pre_process_calls_grpc_and_updates_jctx(
+async def test_pre_process_calls_grpc_and_creates_children(
     estimator_step_instance: EstimatorStep,
 ) -> None:
     gctx = MagicMock()
-    jctx: dict[str, object] = {}
-    job = MagicMock()
-    job.job_id = "job-1"
-    job.job_type = "estimation"
-    job.transpile_result = None
-    job.program = ["OPENQASM 3.0;\n"]
-    job.operator = [OperatorItem(pauli="X 0", coeff=1.0)]
+    jctx = JobContext(initial={})
+    job = _make_estimation_job()
 
     estimator_step_instance._stub.ReqEstimationPreProcess.return_value = SimpleNamespace(
-        qasm_codes=["preprocessed-qasm"],
-        grouped_operators=json.dumps([[ ["X"] ], [ [1.0] ]]),
+        qasm_codes=["preprocessed-qasm-0", "preprocessed-qasm-1"],
+        grouped_operators=json.dumps([[["X"]], [[1.0]]]),
     )
 
     await estimator_step_instance.pre_process(gctx, jctx, job)
-
-    assert "estimation_job_info" in jctx
-    info = jctx["estimation_job_info"]
-    assert isinstance(info, EstimationJobInfo)
-    assert info.preprocessed_qasms == ["preprocessed-qasm"]
-    assert info.grouped_operators == [[["X"]], [[1.0]]]
 
     estimator_step_instance._stub.ReqEstimationPreProcess.assert_awaited_once()
     request = estimator_step_instance._stub.ReqEstimationPreProcess.call_args.args[0]
@@ -50,26 +74,36 @@ async def test_pre_process_calls_grpc_and_updates_jctx(
     assert list(request.basis_gates) == ["cx", "rz", "sx", "measure"]
     assert list(request.mapping_list) == []
 
+    join_info = jctx[ESTIMATION_JOIN_INFO_KEY]
+    assert isinstance(join_info, EstimationJoinInfo)
+    assert join_info.grouped_operators == [[["X"]], [[1.0]]]
+    assert len(job.children) == 2
+    assert len(jctx.children) == 2
+    assert join_info.child_order == [child.job_id for child in job.children]
+    assert all(child.job_type == "sampling" for child in job.children)
+    assert "has_actual_children" not in jctx.children[0]
+    assert jctx.children[0]["has_actual_parent"] is True
+    assert jctx.children[0][ESTIMATION_CHILD_INDEX_KEY] == 0
+    assert jctx.children[1][ESTIMATION_CHILD_INDEX_KEY] == 1
+
 
 @pytest.mark.asyncio
 async def test_pre_process_uses_transpile_mapping_in_sorted_order(
     estimator_step_instance: EstimatorStep,
 ) -> None:
     gctx = MagicMock()
-    jctx: dict[str, object] = {}
-    job = MagicMock()
-    job.job_id = "job-2"
-    job.job_type = "estimation"
+    jctx = JobContext(initial={})
+    job = _make_estimation_job("job-2")
     job.program = ["unused"]
-    job.operator = [OperatorItem(pauli="Z 1", coeff=2.0)]
-    job.transpile_result = SimpleNamespace(
+    job.transpile_result = TranspileResult(
         transpiled_program="TRANSPILED",
+        stats={},
         virtual_physical_mapping={"qubit_mapping": {"1": 0, "0": 2}},
     )
 
     estimator_step_instance._stub.ReqEstimationPreProcess.return_value = SimpleNamespace(
         qasm_codes=["qasm"],
-        grouped_operators=json.dumps([[ ["Z"] ], [ [2.0] ]]),
+        grouped_operators=json.dumps([[["Z"]], [[2.0]]]),
     )
 
     await estimator_step_instance.pre_process(gctx, jctx, job)
@@ -84,12 +118,8 @@ async def test_pre_process_raises_when_operator_missing(
     estimator_step_instance: EstimatorStep,
 ) -> None:
     gctx = MagicMock()
-    jctx: dict[str, object] = {}
-    job = MagicMock()
-    job.job_id = "job-3"
-    job.job_type = "estimation"
-    job.transpile_result = None
-    job.program = ["OPENQASM 3.0;\n"]
+    jctx = JobContext(initial={})
+    job = _make_estimation_job("job-3")
     job.operator = None
 
     with pytest.raises(ValueError, match="operator is not specified"):
@@ -97,51 +127,168 @@ async def test_pre_process_raises_when_operator_missing(
 
 
 @pytest.mark.asyncio
-async def test_post_process_calls_grpc_and_updates_job_result(
+async def test_join_jobs_calls_grpc_and_updates_parent_result(
     estimator_step_instance: EstimatorStep,
 ) -> None:
     gctx = MagicMock()
-    job = MagicMock()
-    job.job_id = "job-4"
-    job.job_type = "estimation"
-    job.result = None
+    parent_job = _make_estimation_job("job-4")
+    parent_job.children = [
+        Job(
+            job_id="job-4-1",
+            job_type="sampling",
+            device_id="device-1",
+            shots=100,
+            input="job-4-1/input.zip",
+            program=["qasm-1"],
+            result=JobResult(sampling=SamplingResult(counts={"11": 20, "00": 10})),
+            transpiler_info={},
+            simulator_info={},
+            mitigation_info={},
+            status="running",
+            message="child-1-message",
+            execution_time=0.4,
+        ),
+        Job(
+            job_id="job-4-0",
+            job_type="sampling",
+            device_id="device-1",
+            shots=100,
+            input="job-4-0/input.zip",
+            program=["qasm-0"],
+            result=JobResult(sampling=SamplingResult(counts={"01": 5, "10": 7})),
+            transpiler_info={},
+            simulator_info={},
+            mitigation_info={},
+            status="running",
+            message="child-0-message",
+            execution_time=0.3,
+        ),
+    ]
 
-    jctx = {
-        "estimation_job_info": SimpleNamespace(
-            counts_list=[{"00": 10, "11": 20}],
-            grouped_operators=[[["ZZ"]], [[1.0]]],
-        )
-    }
+    join_info = EstimationJoinInfo()
+    join_info.grouped_operators = [[["ZZ"]], [[1.0]]]
+    join_info.child_order = [
+        "job-4-0",
+        "job-4-1",
+    ]
+    join_info.started_at = time.perf_counter() - 0.25
+    parent_jctx = JobContext(initial={ESTIMATION_JOIN_INFO_KEY: join_info})
 
     estimator_step_instance._stub.ReqEstimationPostProcess.return_value = SimpleNamespace(
         expval=0.25,
         stds=0.05,
     )
 
-    await estimator_step_instance.post_process(gctx, jctx, job)
+    await estimator_step_instance.join_jobs(
+        gctx=gctx,
+        parent_jctx=parent_jctx,
+        parent_job=parent_job,
+        last_child=parent_job.children[1],
+    )
 
-    estimator_step_instance._stub.ReqEstimationPostProcess.assert_awaited_once()
     request = estimator_step_instance._stub.ReqEstimationPostProcess.call_args.args[0]
-    assert len(request.counts) == 1
-    assert dict(request.counts[0].counts) == {"00": 10, "11": 20}
+    assert len(request.counts) == 2
+    assert dict(request.counts[0].counts) == {"01": 5, "10": 7}
+    assert dict(request.counts[1].counts) == {"11": 20, "00": 10}
     assert json.loads(request.grouped_operators) == [[["ZZ"]], [[1.0]]]
+    assert parent_job.result.estimation.exp_value == 0.25
+    assert parent_job.result.estimation.stds == 0.05
+    assert parent_job.execution_time == 0.7
+    assert parent_job.message == "child-0-message"
 
-    assert job.result is not None
-    assert job.result.estimation is not None
-    assert job.result.estimation.exp_value == 0.25
-    assert job.result.estimation.stds == 0.05
+
+class FakeSamplingExecutionStep(Step):
+    async def pre_process(self, gctx, jctx, job):
+        """Populate counts for internal sampling children."""
+
+    async def post_process(self, gctx, jctx, job):
+        if (
+            jctx.get("has_actual_parent", False)
+        ):
+            index = jctx[ESTIMATION_CHILD_INDEX_KEY]
+            job.result = JobResult(
+                sampling=SamplingResult(counts={f"{index}": index + 1})
+            )
+            job.message = f"child-{index}"
 
 
 @pytest.mark.asyncio
-async def test_non_estimation_jobs_are_skipped(estimator_step_instance: EstimatorStep) -> None:
+async def test_same_step_split_and_join_flow() -> None:
+    estimator_step = EstimatorStep()
+    estimator_step._stub = MagicMock()
+    estimator_step._stub.ReqEstimationPreProcess = AsyncMock(
+        return_value=SimpleNamespace(
+            qasm_codes=["qasm-0", "qasm-1"],
+            grouped_operators=json.dumps([[["X"]], [[1.0]]]),
+        )
+    )
+    estimator_step._stub.ReqEstimationPostProcess = AsyncMock(
+        return_value=SimpleNamespace(expval=0.75, stds=0.125)
+    )
+
+    pipeline = [estimator_step, FakeSamplingExecutionStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    parent_job = _make_estimation_job("root")
+    parent_jctx = JobContext(initial={})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        GlobalContext(config={}),
+        parent_jctx,
+        parent_job,
+    )
+
+    assert parent_job.result.estimation.exp_value == 0.75
+    assert parent_job.result.estimation.stds == 0.125
+    assert parent_job.message == "child-1"
+    assert parent_jctx.step_history == [
+        ("pre_process", 0),
+    ]
+    for child_jctx in parent_jctx.children:
+        assert child_jctx.step_history == [
+            ("pre_process", 1),
+            ("post_process", 1),
+            ("post_process", 0),
+        ]
+
+
+@pytest.mark.asyncio
+async def test_non_estimation_jobs_are_skipped(
+    estimator_step_instance: EstimatorStep,
+) -> None:
     gctx = MagicMock()
-    jctx: dict[str, object] = {}
-    job = MagicMock()
-    job.job_id = "job-5"
-    job.job_type = "sampling"
+    jctx = JobContext(initial={})
+    job = Job(
+        job_id="job-5",
+        job_type="sampling",
+        device_id="device-1",
+        shots=100,
+        input="job-5/input.zip",
+        program=["OPENQASM 3.0;\n"],
+        transpiler_info={},
+        simulator_info={},
+        mitigation_info={},
+        status="submitted",
+    )
 
     await estimator_step_instance.pre_process(gctx, jctx, job)
     await estimator_step_instance.post_process(gctx, jctx, job)
 
     estimator_step_instance._stub.ReqEstimationPreProcess.assert_not_awaited()
     estimator_step_instance._stub.ReqEstimationPostProcess.assert_not_awaited()
+    assert ESTIMATOR_STEP_NAME in jctx["split_skip_steps"]
+    assert ESTIMATOR_STEP_NAME in jctx["join_skip_steps"]
+
+
+@pytest.mark.asyncio
+async def test_estimation_parent_skips_join_gate(
+    estimator_step_instance: EstimatorStep,
+) -> None:
+    gctx = MagicMock()
+    jctx = JobContext(initial={})
+    job = _make_estimation_job("job-6")
+
+    await estimator_step_instance.post_process(gctx, jctx, job)
+
+    assert ESTIMATOR_STEP_NAME in jctx["join_skip_steps"]

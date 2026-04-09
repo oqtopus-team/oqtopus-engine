@@ -89,60 +89,18 @@ async def test_post_process_skips_when_mitigation_is_unset(
 
 
 @pytest.mark.asyncio
-async def test_post_process_estimation_uses_preprocessed_qasm_and_fallback(
-    mitigation_step: ReadoutErrorMitigationStep,
-) -> None:
-    gctx = MagicMock()
-    gctx.device.device_info = json.dumps(
-        {
-            "qubits": [
-                {"meas_error": {"prob_meas1_prep0": 0.01, "prob_meas0_prep1": 0.02}},
-            ]
-        }
-    )
-
-    job = MagicMock()
-    job.job_id = "job-2"
-    job.job_type = "estimation"
-    job.mitigation_info = {"ro_error_mitigation": "pseudo_inverse"}
-    job.program = ["fallback-program"]
-
-    estimation_job_info = SimpleNamespace(
-        counts_list=[{"0": 10}, {"1": 20}],
-        preprocessed_qasms=["qasm-0"],
-    )
-    jctx = {"estimation_job_info": estimation_job_info}
-
-    mitigation_step._stub.ReqMitigation.side_effect = [
-        SimpleNamespace(counts={"0": 9}),
-        SimpleNamespace(counts={"1": 19}),
-    ]
-
-    await mitigation_step.post_process(gctx, jctx, job)
-
-    assert mitigation_step._stub.ReqMitigation.await_count == 2
-    first_request = mitigation_step._stub.ReqMitigation.await_args_list[0].args[0]
-    second_request = mitigation_step._stub.ReqMitigation.await_args_list[1].args[0]
-
-    assert first_request.program == "qasm-0"
-    assert second_request.program == "fallback-program"
-    assert estimation_job_info.counts_list == [{"0": 9}, {"1": 19}]
-
-
-@pytest.mark.asyncio
-async def test_post_process_estimation_without_counts_list_returns_early(
+async def test_post_process_non_sampling_job_is_skipped(
     mitigation_step: ReadoutErrorMitigationStep,
 ) -> None:
     gctx = MagicMock()
     gctx.device.device_info = json.dumps({"qubits": []})
 
     job = MagicMock()
-    job.job_id = "job-3"
+    job.job_id = "job-2"
     job.job_type = "estimation"
     job.mitigation_info = {"ro_error_mitigation": "pseudo_inverse"}
+    job.program = ["ignored-program"]
 
-    jctx = {"estimation_job_info": SimpleNamespace(counts_list=None)}
-
-    await mitigation_step.post_process(gctx, jctx, job)
+    await mitigation_step.post_process(gctx, {}, job)
 
     mitigation_step._stub.ReqMitigation.assert_not_awaited()

@@ -344,7 +344,8 @@ class MpAutoCombiningBuffer(Buffer):
             combined_jctx = JobContext()
             combined_jctx.mp_auto_combining = mp_auto_combining_ctx
 
-            # set children
+            # Only link children here, not parent, to avoid overwriting the parent
+            # of the original jobs before they are combined.
             combined_job.children = [job for _, _, job in original_jobs.values()]
             combined_jctx.children = [jctx for _, jctx, _ in original_jobs.values()]
             combined_jctx.has_actual_children = True
