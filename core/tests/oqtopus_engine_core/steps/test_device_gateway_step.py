@@ -34,9 +34,9 @@ def _make_job(job_type: str) -> MagicMock:
     job.shots = 100
     job.status = "ready"
     job.execution_time = None
-    job.job_info.transpile_result = None
-    job.job_info.program = ["OPENQASM 3.0;\n"]
-    job.job_info.result = None
+    job.transpile_result = None
+    job.program = ["OPENQASM 3.0;\n"]
+    job.result = None
     return job
 
 
@@ -53,8 +53,8 @@ async def test_pre_process_internal_sampling_job_skips_repository_status_update(
 
     gctx.job_repository.update_job_status_nowait.assert_awaited_once()
     gateway_step._stub.CallJob.assert_awaited_once()
-    assert job.job_info.result.sampling.counts == {"00": 10}
-    assert job.job_info.message == "ok"
+    assert job.result.sampling.counts == {"00": 10}
+    assert job.message == "ok"
 
 
 @pytest.mark.asyncio
@@ -92,8 +92,8 @@ async def test_pre_process_internal_jobs_serialize_gateway_execution(
 
     assert max_active_calls == 2
     assert gctx.job_repository.update_job_status_nowait.await_count == 2
-    assert job_a.job_info.message == "child-a"
-    assert job_b.job_info.message == "child-b"
+    assert job_a.message == "child-a"
+    assert job_b.message == "child-b"
 
 
 @pytest.mark.asyncio
