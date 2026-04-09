@@ -319,13 +319,13 @@ class MpAutoCombiningBuffer(Buffer):
             # update transpile_result of original jobs according to the qubits assigned
             for assigned_job in cmb_info["assigned_group"]:
                 job_id = assigned_job["job_id"]
-                transpile_result = original_jobs[job_id][2].job_info.transpile_result
+                transpile_result = original_jobs[job_id][2].transpile_result
                 transpile_result = \
                     await self._update_transpile_result(
                         transpile_result,
                         assigned_job["qubit_mapping"],
                     )
-                original_jobs[job_id][2].job_info.transpile_result = transpile_result
+                original_jobs[job_id][2].transpile_result = transpile_result
 
             # use the max shots among original jobs for the combined job
             shots = max(job[2].shots for job in original_jobs.values())
@@ -530,9 +530,8 @@ def create_combined_job(combined_program: str, shots: int) -> Job:
         device_id="",
         shots=shots,
         job_type="sampling",
-        job_info=JobInfo(
-            program=[combined_program],
-        ),
+        input="",
+        program=[combined_program],
         transpiler_info={},
         simulator_info={},
         mitigation_info={},
@@ -552,4 +551,4 @@ def extract_target_program(job: Job) -> str:
     """
     # For now, we assume jobs with no transpiler are filtered out in advance.
     # Thus, we always extract transpiled_program
-    return job.job_info.transpile_result.transpiled_program
+    return job.transpile_result.transpiled_program
