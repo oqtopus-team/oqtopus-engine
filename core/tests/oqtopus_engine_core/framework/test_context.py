@@ -1,7 +1,7 @@
 import pytest
 
 from oqtopus_engine_core.framework.context import JobContext, PipelineDirective, link_parent_and_children
-from oqtopus_engine_core.framework.model import Job, JobInfo
+from oqtopus_engine_core.framework.model import Job
 
 
 def _make_minimal_job(job_id: str) -> Job:
@@ -11,7 +11,8 @@ def _make_minimal_job(job_id: str) -> Job:
         job_type="sampling",
         device_id="test-device",
         shots=100,
-        job_info=JobInfo(program=[]),
+        input=f"{job_id}/input.zip",
+        program=[],
         transpiler_info={},
         simulator_info={},
         mitigation_info={},
@@ -115,4 +116,3 @@ def test_pipeline_directive_cannot_be_deleted():
     jctx = JobContext()
     with pytest.raises(AttributeError, match="reserved attribute"):
         del jctx.pipeline_directive
-
