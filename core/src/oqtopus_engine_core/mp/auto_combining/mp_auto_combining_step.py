@@ -78,7 +78,7 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
 
         # get used qubits info
         combined_qubits_list = jctx.mp_auto_combining["combined_qubits_list"]
-        n_total_qubits = len(next(iter(job.job_info.result.sampling.counts.keys())))
+        n_total_qubits = len(next(iter(job.result.sampling.counts.keys())))
         if n_total_qubits > sum(combined_qubits_list):
             # add the number of unused qubits to combined_qubits_list
             # for the convenience of division
@@ -101,7 +101,7 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
                     shots=child_job.shots,
                 )
                 # set the result to the child job
-                child_job.job_info.result = JobResult(
+                child_job.result = JobResult(
                     sampling=SamplingResult(
                         counts=resampled_counts,
                     )

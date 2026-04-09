@@ -42,11 +42,9 @@ class FailJobRepositoryHandler(PipelineExceptionHandler):
         for job in jobs:
             try:
                 job.status = "failed"
-                job.job_info.result = None  # Clear any partial results
-                job.job_info.message = str(ex)
-                await gctx.job_repository.update_job_info(
+                job.message = str(ex)
+                await gctx.job_repository.update_job_status(
                     job=job,
-                    overwrite_status=job.status,
                 )
             except Exception:
                 logger.exception(

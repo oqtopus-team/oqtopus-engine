@@ -9,7 +9,6 @@ from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.framework import (
     Job,
     JobContext,
-    JobInfo,
     JobResult,
     OperatorItem,
     PipelineExecutor,
@@ -34,10 +33,9 @@ def _make_estimation_job(job_id: str = "job-1") -> Job:
         job_type="estimation",
         device_id="device-1",
         shots=100,
-        job_info=JobInfo(
-            program=["OPENQASM 3.0;\n"],
-            operator=[OperatorItem(pauli="X 0", coeff=1.0)],
-        ),
+        input=f"{job_id}/input.zip",
+        program=["OPENQASM 3.0;\n"],
+        operator=[OperatorItem(pauli="X 0", coeff=1.0)],
         transpiler_info={},
         simulator_info={},
         mitigation_info={"ro_error_mitigation": "pseudo_inverse"},
@@ -96,8 +94,8 @@ async def test_pre_process_uses_transpile_mapping_in_sorted_order(
     gctx = MagicMock()
     jctx = JobContext(initial={})
     job = _make_estimation_job("job-2")
-    job.job_info.program = ["unused"]
-    job.job_info.transpile_result = TranspileResult(
+    job.program = ["unused"]
+    job.transpile_result = TranspileResult(
         transpiled_program="TRANSPILED",
         stats={},
         virtual_physical_mapping={"qubit_mapping": {"1": 0, "0": 2}},
@@ -122,7 +120,7 @@ async def test_pre_process_raises_when_operator_missing(
     gctx = MagicMock()
     jctx = JobContext(initial={})
     job = _make_estimation_job("job-3")
-    job.job_info.operator = None
+    job.operator = None
 
     with pytest.raises(ValueError, match="operator is not specified"):
         await estimator_step_instance.pre_process(gctx, jctx, job)
@@ -140,15 +138,14 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
             job_type="sampling",
             device_id="device-1",
             shots=100,
-            job_info=JobInfo(
-                program=["qasm-1"],
-                result=JobResult(sampling=SamplingResult(counts={"11": 20, "00": 10})),
-                message="child-1-message",
-            ),
+            input="job-4-1/input.zip",
+            program=["qasm-1"],
+            result=JobResult(sampling=SamplingResult(counts={"11": 20, "00": 10})),
             transpiler_info={},
             simulator_info={},
             mitigation_info={},
             status="running",
+            message="child-1-message",
             execution_time=0.4,
         ),
         Job(
@@ -156,15 +153,14 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
             job_type="sampling",
             device_id="device-1",
             shots=100,
-            job_info=JobInfo(
-                program=["qasm-0"],
-                result=JobResult(sampling=SamplingResult(counts={"01": 5, "10": 7})),
-                message="child-0-message",
-            ),
+            input="job-4-0/input.zip",
+            program=["qasm-0"],
+            result=JobResult(sampling=SamplingResult(counts={"01": 5, "10": 7})),
             transpiler_info={},
             simulator_info={},
             mitigation_info={},
             status="running",
+            message="child-0-message",
             execution_time=0.3,
         ),
     ]
@@ -195,10 +191,10 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     assert dict(request.counts[0].counts) == {"01": 5, "10": 7}
     assert dict(request.counts[1].counts) == {"11": 20, "00": 10}
     assert json.loads(request.grouped_operators) == [[["ZZ"]], [[1.0]]]
-    assert parent_job.job_info.result.estimation.exp_value == 0.25
-    assert parent_job.job_info.result.estimation.stds == 0.05
+    assert parent_job.result.estimation.exp_value == 0.25
+    assert parent_job.result.estimation.stds == 0.05
     assert parent_job.execution_time == 0.7
-    assert parent_job.job_info.message == "child-0-message"
+    assert parent_job.message == "child-0-message"
 
 
 class FakeSamplingExecutionStep(Step):
@@ -210,10 +206,10 @@ class FakeSamplingExecutionStep(Step):
             jctx.get("has_actual_parent", False)
         ):
             index = jctx[ESTIMATION_CHILD_INDEX_KEY]
-            job.job_info.result = JobResult(
+            job.result = JobResult(
                 sampling=SamplingResult(counts={f"{index}": index + 1})
             )
-            job.job_info.message = f"child-{index}"
+            job.message = f"child-{index}"
 
 
 @pytest.mark.asyncio
@@ -243,9 +239,9 @@ async def test_same_step_split_and_join_flow() -> None:
         parent_job,
     )
 
-    assert parent_job.job_info.result.estimation.exp_value == 0.75
-    assert parent_job.job_info.result.estimation.stds == 0.125
-    assert parent_job.job_info.message == "child-1"
+    assert parent_job.result.estimation.exp_value == 0.75
+    assert parent_job.result.estimation.stds == 0.125
+    assert parent_job.message == "child-1"
     assert parent_jctx.step_history == [
         ("pre_process", 0),
     ]
@@ -268,7 +264,8 @@ async def test_non_estimation_jobs_are_skipped(
         job_type="sampling",
         device_id="device-1",
         shots=100,
-        job_info=JobInfo(program=["OPENQASM 3.0;\n"]),
+        input="job-5/input.zip",
+        program=["OPENQASM 3.0;\n"],
         transpiler_info={},
         simulator_info={},
         mitigation_info={},

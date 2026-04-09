@@ -129,14 +129,13 @@ def test_divide_result(
         mitigation_info={},
         status="COMPLETED",
         job_id="test_job",
-        job_info={
-            "program": ["test_program"],
-            "combined_program": "test_combined_program",
-            "transpile_result": None,
-            "message": None,
-            "result": job_result,
-            "operator": [],
-        },
+        input="test_input",
+        program=["test_program"],
+        combined_program="test_combined_program",
+        transpile_result=None,
+        message=None,
+        result=job_result,
+        operator=[],
     )
     if error:
         with pytest.raises(ValueError) as e:
@@ -147,5 +146,5 @@ def test_divide_result(
             job=job,
             combined_qubits_list=combined_qubits_list,
         )
-        assert job.job_info.result.sampling.counts == expected_counts
+        assert job.result.sampling.counts == expected_counts
         assert divided_counts == expected_divided

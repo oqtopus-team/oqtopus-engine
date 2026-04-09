@@ -1,6 +1,4 @@
-import ast
 import asyncio
-import base64
 import io
 import json
 import logging
@@ -16,7 +14,6 @@ from oqtopus_engine_core.framework import (
     GlobalContext,
     Job,
     JobContext,
-    JobRepository,
     Step,
 )
 
@@ -72,20 +69,19 @@ class SseStep(Step):
         # Make tmp dir
         temp_dirs = self._make_tmpdir(job.job_id, config["host_work_path"])
 
+        if job.sse_program is None:
+            message = "the sse_program is not specified in the job."
+            raise ValueError(message)
+
         try:
-            # Download the python program from cloud and save it to
-            # the temporary directory
+            # save python program to the temporary directory
             logger.debug(
-                "downloading user program file",
+                "preparing user program file",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            await self._prep_userprogram(
-                job.job_id,
-                gctx.job_repository,
-                temp_dirs["in"],
-                config["userprogram_name"]
+            await self._make_userprogram_file(
+                job.sse_program, temp_dirs["in"], config["userprogram_name"]
             )
-
             # Run SSE - Start container, execute user program, get result and log
             await self._run_sse(job, gctx, config, temp_dirs)
         except RuntimeError:
@@ -129,7 +125,7 @@ class SseStep(Step):
         job: Job,
         gctx: GlobalContext,
         config: dict,
-        temp_dirs: dict
+        temp_dirs: dict,
     ) -> None:
 
         # Initialize SseRunner
@@ -175,52 +171,24 @@ class SseStep(Step):
             if job.status != "succeeded":
                 # SSE completed but job status is not succeeded
                 logger.error(
-                    "but sse job status is not succeeded", extra={"job_id": job.job_id},
+                    "but sse job status is not succeeded",
+                    extra={"job_id": job.job_id},
                 )
-                msg = job.job_info.message or "sse job failed"
+                msg = job.message or "sse job failed"
                 raise RuntimeError(msg)
         finally:
             elapsed_sec = time.perf_counter() - start
             self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)
             await gctx.job_repository.update_job_transpiler_info(job)
 
-    async def _prep_userprogram(
-        self,
-        job_id: str,
-        job_repository: JobRepository,
-        input_dir_path: Path,
-        user_program_name: str
-    ) -> str:
-        userprogram_data = await self._download_userprogram(job_id, job_repository)
-        await self._make_userprogram_file(
-            userprogram_data,
-            input_dir_path,
-            user_program_name
-        )
-
-    @staticmethod
-    async def _download_userprogram(job_id: str, job_repository: JobRepository) -> str:
-        body = await job_repository.get_ssesrc(
-            job_id=job_id,
-        )
-        body_bytes = ast.literal_eval(body)
-        return body_bytes.decode("utf-8")
-
     @staticmethod
     async def _make_userprogram_file(
         userprogram_data: str, input_dir_path: Path, user_program_name: str
     ) -> None:
-        # base64 decode
-        try:
-            decoded = base64.b64decode(userprogram_data)
-        except Exception:
-            logger.exception("failed to decode user program data from base64")
-            raise
-
         # write to file
         file_path = input_dir_path / user_program_name
         try:
-            file_path.write_bytes(decoded)
+            file_path.write_text(userprogram_data, encoding="utf-8")
             file_path.chmod(0o600)
         except Exception:
             logger.exception("failed to write user program file")
@@ -268,11 +236,9 @@ class SseStep(Step):
         if result_job is None:
             return
 
-        if result_job.job_info is not None:
-            job.job_info = result_job.job_info
-
+        job.result = result_job.result
+        job.sse_log = result_job.sse_log
         job.transpiler_info = result_job.transpiler_info
-
         job.execution_time = execution_time_in_sec
 
 
@@ -307,7 +273,7 @@ class SseRunner:
         }
 
         self._container: docker.models.containers.Container = None
-        self.result_job = None
+        self.result_job: Job | None = None
 
         logger.info(
             "SseRunner was initialized",
@@ -316,38 +282,6 @@ class SseRunner:
                 "config": self._config,
             },
         )
-
-    @staticmethod
-    def _is_file_size_valid(path: Path, max_file_size: int) -> bool:
-        """Check if the file size is within the specified maximum limit.
-
-        Args:
-            path (Path): The path to the file.
-            max_file_size (int): The maximum allowed file size in bytes.
-
-        Returns:
-            bool: True if the file size is within the limit, False otherwise.
-
-        Raises:
-            FileNotFoundError: If the file does not exist.
-            IsADirectoryError: If the path is not a file.
-
-        """
-        if not path.exists():
-            msg = f"The file does not exist: {path}"
-            raise FileNotFoundError(msg)
-        if not path.is_file():
-            msg = f"The path is not a file: {path}"
-            raise IsADirectoryError(msg)
-
-        size = path.stat().st_size
-        if size > max_file_size:
-            logger.error(
-                "the file size is larger than MaxFileSize",
-                extra={"file_size": size, "max_file_size": max_file_size},
-            )
-            return False
-        return True
 
     async def run_sse(self) -> None:
         """Run a user's program inside a Docker container.
@@ -535,59 +469,36 @@ class SseRunner:
             )
             copy_is_success = True
 
-        # ======== save container log ========
+        # ======== get container log ========
         try:
             logger.debug(
-                "saving container log",
+                "getting container log",
                 extra={"job_id": self._job_id},
             )
-            self._save_container_log(
-                self._host_work_path["out"],
-                self._config["log_file_name"],
-                print_to_engine_log=(not exec_is_success),
-            )
+            logs = self._container.logs(stdout=True, stderr=True, follow=False)
+            logs_content = logs.decode("utf-8", errors="ignore")
+            if not exec_is_success:
+                logger.info(
+                    "container log",
+                    extra={"job_id": self._job_id, "container_log": logs_content},
+                )
+            self.result_job.sse_log = logs_content
         except Exception:
             logger.exception(
-                "failed to save container log",
+                "failed to get container log",
                 extra={"job_id": self._job_id},
             )
             log_is_success = False
         else:
             logger.debug(
-                "container log saved successfully",
+                "container log got successfully",
                 extra={"job_id": self._job_id},
             )
             log_is_success = True
 
-        # ======== upload container log to S3 ========
-        upload_is_success = True
-        if log_is_success:
-            try:
-                logger.debug(
-                    "uploading log file to S3",
-                    extra={"job_id": self._job_id},
-                )
-                await self._s3upload(
-                    self._job_id,
-                    self._host_work_path["out"],
-                    self._config["log_file_name"],
-                    int(self._config["max_file_size"]),
-                )
-            except Exception:
-                logger.exception(
-                    "failed to upload log file to S3",
-                    extra={"job_id": self._job_id},
-                )
-                upload_is_success = False
-            else:
-                logger.debug(
-                    "log file uploaded to S3 successfully",
-                    extra={"job_id": self._job_id},
-                )
-
         # ======== check overall success ========
-        if not copy_is_success or not log_is_success or not upload_is_success:
-            msg = "failed to get result, log or upload log from container"
+        if not copy_is_success or not log_is_success:
+            msg = "failed to get result or log from container"
             raise RuntimeError(msg)
 
     def _start_container(self) -> docker.models.containers.Container:
@@ -723,7 +634,7 @@ class SseRunner:
 
     def _get_result_from_container(
         self, user: str, container_path: Path, filename: str
-    ) -> dict[str, Any]:
+    ) -> Job:
         logger.debug(
             "getting file from container",
             extra={"job_id": self._job_id},
@@ -775,23 +686,6 @@ class SseRunner:
             )
             return Job(**json.loads(result_str))
 
-    def _save_container_log(
-        self,
-        out_path: Path,
-        log_file_name: str,
-        print_to_engine_log: bool,  # noqa: FBT001
-    ) -> None:
-
-        logs = self._container.logs(stdout=True, stderr=True, follow=False)
-        content = logs.decode("utf-8", errors="ignore")
-        if print_to_engine_log:
-            logger.info(
-                "container log",
-                extra={"job_id": self._job_id, "container_log": content},
-            )
-        with (out_path / log_file_name).open("w") as f:
-            f.write(content)
-
     def _stop_and_remove(self) -> None:
         logger.debug(
             "stopping container",
@@ -830,45 +724,6 @@ class SseRunner:
             "container stopped and removed",
             extra={"job_id": self._job_id},
         )
-
-    async def _s3upload(
-        self, job_id: str, file_path: Path, file_name: str, max_file_size: int
-    ) -> None:
-        logger.debug(
-            "uploading file to S3", extra={"job_id": job_id, "file_name": file_name}
-        )
-        path = file_path / file_name
-
-        try:
-            is_valid_size = self._is_file_size_valid(path, max_file_size)
-        except FileNotFoundError as e:
-            msg = "file not found during S3 upload"
-            raise FileNotFoundError(msg) from e
-        except IsADirectoryError as e:
-            msg = "invalid file path during S3 upload"
-            raise IsADirectoryError(msg) from e
-
-        if not is_valid_size:
-            logger.error(
-                "The size of the file is larger than the max file size",
-                extra={"job_id": job_id, "max_file_size": max_file_size},
-            )
-            msg = "file size exceeds the maximum limit"
-            raise ValueError(msg)
-
-        try:
-            await self._gctx.job_repository.update_sselog(
-                job_id=job_id,
-                sselog=str(path),
-            )
-
-            logger.debug(
-                "file uploaded to S3 successfully",
-                extra={"job_id": job_id, "file_name": file_name},
-            )
-        except Exception as e:
-            msg = "failed to upload file to S3"
-            raise RuntimeError(msg) from e
 
 
 class SseRuntimeError(RuntimeError):

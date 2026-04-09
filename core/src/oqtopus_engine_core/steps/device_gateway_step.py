@@ -127,9 +127,9 @@ def _find_all_root_jobs(
 
 
 def _select_program(job: Job) -> str:
-    transpile_result = job.job_info.transpile_result
+    transpile_result = job.transpile_result
     if transpile_result is None or transpile_result.transpiled_program is None:
-        return job.job_info.program[0]
+        return job.program[0]
     return transpile_result.transpiled_program
 
 
@@ -240,10 +240,10 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
 
             # Update job
             job.execution_time = float(f"{execution_time:.3f}")
-            job.job_info.result = JobResult(
+            job.result = JobResult(
                 sampling=SamplingResult(counts=job_response.result.counts)
             )
-            job.job_info.message = job_response.result.message
+            job.message = job_response.result.message
         elif job.job_type == "estimation":
             message = (
                 "estimation jobs must be split before reaching device gateway"
