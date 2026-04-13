@@ -3,7 +3,6 @@ pipeline_executor:
   pipeline:
     - job_repository_update_step
     - tranqu_step
-    - ro_error_mitigation_step
     - buffer
     - device_gateway_step
   job_buffer: buffer
@@ -57,10 +56,6 @@ di_container:
         transpiler_lib: qiskit
         transpiler_options:
           optimization_level: 1
-
-    ro_error_mitigation_step:
-      _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
-      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
 
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep
