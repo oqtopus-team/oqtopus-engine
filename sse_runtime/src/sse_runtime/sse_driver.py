@@ -5,28 +5,27 @@ from pathlib import Path
 from typing import Any
 
 import grpc
+from oqtopus_engine_core.interfaces.oqtopus_cloud.jobs_job import JobsJob
+from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
 from quri_parts.backend import BackendError
+
+from quri_parts_oqtopus.rest import (
+    JobsSubmitJobRequest,
+)
+from quri_parts_oqtopus.rest.models.jobs_estimation_result import JobsEstimationResult
 from quri_parts_oqtopus.rest.models.jobs_job_def import JobsJobDef
 from quri_parts_oqtopus.rest.models.jobs_job_info import JobsJobInfo
 from quri_parts_oqtopus.rest.models.jobs_sampling_result import JobsSamplingResult
 from quri_parts_oqtopus.rest.models.jobs_transpile_result import JobsTranspileResult
-from oqtopus_engine_core.interfaces.sse_interface.v1 import (
-    sse_pb2,
-    sse_pb2_grpc
-)
 
 
-def req_transpile_and_exec(
-        qasm: list[str],
-        n_shots: int,
-        transpiler: dict[str, Any]
+def submit_job(
+        input_job: JobsSubmitJobRequest,
 ) -> JobsJobDef:
-    """Request transpile and QPU execution.
+    """Submit a job from SSE Runtime
 
     Args:
-        qasm: The QASM string to be transpiled and executed.
-        n_shots: The number of shots.
-        transpiler: Transpiler info to pass to transpiler.
+        input_job: The job data for the request.
 
     Returns:
         JobsJobDef | None: If a timeout occurs, it returns None. Otherwise, it
@@ -50,8 +49,7 @@ def req_transpile_and_exec(
         created = datetime.datetime.now(tz=datetime.UTC) \
                                     .strftime("%Y-%m-%d %H:%M:%S")
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
-        # insert parameter of qasm, shots and transpiler into the job data
-        req_json = _make_request(job_json, qasm[0], n_shots, transpiler)
+        req_json = _make_request(job_json, input_job)
         # gRPC request
         request = sse_pb2.SseEngineRequest(job_json=json.dumps(req_json))
         response = stub.SseEngine(request)
@@ -93,8 +91,18 @@ def _make_job_def(
     # Convert job_info and its nested objects
     job.job_info = JobsJobInfo(**result_dict.get("job_info", {}))
     job.job_info.result = {
-        "sampling": JobsSamplingResult(**(job.job_info.result or {}).get("sampling", {})),
-        "estimation": None,
+        "sampling":
+                JobsSamplingResult(
+                    **(job.job_info.result or {}).get("sampling", {})
+                )
+                if job.job_type in {"sampling", "multi_manual"}
+                else None,
+        "estimation":
+                JobsEstimationResult(
+                    **(job.job_info.result or {}).get("estimation", {})
+                )
+                if job.job_type == "estimation"
+                else None,
     }
     # Convert transpile_result if exists
     transpile_result = job.job_info.transpile_result
@@ -105,22 +113,18 @@ def _make_job_def(
 
 def _make_resultjson(job: JobsJobDef) -> dict[str, Any]:
     # convert the job data in order to make it readable in engine
-    output_contents = job.to_dict()
-    return output_contents
+    return job.to_dict()
 
 
 def _make_request(
         job_json: str,
-        qasm: str,
-        shots: int,
-        transpiler_info: dict[str, Any]
+        input_job: JobsSubmitJobRequest,
 ) -> dict[str, Any]:
-    job_dict = json.loads(job_json)
-    job_dict["job_info"]["program"] = [qasm]
-    job_dict["shots"] = shots
-    job_dict["transpiler_info"] = transpiler_info or {}
-    job_dict["job_type"] = "sampling"
-    return job_dict
+    job_dict = json.loads(job_json)  # parent SSE job
+    request = JobsJob(**input_job.to_dict())
+    request.job_id = job_dict["job_id"]  # set job_id of parent SSE job
+    request.status = "ready"
+    return request.to_dict()
 
 
 def _log_result(contents_dict: dict[str, Any], filename: str) -> None:

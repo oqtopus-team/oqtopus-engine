@@ -2,7 +2,10 @@
 pipeline_executor:
   pipeline:
     - job_repository_update_step
+    - multi_manual_step
     - tranqu_step
+    - estimator_step
+    - ro_error_mitigation_step
     - buffer
     - device_gateway_step
   job_buffer: buffer
@@ -49,6 +52,10 @@ di_container:
     job_repository_update_step:
       _target_: oqtopus_engine_core.steps.JobRepositoryUpdateStep
 
+    multi_manual_step:
+      _target_: oqtopus_engine_core.steps.MultiManualStep
+      combiner_address: ${COMBINER_ADDRESS, "localhost:52013"}
+
     tranqu_step:
       _target_: oqtopus_engine_core.steps.TranquStep
       tranqu_address: ${TRANQU_ADDRESS, "localhost:52020"}
@@ -56,6 +63,23 @@ di_container:
         transpiler_lib: qiskit
         transpiler_options:
           optimization_level: 1
+
+    estimator_step:
+      _target_: oqtopus_engine_core.steps.EstimatorStep
+      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:52012"}
+      basis_gates:
+        - "cx"
+        - "id"
+        - "rz"
+        - "sx"
+        - "x"
+        - "reset"
+        - "delay"
+        - "measure"
+
+    ro_error_mitigation_step:
+      _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
+      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
 
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep
