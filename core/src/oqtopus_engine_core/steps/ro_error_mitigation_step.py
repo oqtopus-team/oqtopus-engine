@@ -125,9 +125,9 @@ class ReadoutErrorMitigationStep(Step):
 
             device_topology = mitigator_pb2.DeviceTopology(qubits=qubits_pb)
 
-            if job.job_type != "sampling":
+            if job.job_type != "sampling" and job.job_type != "multi_manual":
                 logger.debug(
-                    "job_type is not 'sampling', skipping mitigation",
+                    "job_type is not 'sampling' or 'multi_manual', skipping mitigation",
                     extra={"job_id": job.job_id, "job_type": job.job_type},
                 )
                 return

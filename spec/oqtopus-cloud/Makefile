@@ -14,4 +14,5 @@ download-oas-dev: ## Download the OQTOPUS Cloud Provider API OpenAPI Specificati
 generate: ## Generate the OQTOPUS Cloud Provider API client code using Swagger Codegen
 	java -jar swagger-codegen-cli-3.0.68.jar generate -l python -i openapi.yaml -o output -c swagger-codegen-config.json && \
 	rm -rf ../../core/src/oqtopus_engine_core/interfaces/oqtopus_cloud && \
-	cp -pr output/oqtopus_engine_core ../../core/src
+	cp -pr output/oqtopus_engine_core ../../core/src && \
+	cp -pr output/oqtopus_engine_core/interfaces/oqtopus_cloud/models/jobs_job.py  ../../sse_runtime/src/sse_runtime/oqtopus_engine_core/interfaces/oqtopus_cloud/

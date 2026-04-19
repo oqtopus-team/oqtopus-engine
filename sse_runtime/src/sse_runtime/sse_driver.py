@@ -8,22 +8,22 @@ import grpc
 from oqtopus_client.rest.models.jobs_job_def import JobsJobDef
 from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
 
+from quri_parts_oqtopus.rest import (
+    JobsSubmitJobRequest,
+)
+
 
 class SseRuntimeError(RuntimeError):
     """Error raised when SSE runtime execution fails."""
 
 
-def req_transpile_and_exec(
-        qasm: list[str],
-        n_shots: int,
-        transpiler: dict[str, Any]
+def submit_job(
+        input_job: JobsSubmitJobRequest,
 ) -> JobsJobDef:
-    """Request transpile and QPU execution.
+    """Submit a job from SSE Runtime
 
     Args:
-        qasm: The QASM string to be transpiled and executed.
-        n_shots: The number of shots.
-        transpiler: Transpiler info to pass to transpiler.
+        input_job: The job data for the request.
 
     Returns:
         JobsJobDef | None: If a timeout occurs, it returns None. Otherwise, it
@@ -46,8 +46,7 @@ def req_transpile_and_exec(
     with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
         created = datetime.datetime.now(tz=datetime.UTC)
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
-        # insert parameter of qasm, shots and transpiler into the job data
-        req_json = _make_request(job_json, qasm[0], n_shots, transpiler)
+        req_json = _make_request(job_json, input_job)
         # gRPC request
         request = sse_pb2.SseEngineRequest(job_json=json.dumps(req_json))
         response = stub.SseEngine(request)
@@ -163,9 +162,7 @@ def _make_resultjson(job: JobsJobDef, request_job: dict[str, Any]) -> dict[str, 
 
 def _make_request(
         job_json: str,
-        qasm: str,
-        shots: int,
-        transpiler_info: dict[str, Any]
+        input_job: JobsSubmitJobRequest,
 ) -> dict[str, Any]:
     job_dict = _load_json_dict(job_json)
 
