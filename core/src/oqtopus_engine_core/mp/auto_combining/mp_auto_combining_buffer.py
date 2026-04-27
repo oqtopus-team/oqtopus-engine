@@ -526,7 +526,7 @@ def _is_combinable(job: Job) -> bool:
     if job.transpiler_info.get("transpiler_lib", None) is None:
         return False
 
-    # Do not combine jobs with initial_layout since the same reason as above.
+    # Do not combine jobs with initial_layout for the same reason as above.
     if (job.transpiler_info.get("transpiler_options", {}) or {}).get(  # noqa: SIM103
         "initial_layout", None
     ) is not None:
