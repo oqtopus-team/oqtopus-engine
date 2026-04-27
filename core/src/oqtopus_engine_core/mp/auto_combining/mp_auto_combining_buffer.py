@@ -499,19 +499,40 @@ def filter_combinable_jobs(
     uncombinable_jobs = []
     for gctx, jctx, job in jobs:
         # TODO: Add evaluation if the job accepts combination or not  # noqa: TD002,TD003,FIX002,E501
-        if (
-            job.job_type in COMBINABLE_JOB_TYPES and
-            # Do not combine jobs that specify no transpiling
-            # since the jobs may assign qubits manually.
-            # MP auto does not support manual qubit assignment currently.
-            job.transpiler_info.get("transpiler_lib", None) is not None
-            ):
+        if _is_combinable(job):
             combinable_jobs.append((gctx, jctx, job))
-
         else:
             uncombinable_jobs.append((gctx, jctx, job))
 
     return combinable_jobs, uncombinable_jobs
+
+
+def _is_combinable(job: Job) -> bool:
+    """Check if a job is eligible for combination.
+
+    Args:
+        job: The job to check.
+
+    Returns:
+        True if the job can be combined, False otherwise.
+
+    """
+    if job.job_type not in COMBINABLE_JOB_TYPES:
+        return False
+
+    # Do not combine jobs that specify no transpiling
+    # since the jobs may assign qubits manually.
+    # MP auto does not support manual qubit assignment currently.
+    if job.transpiler_info.get("transpiler_lib", None) is None:
+        return False
+
+    # Do not combine jobs with initial_layout for the same reason as above.
+    if (job.transpiler_info.get("transpiler_options", {}) or {}).get(  # noqa: SIM103
+        "initial_layout", None
+    ) is not None:
+        return False
+
+    return True
 
 
 def create_combined_job(combined_program: str, shots: int) -> Job:
