@@ -70,7 +70,9 @@ class JobWithCircuitGraph:
                                     }
 
     @staticmethod
-    def _quantum_circuit_to_networkx(circuit: QuantumCircuit) -> nx.MultiDiGraph:
+    def _quantum_circuit_to_networkx(
+        circuit: QuantumCircuit,
+    ) -> tuple[nx.MultiDiGraph, dict[int, int]]:
         """Convert QuantumCircuit to networkx graph.
 
         This function converts a Qiskit QuantumCircuit into a networkx MultiDiGraph.
@@ -283,7 +285,10 @@ class OptimalCircuitCombiner:
         qc = target_circuit.copy()
         measure_ops = []
         # copy gates to the new circuit with remapped qubits
-        for instr, qargs, cargs in source_circuit.data:
+        for instruction in source_circuit.data:
+            instr = instruction.operation
+            qargs = instruction.qubits
+            cargs = instruction.clbits
             q_regs = []
             for q in qargs:
                 idx = source_circuit.find_bit(q).index
