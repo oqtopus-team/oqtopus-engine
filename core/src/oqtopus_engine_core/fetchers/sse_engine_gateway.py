@@ -151,7 +151,7 @@ class SseEngineGatewayServicer:
             res.status = "succeeded"
         finally:
             elapsed_ms = (time.perf_counter() - start) * 1000.0
-            res.job_json = job.model_dump_json()
+            res.job_json = job.model_dump_json(exclude={"parent", "children"})
             logger.info(
                 "sse-engine pipeline execution finished",
                 extra={
