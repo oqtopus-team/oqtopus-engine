@@ -1164,3 +1164,131 @@ async def test_join_skip_steps_takes_priority_over_enabled_steps():
     assert "joined" not in jctx
     assert len(jctx.children) == 2
     assert executor._pending_children == {}
+
+
+# ---------------------------------------------------------------------------
+# OTel observability lifecycle tests
+#
+# Verify that `oqtopus_engine.job.process` span / metrics are finalized on
+# every completion path. The pipeline marks `jctx.data["_oqtopus_obs_finalized"]`
+# to True on the first `_finalize_job_observability` call, so asserting that
+# flag is sufficient to cover the lifecycle (real span.end()/metric record
+# happen inside the same function).
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_obs_finalized_after_split_only():
+    """Split with no following join still finalizes the parent's root span."""
+    pipeline = [SplitOnPreStep()]  # no JoinStep
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    assert jctx.data.get("_oqtopus_obs_finalized") is True
+
+
+@pytest.mark.asyncio
+async def test_obs_finalized_when_join_is_last_step():
+    """Join at the end of the pipeline (no parent resume) still finalizes."""
+    pipeline = [SplitOnPreStep(), JoinOnPostStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    assert jctx.data.get("_oqtopus_obs_finalized") is True
+
+
+@pytest.mark.asyncio
+async def test_obs_finalized_on_normal_completion():
+    """Sanity: a plain pipeline reaches the cursor<0 branch and finalizes."""
+    pipeline: list = []  # empty pipeline → immediate end
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    assert jctx.data.get("_oqtopus_obs_finalized") is True
+
+
+@pytest.mark.asyncio
+async def test_obs_ctx_propagated_to_child_jctx():
+    """Children inherit the parent's `_oqtopus_obs_ctx` so workers can
+    re-attach it after a Buffer transit.
+    """
+    pipeline = [SplitOnPreStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    parent_ctx = jctx.data.get("_oqtopus_obs_ctx")
+    assert parent_ctx is not None
+    for child_jctx in jctx.children:
+        assert child_jctx.data.get("_oqtopus_obs_ctx") is parent_ctx
+
+
+@pytest.mark.asyncio
+async def test_obs_failed_when_split_child_step_fails():
+    """A child step exception during a split must surface as failure on the
+    root job's observability finalization, even though _safe_call swallows
+    the exception and `asyncio.gather` in `_handle_split` returns normally.
+    """
+    pipeline = [SplitOnPreStep(), ErrorStep(), JoinOnPostStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    assert jctx.data.get("_oqtopus_obs_finalized") is True
+    assert jctx.data.get("_oqtopus_obs_failed") is True
+
+
+@pytest.mark.asyncio
+async def test_obs_failed_when_child_post_process_fails():
+    """A child failure in POST_PROCESS phase must also mark the root failed."""
+    pipeline = [SplitOnPreStep(), ErrorInPostStep(), JoinOnPostStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext(initial={})
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    assert jctx.data.get("_oqtopus_obs_finalized") is True
+    assert jctx.data.get("_oqtopus_obs_failed") is True

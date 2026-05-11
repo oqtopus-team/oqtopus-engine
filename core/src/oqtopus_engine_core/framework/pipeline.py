@@ -6,7 +6,15 @@ import time
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from opentelemetry import baggage, trace
+from opentelemetry import context as otel_context
+
 from .buffer import Buffer
+from .observability import (
+    job_completed_counter,
+    job_duration_histogram,
+    job_started_counter,
+)
 from .step import (
     DetachOnPostprocess,
     DetachOnPreprocess,
@@ -25,6 +33,7 @@ if TYPE_CHECKING:
     from .model import Job
 
 logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class StepPhase(StrEnum):
@@ -113,13 +122,26 @@ class PipelineExecutor:
         while True:
             try:
                 gctx, jctx, job = await buffer.get()
-                await self._run_from(
-                    step_phase=StepPhase.PRE_PROCESS,
-                    index=buffer_index + 1,
-                    gctx=gctx,
-                    jctx=jctx,
-                    job=job,
-                )
+                # Worker tasks are spawned at pipeline startup with an empty
+                # OTel context. Re-attach the per-job context that was saved
+                # on jctx during the first `_run_from` entry so spans created
+                # after a Buffer transit stay parented under the job's root
+                # `oqtopus_engine.job.process` span.
+                token = None
+                saved_ctx = jctx.data.get("_oqtopus_obs_ctx")
+                if saved_ctx is not None:
+                    token = otel_context.attach(saved_ctx)
+                try:
+                    await self._run_from(
+                        step_phase=StepPhase.PRE_PROCESS,
+                        index=buffer_index + 1,
+                        gctx=gctx,
+                        jctx=jctx,
+                        job=job,
+                    )
+                finally:
+                    if token is not None:
+                        otel_context.detach(token)
             except Exception:
                 logger.exception(
                     "worker crashed and recovered",
@@ -147,7 +169,7 @@ class PipelineExecutor:
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
-    async def _run_from(  # noqa: C901, PLR0911, PLR0912, PLR0915
+    async def _run_from(
         self,
         step_phase: StepPhase,
         index: int,
@@ -155,14 +177,13 @@ class PipelineExecutor:
         jctx: JobContext,
         job: Job,
     ) -> None:
-        """Run a job through the pipeline as a simple state machine.
+        """Run a job through the pipeline state machine.
 
-        The state is represented by (step_phase, cursor). The method:
-          - Moves forward in PRE_PROCESS phase.
-          - Moves backward in POST_PROCESS phase.
-          - Delegates split/join behavior to helper methods.
-          - Delegates any advanced buffering or joining logic inside Buffer
-            implementations (the framework only enqueues and stops).
+        On root-job entry, opens the long-lived `oqtopus_engine.job.process`
+        span and attaches the per-job OTel context (with `oqtopus.*` baggage)
+        so child spans created during processing become its descendants.
+        The context is saved on jctx so workers can re-attach it after Buffer
+        transits; the span is ended in `_finalize_job_observability`.
 
         Args:
             step_phase: The current phase of execution (pre_process or post_process).
@@ -182,6 +203,57 @@ class PipelineExecutor:
                 },
             )
 
+        # Root jobs only: open the long-lived `oqtopus_engine.job.process`
+        # span and attach an OTel context carrying it (plus oqtopus.* baggage)
+        # to the current task. The context is also saved on jctx so worker
+        # tasks can re-attach it after a Buffer transit. The span is ended in
+        # `_finalize_job_observability`.
+        token = None
+        if (
+            index == 0
+            and step_phase == StepPhase.PRE_PROCESS
+            and job.parent is None
+            and "_oqtopus_obs_span" not in jctx.data
+        ):
+            root_span = tracer.start_span(
+                "oqtopus_engine.job.process",
+                attributes={
+                    "oqtopus.job_id": job.job_id,
+                    "oqtopus.job_type": job.job_type,
+                    "oqtopus.device_id": job.device_id,
+                },
+            )
+            ctx = trace.set_span_in_context(root_span)
+            ctx = baggage.set_baggage("oqtopus.job_id", job.job_id, context=ctx)
+            ctx = baggage.set_baggage("oqtopus.job_type", job.job_type, context=ctx)
+            jctx.data["_oqtopus_obs_span"] = root_span
+            jctx.data["_oqtopus_obs_ctx"] = ctx
+            jctx.data["_oqtopus_obs_start"] = time.perf_counter()
+            jctx.data["_oqtopus_obs_finalized"] = False
+            job_started_counter.add(1, {"oqtopus.job_type": job.job_type})
+            token = otel_context.attach(ctx)
+
+        try:
+            await self._run_state_machine(step_phase, index, gctx, jctx, job)
+        finally:
+            if token is not None:
+                otel_context.detach(token)
+
+    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912
+        self,
+        step_phase: StepPhase,
+        index: int,
+        gctx: GlobalContext,
+        jctx: JobContext,
+        job: Job,
+    ) -> None:
+        """State-machine body of ``_run_from``.
+
+        Factored out of ``_run_from`` so the outer function can wrap it in a
+        try/finally that detaches the per-invocation root-span context token
+        on exit; the root span itself outlives this invocation when the
+        pipeline continues via a Buffer worker.
+        """
         # state variables (do not mutate function arguments).
         current_phase = step_phase
         cursor = index
@@ -213,6 +285,7 @@ class PipelineExecutor:
                         "jctx": jctx,
                     },
                 )
+                self._finalize_job_observability(jctx, job, status="success")
                 return
 
             # at this point cursor must be valid (0 <= cursor < len)
@@ -420,7 +493,16 @@ class PipelineExecutor:
 
             # Call the function and measure elapsed time
             start = time.perf_counter()
-            await fn(gctx, jctx, job)
+            with tracer.start_as_current_span(
+                f"oqtopus_engine.pipeline.{step.__class__.__name__}.{phase.value}",
+                attributes={
+                    "oqtopus.job_id": job.job_id,
+                    "oqtopus.job_type": job.job_type,
+                    "oqtopus.pipeline.step": step.__class__.__name__,
+                    "oqtopus.pipeline.phase": phase.value,
+                },
+            ):
+                await fn(gctx, jctx, job)
             elapsed_ms = (time.perf_counter() - start) * 1000.0
 
             # Completed log
@@ -453,9 +535,75 @@ class PipelineExecutor:
             if self._exception_handler:
                 await self._exception_handler.handle_exception(e, gctx, jctx, job)
 
+            # Record failure on the root job's observability state.
+            # _safe_call swallows the exception so `asyncio.gather` in
+            # `_handle_split` returns normally; without this flag the
+            # split-path finalize would tag the root span as "success".
+            self._mark_root_observability_failed(jctx)
+            self._finalize_job_observability(jctx, job, status="failure")
             return False
         else:
             return True
+
+    @staticmethod
+    def _finalize_job_observability(
+        jctx: JobContext, job: Job, status: str
+    ) -> None:
+        """End the job-level root span and emit completion metrics.
+
+        Safe to call multiple times for the same job; only the first call
+        records metrics and ends the span. The per-invocation OTel context
+        tokens are managed by their callers (`_run_from` / `_worker_loop`),
+        so this function only owns the span lifecycle.
+
+        If any descendant step has marked the root jctx via
+        `_mark_root_observability_failed`, the caller's status is overridden
+        to "failure" so the root span / metrics reflect the actual outcome
+        rather than a child's silently-swallowed exception.
+        """
+        if jctx.data.get("_oqtopus_obs_finalized"):
+            return
+        if "_oqtopus_obs_span" not in jctx.data:
+            return
+        jctx.data["_oqtopus_obs_finalized"] = True
+
+        if jctx.data.get("_oqtopus_obs_failed"):
+            status = "failure"
+
+        start = jctx.data.get("_oqtopus_obs_start")
+        if start is not None:
+            duration_s = time.perf_counter() - start
+            job_duration_histogram.record(
+                duration_s,
+                {"oqtopus.job_type": job.job_type, "oqtopus.status": status},
+            )
+        job_completed_counter.add(
+            1, {"oqtopus.job_type": job.job_type, "oqtopus.status": status}
+        )
+
+        root_span = jctx.data["_oqtopus_obs_span"]
+        root_span.set_attribute("oqtopus.status", status)
+        root_span.end()
+
+    @staticmethod
+    def _mark_root_observability_failed(jctx: JobContext) -> None:
+        """Mark the root job's jctx as failed for observability finalization.
+
+        Walks up `jctx.parent` until it finds the jctx that owns the
+        `_oqtopus_obs_span` (i.e. the root job's jctx) and sets the
+        `_oqtopus_obs_failed` flag there. This is called from step exception
+        paths so that the eventual `_finalize_job_observability` on the root
+        records `oqtopus.status="failure"` even when the root finalize is
+        triggered from a "success" code path (e.g. after `_handle_split`'s
+        `gather` returns normally because child failures are swallowed by
+        `_safe_call`).
+        """
+        cur: JobContext | None = jctx
+        while cur is not None:
+            if "_oqtopus_obs_span" in cur.data:
+                cur.data["_oqtopus_obs_failed"] = True
+                return
+            cur = cur.parent
 
     @staticmethod
     def _is_split_enabled(
@@ -629,6 +777,12 @@ class PipelineExecutor:
         # ------------------------------------------------------------
         child_coroutines: list[Awaitable[None]] = []
 
+        # Propagate the parent's per-job OTel context (if any) to each child
+        # via jctx.data. Children inherit the active context naturally when
+        # spawned in this task, but the saved context is needed so workers
+        # can re-attach it after a child crosses a Buffer.
+        parent_obs_ctx = jctx.data.get("_oqtopus_obs_ctx")
+
         for child_job, child_jctx in zip(job.children, jctx.children, strict=True):
             logger.info(
                 "start child pipeline",
@@ -642,6 +796,9 @@ class PipelineExecutor:
             # Establish parent link
             child_job.parent = job
             child_jctx.parent = jctx
+
+            if parent_obs_ctx is not None:
+                child_jctx.data["_oqtopus_obs_ctx"] = parent_obs_ctx
 
             # Enqueue child pipelines as coroutines; they will run concurrently
             # via asyncio.gather below.
@@ -677,8 +834,14 @@ class PipelineExecutor:
         )
 
         # ------------------------------------------------------------
-        # 4. Parent pipeline stops here; children continue independently
+        # 4. Finalize the parent's job-level span if this was a root job.
+        # When the pipeline terminates via a split (no join resumes the
+        # parent), the parent's _run_state_machine never reaches the
+        # cursor<0 branch that normally calls _finalize_job_observability,
+        # so it must be called here.
         # ------------------------------------------------------------
+        if job.parent is None:
+            self._finalize_job_observability(jctx, job, status="success")
 
     def _start_child_pipeline(
         self,
@@ -907,7 +1070,9 @@ class PipelineExecutor:
                     job=parent_job,
                 )
             else:
-                # No steps after the join for the parent; nothing to do.
+                # No steps after the join for the parent; the pipeline is
+                # complete. Finalize the root span here since no _run_from
+                # invocation will reach the cursor<0 branch.
                 logger.info(
                     "no parent post-process steps after join; skipping resume",
                     extra={
@@ -915,6 +1080,10 @@ class PipelineExecutor:
                         "next_index": next_index,
                     },
                 )
+                if parent_job.parent is None:
+                    self._finalize_job_observability(
+                        parent_jctx, parent_job, status="success"
+                    )
         elif step_phase == StepPhase.PRE_PROCESS:
             # JoinOnPreprocess could resume pre-process here.
             if 0 <= next_index < len(self._pipeline):

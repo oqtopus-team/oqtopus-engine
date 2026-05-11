@@ -88,6 +88,7 @@ class Job(BaseModel):
     ready_at: datetime | None = None
     running_at: datetime | None = None
     ended_at: datetime | None = None
+    traceparent: str | None = None
     parent: "Job | None" = None
     children: list["Job"] = Field(default_factory=list)
 

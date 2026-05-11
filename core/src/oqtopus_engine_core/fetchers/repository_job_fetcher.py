@@ -1,6 +1,9 @@
 import asyncio
 import logging
 
+from opentelemetry import context as otel_context
+from opentelemetry.propagate import extract
+
 from oqtopus_engine_core.framework import JobContext, JobFetcher
 from oqtopus_engine_core.framework.job_fetcher import wait_until_fetchable
 
@@ -62,9 +65,21 @@ class RepositoryJobFetcher(JobFetcher):
                 )
 
                 for job in jobs:
-                    # Send job to pipeline
-                    jctx = JobContext()
-                    await pipeline.execute_pipeline(gctx, jctx, job)
+                    # Restore distributed trace context from the job's
+                    # traceparent so the pipeline's root span becomes a child
+                    # of the cloud submit span. The pipeline owns its own
+                    # `oqtopus_engine.job.process` span; the fetcher only
+                    # provides the parent context here.
+                    token = None
+                    if getattr(job, "traceparent", None):
+                        parent_ctx = extract({"traceparent": job.traceparent})
+                        token = otel_context.attach(parent_ctx)
+                    try:
+                        jctx = JobContext()
+                        await pipeline.execute_pipeline(gctx, jctx, job)
+                    finally:
+                        if token is not None:
+                            otel_context.detach(token)
 
                 # Sleep if fewer jobs than the fetch limit were returned
                 if len(jobs) < self._limit:
