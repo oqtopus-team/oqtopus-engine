@@ -5,15 +5,12 @@ from pathlib import Path
 from typing import Any
 
 import grpc
-from quri_parts.backend import BackendError
-from quri_parts_oqtopus.rest.models.jobs_job_def import JobsJobDef
-from quri_parts_oqtopus.rest.models.jobs_job_info import JobsJobInfo
-from quri_parts_oqtopus.rest.models.jobs_sampling_result import JobsSamplingResult
-from quri_parts_oqtopus.rest.models.jobs_transpile_result import JobsTranspileResult
-from oqtopus_engine_core.interfaces.sse_interface.v1 import (
-    sse_pb2,
-    sse_pb2_grpc
-)
+from oqtopus_client.rest.models.jobs_job_def import JobsJobDef
+from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
+
+
+class SseRuntimeError(RuntimeError):
+    """Error raised when SSE runtime execution fails."""
 
 
 def req_transpile_and_exec(
@@ -34,7 +31,7 @@ def req_transpile_and_exec(
 
     Raises:
         OSError: If the job data is not set.
-        BackendError: If the job execution fails.
+        SseRuntimeError: If the job execution fails.
 
     """
     # get gRPC server address from environment variables
@@ -47,8 +44,7 @@ def req_transpile_and_exec(
         raise OSError(msg)
 
     with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
-        created = datetime.datetime.now(tz=datetime.UTC) \
-                                    .strftime("%Y-%m-%d %H:%M:%S")
+        created = datetime.datetime.now(tz=datetime.UTC)
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
         # insert parameter of qasm, shots and transpiler into the job data
         req_json = _make_request(job_json, qasm[0], n_shots, transpiler)
@@ -57,8 +53,7 @@ def req_transpile_and_exec(
         response = stub.SseEngine(request)
 
         # make content of output file to pass the result to sserunner
-        ended = datetime.datetime.now(tz=datetime.UTC) \
-                        .strftime("%Y-%m-%d %H:%M:%S")
+        ended = datetime.datetime.now(tz=datetime.UTC)
         job = _make_job_def(response)
         job.submitted_at = created
         job.ready_at = created
@@ -71,10 +66,10 @@ def req_transpile_and_exec(
         # raise error if the job execution is failed
         if response.status != "succeeded":
             msg = f"To execute sampling on OQTOPUS server is failed. reason: {response.message}"  # noqa: E501
-            raise BackendError(msg)
+            raise SseRuntimeError(msg)
         if job.status != "succeeded":
             msg = f"To execute sampling on OQTOPUS server is failed. reason: {job.job_info.message}"  # noqa: E501
-            raise BackendError(msg)
+            raise SseRuntimeError(msg)
 
         return job
 
@@ -83,30 +78,22 @@ def _make_job_def(
     response: sse_pb2.SseEngineResponse,
 ) -> JobsJobDef:
     result_dict = json.loads(response.job_json or "{}")
-    result_dict["name"] = result_dict["name"] or ""
+    result_dict["name"] = result_dict.get("name") or ""
 
     # Filter out unsupported fields to ensure compatibility with JobsJobDef
     for key in ["parent", "children"]:
         result_dict.pop(key, None)
-    # Convert to JobsJobDef
-    job = JobsJobDef(**result_dict)
-    # Convert job_info and its nested objects
-    job.job_info = JobsJobInfo(**result_dict.get("job_info", {}))
-    job.job_info.result = {
-        "sampling": JobsSamplingResult(**(job.job_info.result or {}).get("sampling", {})),
-        "estimation": None,
-    }
-    # Convert transpile_result if exists
-    transpile_result = job.job_info.transpile_result
-    if transpile_result:
-        job.job_info.transpile_result = JobsTranspileResult(**transpile_result)
+
+    job = JobsJobDef.from_dict(result_dict)
+    if job is None:
+        msg = "Could not parse job data"
+        raise SseRuntimeError(msg)
     return job
 
 
 def _make_resultjson(job: JobsJobDef) -> dict[str, Any]:
     # convert the job data in order to make it readable in engine
-    output_contents = job.to_dict()
-    return output_contents
+    return job.model_dump(mode="json", by_alias=True, exclude_none=True)
 
 
 def _make_request(
@@ -129,7 +116,7 @@ def _log_result(contents_dict: dict[str, Any], filename: str) -> None:
     p = Path(dir_path)
     if not p.exists():
         msg = f"The path to output does not exist {dir_path}"
-        raise BackendError(msg)
+        raise SseRuntimeError(msg)
 
     file_path = Path(dir_path, filename)
     with Path.open(file_path, "w") as f:
