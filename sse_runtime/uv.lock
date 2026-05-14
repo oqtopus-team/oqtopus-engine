@@ -2018,6 +2018,50 @@ wheels = [
 ]
 
 [[package]]
+name = "quri-parts"
+version = "0.22.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "quri-parts-algo" },
+    { name = "quri-parts-chem" },
+    { name = "quri-parts-circuit" },
+    { name = "quri-parts-core" },
+    { name = "quri-parts-rust" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/48/77/110202529eb335a7e86577181b5374248f3c636bbc8bc07ac1c46f22a113/quri_parts-0.22.1.tar.gz", hash = "sha256:ca505107c576710f8f4be559dffc57ec99f87b3e8901a661767691e83a99fd51", size = 7936, upload-time = "2025-06-13T05:07:24.806Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/83/e7/1d011f947a1bc63fd7cd5be76742a239ebe8a23d671a8624022d968e75b3/quri_parts-0.22.1-py3-none-any.whl", hash = "sha256:255c4f4a10d065ec492aed76bca9b41497b72f5d17d45ac6d4dff5a5854dd42d", size = 7722, upload-time = "2025-06-13T05:06:43.286Z" },
+]
+
+[[package]]
+name = "quri-parts-algo"
+version = "0.25.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "quri-parts-circuit" },
+    { name = "quri-parts-core" },
+    { name = "scipy" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/12/fb/184342dd8883c6690ce3c232a8c94e605f4a7402569ffb4e80edaf6e2f1c/quri_parts_algo-0.25.1.tar.gz", hash = "sha256:019b1f58acc937e786087194462299634f2eeef55be5f58032450cf9074a67b3", size = 23853, upload-time = "2026-05-13T02:29:34.708Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/3f/c56b5c2ceea11b2426d13d60cd9a5c117582b57b785f9209ea09f42bf248/quri_parts_algo-0.25.1-py3-none-any.whl", hash = "sha256:f80ec4e5b662b387bcbb4bf9eaea77b0c0d603a380a208e0ff3b664b7ed49ef5", size = 41799, upload-time = "2026-05-13T02:29:06.177Z" },
+]
+
+[[package]]
+name = "quri-parts-chem"
+version = "0.25.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "quri-parts-core" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c7/b1/c4faafaa33ef634606a1e29b1c7132362e09049a142f098bfdd3c3be91e5/quri_parts_chem-0.25.1.tar.gz", hash = "sha256:5bbee23f8c01f4c6076c1d0437d435f35d90bfcbee1664066b85776836cf05c6", size = 18067, upload-time = "2026-05-13T02:29:36.44Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/56/6c/b1ab99a820745e5f8aed4381c3fdbf89ed2d342dcdbc3ebba9afb92a4e97/quri_parts_chem-0.25.1-py3-none-any.whl", hash = "sha256:6eecff137b2523107df3ca95e61fbb4ca4bd2034fd1ed7e0ad2e05031d5897dc", size = 28767, upload-time = "2026-05-13T02:29:08.427Z" },
+]
+
+[[package]]
 name = "quri-parts-circuit"
 version = "0.25.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2322,6 +2366,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "qiskit" },
     { name = "qulacs" },
+    { name = "quri-parts" },
     { name = "quri-parts-oqtopus" },
     { name = "scikit-learn" },
     { name = "scipy" },
@@ -2348,6 +2393,7 @@ requires-dist = [
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "qiskit", specifier = "==1.4.3" },
     { name = "qulacs", specifier = "==0.6.12" },
+    { name = "quri-parts", specifier = "==0.22.1" },
     { name = "quri-parts-oqtopus", specifier = "==1.0.3" },
     { name = "scikit-learn", specifier = "==1.7.0" },
     { name = "scipy", specifier = ">=1.15.3" },
