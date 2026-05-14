@@ -2018,6 +2018,99 @@ wheels = [
 ]
 
 [[package]]
+name = "quri-parts-circuit"
+version = "0.25.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "quri-parts-rust" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/de/27/f4439b464008fcb3f8950b341dadaf4511c1b8ee41632ff55ea988ec53e0/quri_parts_circuit-0.25.1.tar.gz", hash = "sha256:7398f146755c7c881dd29a2a502d050d05573bc6775e6152f7b4deb9f666ec69", size = 42118, upload-time = "2026-05-13T02:29:37.593Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1e/92/391cb15df6f7aed733fc1381d408687fe95ee085d01527025c97d5dab6bc/quri_parts_circuit-0.25.1-py3-none-any.whl", hash = "sha256:e197e3da53c8769ffaf873fc186475c3dd41a4a5b0685d66c05c3cf075af2eb5", size = 63451, upload-time = "2026-05-13T02:29:09.508Z" },
+]
+
+[[package]]
+name = "quri-parts-core"
+version = "0.25.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "networkx" },
+    { name = "numpy" },
+    { name = "quri-parts-circuit" },
+    { name = "quri-parts-qulacs" },
+    { name = "scipy" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/51/2c/5534ee85caa6d651b1d1db4f843cf1eacc054cef1119d90dc42d28c9abe7/quri_parts_core-0.25.1.tar.gz", hash = "sha256:4427d898c1e9ff168a8255f9f0b068b378ec01008e73d15570dabe056bd22356", size = 54403, upload-time = "2026-05-13T02:29:39.376Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/01/b8146730ed9fa7efdf9c84327d5c027ed53a4d1d5bbc3812c5d83eeb949a/quri_parts_core-0.25.1-py3-none-any.whl", hash = "sha256:3527fa2b2417375716d60e51de57bc0728d12a4159a9782800ce9c6f64f1422b", size = 96759, upload-time = "2026-05-13T02:29:12.679Z" },
+]
+
+[[package]]
+name = "quri-parts-openqasm"
+version = "0.25.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "quri-parts-circuit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2e/e5/8ea4d4f6c36fdf2dc05b304652d8fefd09972c2e4235e17cf5ff9591bff4/quri_parts_openqasm-0.25.1.tar.gz", hash = "sha256:8582517bcff2339c18e7f4912410e675528cbc1e881772a95c74cbf18bef4ef3", size = 6741, upload-time = "2026-05-13T02:29:42.609Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c5/7c/da0d2fbb15c0c14d8639aff634bd062b48f54463deaebae8fb900b7f3330/quri_parts_openqasm-0.25.1-py3-none-any.whl", hash = "sha256:73d3224be0540037aa76cd7391ee8e0e6263a5a259a3ca8cfbf90edff979f881", size = 8318, upload-time = "2026-05-13T02:29:17.378Z" },
+]
+
+[[package]]
+name = "quri-parts-oqtopus"
+version = "1.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "quri-parts-circuit" },
+    { name = "quri-parts-core" },
+    { name = "quri-parts-openqasm" },
+    { name = "six" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/39/cf/184b149b51186b7f5b43c1f700ccd395b55d4863bfaa48f93fc06165ee7e/quri_parts_oqtopus-1.0.3.tar.gz", hash = "sha256:e678ae4bd31939f8ac17722387a0973e6fa0434a57e442ceba61b1874ccb3d87", size = 21225543, upload-time = "2025-07-08T00:55:12.519Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/cd/ddbd9db8a9ceb8c3510dac38062da984f126671b3fdd838021e143219851/quri_parts_oqtopus-1.0.3-py3-none-any.whl", hash = "sha256:eae1e90eea23a08583a4d1dfacdf8675890cbd7d2a4ff418013998fed146567d", size = 79687, upload-time = "2025-07-08T00:55:10.285Z" },
+]
+
+[[package]]
+name = "quri-parts-qulacs"
+version = "0.25.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "qulacs" },
+    { name = "quri-parts-circuit" },
+    { name = "quri-parts-core" },
+    { name = "quri-parts-rust" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b0/48/6831c239fbc7a541f28f35feaf82dfb11ab76079028bf0b066131cb51b23/quri_parts_qulacs-0.25.1.tar.gz", hash = "sha256:a154b51e877b4aae25b63fb9fb1fb37f349b96608253b1a567a4d6bcb7fb13c0", size = 17023, upload-time = "2026-05-13T02:29:46.165Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/aa/33/564a3151347a5d55ff78bc2a0b705ec8c0e257b6db252108faeb51567a80/quri_parts_qulacs-0.25.1-py3-none-any.whl", hash = "sha256:d62c70440c9d903a2d40d099415507f81aec214fc4d1896d4c37faf2f549ca5b", size = 25917, upload-time = "2026-05-13T02:29:23.351Z" },
+]
+
+[[package]]
+name = "quri-parts-rust"
+version = "0.25.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4c/f8/4d7f23a21c4e3dd23a4309e1e88842674e3f0e4c73ba8fab24e099b6422d/quri_parts_rust-0.25.1.tar.gz", hash = "sha256:126fa09133dd82dba7c265d6f66ca17d5d77f7a2661c4e967c14e792a5e25062", size = 33990, upload-time = "2026-05-13T02:29:47.766Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/f9/f9c94d241d7a353d4fd0629eb1f66cf4377a098a85914a7eef4b54813d02/quri_parts_rust-0.25.1-cp39-abi3-macosx_10_12_universal2.whl", hash = "sha256:857f320010775b836b6acfe88356d4f544bb4ab2642a6cae323110500c79972e", size = 606849, upload-time = "2026-05-13T02:29:24.417Z" },
+    { url = "https://files.pythonhosted.org/packages/71/7d/5f1e794c51b548868f0643c566015de1b7a86195a64f1ec62e46c56feb98/quri_parts_rust-0.25.1-cp39-abi3-macosx_11_0_universal2.whl", hash = "sha256:f02a1bfca1f6db1f9484f3050583928677550a48e4d881e4df4f5d5a3a81b230", size = 578171, upload-time = "2026-05-13T02:29:25.552Z" },
+    { url = "https://files.pythonhosted.org/packages/27/76/a9afd77a0ec1193682e5ce6aea243510b73c4f456927daf57007e03a4c2a/quri_parts_rust-0.25.1-cp39-abi3-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:2ea9a3d09100e4a0cee102553f5b8f6c9fe711f9fde20a19b406e18bd7a68c46", size = 709231, upload-time = "2026-05-13T02:29:26.68Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/83/44d20fc2a58e4f48a8a3b43660419feb9ca4a622f0fc0ce29e04a41959ad/quri_parts_rust-0.25.1-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:140564d4df4156c6b55aacb4474b7b7f6c7a08bd86dcf027c0053fae185784b4", size = 661153, upload-time = "2026-05-13T02:29:28.457Z" },
+    { url = "https://files.pythonhosted.org/packages/28/f5/0bab37d57b862055481f8e69c1174d4aa782e4facc6040eb5308bfec2b36/quri_parts_rust-0.25.1-cp39-abi3-win_amd64.whl", hash = "sha256:f850e6a900b7a98a6bff70b368f63087864c708036bbf2f66144f7d58c6f9b2d", size = 471243, upload-time = "2026-05-13T02:29:29.773Z" },
+]
+
+[[package]]
 name = "requests"
 version = "2.32.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2229,6 +2322,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "qiskit" },
     { name = "qulacs" },
+    { name = "quri-parts-oqtopus" },
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "skqulacs" },
@@ -2254,6 +2348,7 @@ requires-dist = [
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "qiskit", specifier = "==1.4.3" },
     { name = "qulacs", specifier = "==0.6.12" },
+    { name = "quri-parts-oqtopus", specifier = "==1.0.3" },
     { name = "scikit-learn", specifier = "==1.7.0" },
     { name = "scipy", specifier = ">=1.15.3" },
     { name = "skqulacs", specifier = "==0.5.3" },

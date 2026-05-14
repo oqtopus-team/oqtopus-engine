@@ -41,6 +41,7 @@ dependencies = [
   "pennylane==0.42.0",
   "openfermion==1.7.1",
   "mypy>=1.17.0",
+  "quri-parts-oqtopus==1.0.3",
 ]
 
 [tool.uv]
