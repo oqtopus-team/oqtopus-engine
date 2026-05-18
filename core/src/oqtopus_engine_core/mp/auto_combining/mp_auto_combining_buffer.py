@@ -19,7 +19,7 @@ from qiskit.transpiler.layout import (  # type: ignore[import-untyped]
 from uuid_extensions import uuid7
 
 from oqtopus_engine_core.framework import Buffer, GlobalContext, JobContext
-from oqtopus_engine_core.framework.model import Job, JobInfo, JobResult
+from oqtopus_engine_core.framework.model import Job, JobResult
 from oqtopus_engine_core.interfaces.combiner_interface.v1 import (
     combiner_pb2,
     combiner_pb2_grpc,
