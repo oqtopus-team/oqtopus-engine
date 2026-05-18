@@ -28,8 +28,8 @@ _BAGGAGE_PREFIX = "oqtopus."
 
 _meter = metrics.get_meter(__name__)
 
-job_started_counter = _meter.create_counter(
-    name="oqtopus.jobs.started",
+job_ready_counter = _meter.create_counter(
+    name="oqtopus.jobs.ready",
     description="Number of jobs that entered the pipeline",
     unit="1",
 )
@@ -40,7 +40,7 @@ job_completed_counter = _meter.create_counter(
 )
 job_duration_histogram = _meter.create_histogram(
     name="oqtopus.job.duration",
-    description="End-to-end job processing duration",
+    description="Backend (engine) job processing duration",
     unit="s",
 )
 
@@ -62,23 +62,15 @@ class JobBaggageSpanProcessor(SpanProcessor):
                 span.set_attribute(key, value)
 
 
-_installed = False
+def register_span_processor() -> None:
+    """Register the baggage→attribute span processor on the active TracerProvider.
 
-
-def install() -> None:
-    """Install the baggage→attribute span processor on the active TracerProvider.
-
-    Idempotent. Safe to call multiple times. Logs and returns silently if the
-    active provider does not support ``add_span_processor`` (e.g. the default
-    ProxyTracerProvider before SDK init).
+    Logs and returns silently if the active provider does not support
+    ``add_span_processor`` (e.g. the default ProxyTracerProvider before SDK init).
     """
-    global _installed  # noqa: PLW0603
-    if _installed:
-        return
-
     provider = trace.get_tracer_provider()
-    add = getattr(provider, "add_span_processor", None)
-    if add is None:
+    add_span_processor = getattr(provider, "add_span_processor", None)
+    if add_span_processor is None:
         logger.info(
             "tracer provider does not support add_span_processor; "
             "job_id baggage enrichment will not be active",
@@ -86,6 +78,5 @@ def install() -> None:
         )
         return
 
-    add(JobBaggageSpanProcessor())
-    _installed = True
-    logger.info("JobBaggageSpanProcessor installed")
+    add_span_processor(JobBaggageSpanProcessor())
+    logger.info("JobBaggageSpanProcessor registered")

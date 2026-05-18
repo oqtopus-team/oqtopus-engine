@@ -43,8 +43,7 @@ class JobsJob(object):
         'submitted_at': 'datetime',
         'ready_at': 'datetime',
         'running_at': 'datetime',
-        'ended_at': 'datetime',
-        'traceparent': 'str'
+        'ended_at': 'datetime'
     }
 
     attribute_map = {
@@ -63,11 +62,10 @@ class JobsJob(object):
         'submitted_at': 'submitted_at',
         'ready_at': 'ready_at',
         'running_at': 'running_at',
-        'ended_at': 'ended_at',
-        'traceparent': 'traceparent'
+        'ended_at': 'ended_at'
     }
 
-    def __init__(self, job_id=None, name=None, description=None, device_id=None, shots=None, job_type=None, job_info=None, transpiler_info=None, simulator_info=None, mitigation_info=None, status=None, execution_time=None, submitted_at=None, ready_at=None, running_at=None, ended_at=None, traceparent=None):  # noqa: E501
+    def __init__(self, job_id=None, name=None, description=None, device_id=None, shots=None, job_type=None, job_info=None, transpiler_info=None, simulator_info=None, mitigation_info=None, status=None, execution_time=None, submitted_at=None, ready_at=None, running_at=None, ended_at=None):  # noqa: E501
         """JobsJob - a model defined in Swagger"""  # noqa: E501
         self._job_id = None
         self._name = None
@@ -85,7 +83,6 @@ class JobsJob(object):
         self._ready_at = None
         self._running_at = None
         self._ended_at = None
-        self._traceparent = None
         self.discriminator = None
         if job_id is not None:
             self.job_id = job_id
@@ -119,8 +116,6 @@ class JobsJob(object):
             self.running_at = running_at
         if ended_at is not None:
             self.ended_at = ended_at
-        if traceparent is not None:
-            self.traceparent = traceparent
 
     @property
     def job_id(self):
@@ -457,16 +452,6 @@ class JobsJob(object):
         """
 
         self._ended_at = ended_at
-
-    @property
-    def traceparent(self):
-        """Gets the traceparent of this JobsJob."""
-        return self._traceparent
-
-    @traceparent.setter
-    def traceparent(self, traceparent):
-        """Sets the traceparent of this JobsJob."""
-        self._traceparent = traceparent
 
     def to_dict(self):
         """Returns the model properties as a dict"""

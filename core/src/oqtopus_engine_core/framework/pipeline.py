@@ -13,7 +13,7 @@ from .buffer import Buffer
 from .observability import (
     job_completed_counter,
     job_duration_histogram,
-    job_started_counter,
+    job_ready_counter,
 )
 from .step import (
     DetachOnPostprocess,
@@ -230,7 +230,7 @@ class PipelineExecutor:
             jctx.data["_oqtopus_obs_ctx"] = ctx
             jctx.data["_oqtopus_obs_start"] = time.perf_counter()
             jctx.data["_oqtopus_obs_finalized"] = False
-            job_started_counter.add(1, {"oqtopus.job_type": job.job_type})
+            job_ready_counter.add(1, {"oqtopus.job_type": job.job_type})
             token = otel_context.attach(ctx)
 
         try:
