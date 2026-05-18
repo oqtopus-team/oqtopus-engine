@@ -16,6 +16,11 @@ import logging
 from typing import TYPE_CHECKING
 
 from opentelemetry import baggage, context, metrics, trace
+from opentelemetry.instrumentation.grpc import (
+    GrpcAioInstrumentorClient,
+    GrpcAioInstrumentorServer,
+)
+from opentelemetry.instrumentation.urllib3 import URLLib3Instrumentor
 from opentelemetry.sdk.trace import SpanProcessor
 
 if TYPE_CHECKING:
@@ -80,3 +85,19 @@ def register_span_processor() -> None:
 
     add_span_processor(JobBaggageSpanProcessor())
     logger.info("JobBaggageSpanProcessor registered")
+
+
+def instrument_clients() -> None:
+    """Enable OTel auto-instrumentation for gRPC and HTTP clients.
+
+    With this, outgoing calls to tranqu / estimator / mitigator /
+    device-gateway (gRPC) and oqtopus-cloud (urllib3) become child spans
+    of the active pipeline span and propagate traceparent to the callee.
+
+    Also enables the gRPC aio server instrumentor so the SSE engine
+    gateway server picks up traceparent from incoming RPCs.
+    """
+    URLLib3Instrumentor().instrument()
+    GrpcAioInstrumentorClient().instrument()
+    GrpcAioInstrumentorServer().instrument()
+    logger.info("gRPC/HTTP auto-instrumentation enabled")
