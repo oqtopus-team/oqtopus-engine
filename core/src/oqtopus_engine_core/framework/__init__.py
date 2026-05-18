@@ -1,5 +1,5 @@
 from .buffer import Buffer
-from .context import GlobalContext, JobContext
+from .context import GlobalContext, JobContext, PipelineDirective
 from .device_fetcher import DeviceFetcher
 from .device_repository import DeviceRepository
 from .engine import Engine
@@ -48,6 +48,7 @@ __all__ = [
     "JoinOnPreprocess",
     "OperatorItem",
     "PipelineBuilder",
+    "PipelineDirective",
     "PipelineExceptionHandler",
     "PipelineExecutor",
     "SamplingResult",

@@ -268,7 +268,7 @@ class CircuitCombiner(CombinerService):
         self,
         request: OptimalCombineRequest,
         context: grpc.ServicerContext,  # noqa: ARG002
-    ) -> CombineResponse:
+    ) -> OptimalCombineResponse:
         """Combine quantum circuits.
 
         Args:
@@ -276,7 +276,7 @@ class CircuitCombiner(CombinerService):
             context: servicer context.
 
         Returns:
-            CombineResponse: response with the combined circuit program.
+            OptimalCombineResponse: response with the combined circuit program.
 
         """
         start = time.perf_counter()
