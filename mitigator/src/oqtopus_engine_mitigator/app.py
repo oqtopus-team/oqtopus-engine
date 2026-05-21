@@ -10,6 +10,7 @@ import grpc
 import numpy as np
 import yaml
 from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
+from opentelemetry import trace
 from qiskit import qasm3
 from qiskit.circuit.quantumcircuitdata import CircuitInstruction
 from qiskit.result import Counts, LocalReadoutMitigator, ProbDistribution
@@ -18,8 +19,10 @@ from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
     mitigator_pb2,
     mitigator_pb2_grpc,
 )
+from oqtopus_engine_mitigator.observability import setup_observability
 
 logger = logging.getLogger("oqtopus_engine_mitigator")
+tracer = trace.get_tracer(__name__)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -82,29 +85,30 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
                 mitigated counts.
 
         """
-        try:
-            logger.info("start ro_error_mitigation-error mitigation process")
-            logger.debug(
-                "device_topology:%s, counts:%s, program:%s",
-                request.device_topology,
-                request.counts,
-                request.program,
-            )
-            device_topology = request.device_topology
-            counts = request.counts
-            program = request.program
-            mitigated_counts = self.ro_error_mitigation(
-                device_topology, counts, program
-            )
-            logger.debug(
-                "mitigated_counts:%s",
-                mitigated_counts,
-            )
-            return mitigator_pb2.ReqMitigationResponse(counts=mitigated_counts)
-        except Exception as e:
-            logger.exception(f"mitigation process failed. Exception occurred:{e}")
-        finally:
-            logger.info("finish ro_error_mitigation-error mitigation process")
+        with tracer.start_as_current_span("mitigator.ro_error_mitigation"):
+            try:
+                logger.info("start ro_error_mitigation-error mitigation process")
+                logger.debug(
+                    "device_topology:%s, counts:%s, program:%s",
+                    request.device_topology,
+                    request.counts,
+                    request.program,
+                )
+                device_topology = request.device_topology
+                counts = request.counts
+                program = request.program
+                mitigated_counts = self.ro_error_mitigation(
+                    device_topology, counts, program
+                )
+                logger.debug(
+                    "mitigated_counts:%s",
+                    mitigated_counts,
+                )
+                return mitigator_pb2.ReqMitigationResponse(counts=mitigated_counts)
+            except Exception as e:
+                logger.exception(f"mitigation process failed. Exception occurred:{e}")
+            finally:
+                logger.info("finish ro_error_mitigation-error mitigation process")
 
     def ro_error_mitigation(
         self,
@@ -115,8 +119,14 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
         assignment_matrices = []
         qubits = device_topology.qubits
         shots = sum(counts.values())
-        measured_qubits = get_measured_qubits(program)
-        n_qubits = len(measured_qubits)
+
+        with tracer.start_as_current_span(
+            "mitigator.extract_measured_qubits"
+        ) as span:
+            measured_qubits = get_measured_qubits(program)
+            n_qubits = len(measured_qubits)
+            span.set_attribute("mitigator.num_measured_qubits", n_qubits)
+            span.set_attribute("mitigator.shots", shots)
 
         # LocalReadoutMitigator (used below) creates a vector of length 2^(#qubits).
         if n_qubits > 32:  # If #qubits is 32, it requires a memory of 32GB.
@@ -125,31 +135,34 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
                 "input measured_qubits is too large, it requires a memory of over 32GB"
             )
 
-        for id in measured_qubits:
-            mes_error = qubits[id].mes_error
-            amat = np.array(
-                [
-                    [1 - mes_error.p0m1, mes_error.p1m0],
-                    [mes_error.p0m1, 1 - mes_error.p1m0],
-                ],
-                dtype=float,
+        with tracer.start_as_current_span("mitigator.build_calibration"):
+            for id in measured_qubits:
+                mes_error = qubits[id].mes_error
+                amat = np.array(
+                    [
+                        [1 - mes_error.p0m1, mes_error.p1m0],
+                        [mes_error.p0m1, 1 - mes_error.p1m0],
+                    ],
+                    dtype=float,
+                )
+                assignment_matrices.append(amat)
+            local_mitigator = LocalReadoutMitigator(assignment_matrices)
+            bin_counts = {f"0b{k}": v for k, v in counts.items()}
+            logger.debug("bin counts is %s", bin_counts)
+
+        with tracer.start_as_current_span("mitigator.quasi_probabilities"):
+            # TODO The Web API data type for count is unsigned int.
+            # So after getting the nearest_prob, the count count is cast to an int. This reduces the accuracy.
+            # As the data returned to the user, it should be selectable not only counts (int) but also quasi-distribution (float).
+            # TODO estimation jobs should be calculated by LocalReadoutMitigator.expectation_value
+            # It needs to specify memory_slots of Counts and num_bits of binary_probabilities(...) to prevent
+            # the leading zeros in each bit string from being removed.
+            quasi_dist = local_mitigator.quasi_probabilities(
+                Counts(bin_counts, memory_slots=n_qubits)
             )
-            assignment_matrices.append(amat)
-        local_mitigator = LocalReadoutMitigator(assignment_matrices)
-        bin_counts = {f"0b{k}": v for k, v in counts.items()}
-        logger.debug("bin counts is %s", bin_counts)
-        # TODO The Web API data type for count is unsigned int.
-        # So after getting the nearest_prob, the count count is cast to an int. This reduces the accuracy.
-        # As the data returned to the user, it should be selectable not only counts (int) but also quasi-distribution (float).
-        # TODO estimation jobs should be calculated by LocalReadoutMitigator.expectation_value
-        # It needs to specify memory_slots of Counts and num_bits of binary_probabilities(...) to prevent
-        # the leading zeros in each bit string from being removed.
-        quasi_dist = local_mitigator.quasi_probabilities(
-            Counts(bin_counts, memory_slots=n_qubits)
-        )
-        nearest_prob: ProbDistribution = quasi_dist.nearest_probability_distribution()  # type: ignore
-        bin_prob = nearest_prob.binary_probabilities(num_bits=n_qubits)
-        mitigated_counts = {k: int(v * shots) for k, v in bin_prob.items()}
+            nearest_prob: ProbDistribution = quasi_dist.nearest_probability_distribution()  # type: ignore
+            bin_prob = nearest_prob.binary_probabilities(num_bits=n_qubits)
+            mitigated_counts = {k: int(v * shots) for k, v in bin_prob.items()}
         logger.debug("finish error mitigation")
         return mitigated_counts
 
@@ -228,6 +241,8 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     with Path(logging_yaml_path).open("r", encoding="utf-8") as file:
         logging_yaml = assign_environ(yaml.safe_load(file))
         logging.config.dictConfig(logging_yaml)
+
+    setup_observability()
 
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
     address = str(config_yaml["proto"].get("address") or "[::]:52011")
