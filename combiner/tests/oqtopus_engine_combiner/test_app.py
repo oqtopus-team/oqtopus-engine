@@ -626,7 +626,7 @@ def test_custom_timed_rotating_file_handler_writes_log(tmp_path):
 
 
 def test_serve_starts_and_configures_server(tmp_path):
-    config = {"proto": {"max_workers": 2, "address": "[::]:59999"}}
+    config = {"proto": {"max_workers": 2, "address": "[::]:59999"}, "combiner": {"idle_qubits_insertion_enabled": True}}
     logging_config = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -639,7 +639,8 @@ def test_serve_starts_and_configures_server(tmp_path):
     config_path.write_text(yaml.dump(config))
     logging_path.write_text(yaml.dump(logging_config))
 
-    with patch("oqtopus_engine_combiner.app.grpc.server") as mock_grpc_server:
+    with patch("oqtopus_engine_combiner.app.grpc.server") as mock_grpc_server, \
+         patch("oqtopus_engine_combiner.app.add_CombinerServiceServicer_to_server") as mock_add_servicer:
         mock_server = MagicMock()
         mock_grpc_server.return_value = mock_server
         serve(str(config_path), str(logging_path))
@@ -647,10 +648,15 @@ def test_serve_starts_and_configures_server(tmp_path):
         mock_server.add_insecure_port.assert_called_once_with("[::]:59999")
         mock_server.start.assert_called_once()
         mock_server.wait_for_termination.assert_called_once()
+        
+        # Check that idle_qubits_insertion_enabled is True
+        mock_add_servicer.assert_called_once()
+        combiner_instance = mock_add_servicer.call_args[0][0]
+        assert combiner_instance._idle_qubits_insertion_enabled is True
 
 
 def test_serve_uses_defaults_when_config_missing_values(tmp_path):
-    config = {"proto": {}}
+    config = {"proto": {}, "combiner": {}}
     logging_config = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -663,8 +669,15 @@ def test_serve_uses_defaults_when_config_missing_values(tmp_path):
     config_path.write_text(yaml.dump(config))
     logging_path.write_text(yaml.dump(logging_config))
 
-    with patch("oqtopus_engine_combiner.app.grpc.server") as mock_grpc_server:
+    with patch("oqtopus_engine_combiner.app.grpc.server") as mock_grpc_server,\
+         patch("oqtopus_engine_combiner.app.add_CombinerServiceServicer_to_server") as mock_add_servicer:
         mock_server = MagicMock()
         mock_grpc_server.return_value = mock_server
         serve(str(config_path), str(logging_path))
         mock_server.add_insecure_port.assert_called_once_with("[::]:52013")
+
+                # Check that idle_qubits_insertion_enabled is True
+        mock_add_servicer.assert_called_once()
+        combiner_instance = mock_add_servicer.call_args[0][0]
+        assert combiner_instance._idle_qubits_insertion_enabled is False
+    
