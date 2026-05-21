@@ -148,7 +148,7 @@ class CircuitCombiner(CombinerService):
                     self.combine_circuits(program_list, maxqubits)
                 )
                 # e.g.
-                # For combined circuits such as [c1 (3-qubit), c2 (2-qubit), c3 (1-qubit)]
+                # For combined circuits [c1 (3-qubit), c2 (2-qubit), c3 (1-qubit)]
                 # in total 6 qubits, combined_qubits_list is [3, 2, 1].
                 span.set_attribute(
                     "combiner.total_qubits", sum(combined_qubits_list)
@@ -174,7 +174,9 @@ class CircuitCombiner(CombinerService):
                     combined_program="",
                     combined_qubits_list=[],
                 )
-            span.set_attribute("combiner.combined_status", int(response.combined_status))
+            span.set_attribute(
+                "combiner.combined_status", int(response.combined_status)
+            )
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
