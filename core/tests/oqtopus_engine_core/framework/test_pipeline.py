@@ -1219,7 +1219,7 @@ async def test_join_skip_steps_takes_priority_over_enabled_steps():
 # OTel observability lifecycle tests
 #
 # Verify that `oqtopus_engine.job.process` span / metrics are finalized on
-# every completion path. The pipeline marks `jctx.data["_oqtopus_obs_finalized"]`
+# every completion path. The pipeline marks `jctx["_oqtopus_obs_finalized"]`
 # to True on the first `_finalize_job_observability` call, so asserting that
 # flag is sufficient to cover the lifecycle (real span.end()/metric record
 # happen inside the same function).
@@ -1240,7 +1240,7 @@ async def test_obs_finalized_after_split_only():
         make_test_job("root"),
     )
 
-    assert jctx.data.get("_oqtopus_obs_finalized") is True
+    assert jctx.get("_oqtopus_obs_finalized") is True
 
 
 @pytest.mark.asyncio
@@ -1258,7 +1258,7 @@ async def test_obs_finalized_when_join_is_last_step():
         make_test_job("root"),
     )
 
-    assert jctx.data.get("_oqtopus_obs_finalized") is True
+    assert jctx.get("_oqtopus_obs_finalized") is True
 
 
 @pytest.mark.asyncio
@@ -1276,7 +1276,7 @@ async def test_obs_finalized_on_normal_completion():
         make_test_job("root"),
     )
 
-    assert jctx.data.get("_oqtopus_obs_finalized") is True
+    assert jctx.get("_oqtopus_obs_finalized") is True
 
 
 @pytest.mark.asyncio
@@ -1296,10 +1296,10 @@ async def test_obs_ctx_propagated_to_child_jctx():
         make_test_job("root"),
     )
 
-    parent_ctx = jctx.data.get("_oqtopus_obs_ctx")
+    parent_ctx = jctx.get("_oqtopus_obs_ctx")
     assert parent_ctx is not None
     for child_jctx in jctx.children:
-        assert child_jctx.data.get("_oqtopus_obs_ctx") is parent_ctx
+        assert child_jctx.get("_oqtopus_obs_ctx") is parent_ctx
 
 
 @pytest.mark.asyncio
@@ -1320,8 +1320,8 @@ async def test_obs_failed_when_split_child_step_fails():
         make_test_job("root"),
     )
 
-    assert jctx.data.get("_oqtopus_obs_finalized") is True
-    assert jctx.data.get("_oqtopus_obs_failed") is True
+    assert jctx.get("_oqtopus_obs_finalized") is True
+    assert jctx.get("_oqtopus_obs_failed") is True
 
 
 @pytest.mark.asyncio
@@ -1339,8 +1339,8 @@ async def test_obs_failed_when_child_post_process_fails():
         make_test_job("root"),
     )
 
-    assert jctx.data.get("_oqtopus_obs_finalized") is True
-    assert jctx.data.get("_oqtopus_obs_failed") is True
+    assert jctx.get("_oqtopus_obs_finalized") is True
+    assert jctx.get("_oqtopus_obs_failed") is True
 
 
 # ---------------------------------------------------------------------------

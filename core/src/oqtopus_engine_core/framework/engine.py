@@ -43,6 +43,7 @@ class Engine:
         if self._gctx.config.get("monitoring", {}).get("enabled", False):
             register_span_processor()
             instrument_clients()
+            logger.info("monitoring enabled")
 
         # Initialize the DI container
         self._dicon = DiContainer(**self._gctx.config["di_container"])

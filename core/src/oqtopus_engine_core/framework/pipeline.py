@@ -129,7 +129,7 @@ class PipelineExecutor:
                 # after a Buffer transit stay parented under the job's root
                 # `oqtopus_engine.job.process` span.
                 token = None
-                saved_ctx = jctx.data.get("_oqtopus_obs_ctx")
+                saved_ctx = jctx.get("_oqtopus_obs_ctx")
                 if saved_ctx is not None:
                     token = otel_context.attach(saved_ctx)
                 try:
@@ -178,13 +178,21 @@ class PipelineExecutor:
         jctx: JobContext,
         job: Job,
     ) -> None:
-        """Run a job through the pipeline state machine.
+        """Run a job through the pipeline as a simple state machine.
 
-        On root-job entry, opens the long-lived `oqtopus_engine.job.process`
-        span and attaches the per-job OTel context (with `oqtopus.*` baggage)
-        so child spans created during processing become its descendants.
-        The context is saved on jctx so workers can re-attach it after Buffer
-        transits; the span is ended in `_finalize_job_observability`.
+        The state is represented by (step_phase, cursor). The method:
+          - Moves forward in PRE_PROCESS phase.
+          - Moves backward in POST_PROCESS phase.
+          - Delegates split/join behavior to helper methods.
+          - Delegates any advanced buffering or joining logic inside Buffer
+            implementations (the framework only enqueues and stops).
+
+        On root-job entry, it also opens the long-lived
+        ``oqtopus_engine.job.process`` span and attaches the per-job OTel
+        context (with ``oqtopus.*`` baggage) so child spans created during
+        processing become its descendants. The context is saved on jctx so
+        workers can re-attach it after Buffer transits; the span is ended
+        in ``_finalize_job_observability``.
 
         Args:
             step_phase: The current phase of execution (pre_process or post_process).
@@ -214,7 +222,7 @@ class PipelineExecutor:
             index == 0
             and step_phase == StepPhase.PRE_PROCESS
             and job.parent is None
-            and "_oqtopus_obs_span" not in jctx.data
+            and "_oqtopus_obs_span" not in jctx
         ):
             root_span = tracer.start_span(
                 "oqtopus_engine.job.process",
@@ -227,10 +235,10 @@ class PipelineExecutor:
             ctx = trace.set_span_in_context(root_span)
             ctx = baggage.set_baggage("oqtopus.job_id", job.job_id, context=ctx)
             ctx = baggage.set_baggage("oqtopus.job_type", job.job_type, context=ctx)
-            jctx.data["_oqtopus_obs_span"] = root_span
-            jctx.data["_oqtopus_obs_ctx"] = ctx
-            jctx.data["_oqtopus_obs_start"] = time.perf_counter()
-            jctx.data["_oqtopus_obs_finalized"] = False
+            jctx["_oqtopus_obs_span"] = root_span
+            jctx["_oqtopus_obs_ctx"] = ctx
+            jctx["_oqtopus_obs_start"] = time.perf_counter()
+            jctx["_oqtopus_obs_finalized"] = False
             job_ready_counter.add(1, {"oqtopus.job_type": job.job_type})
             token = otel_context.attach(ctx)
 
@@ -249,6 +257,13 @@ class PipelineExecutor:
         job: Job,
     ) -> None:
         """State-machine body of ``_run_from``.
+
+        The state is represented by (step_phase, cursor). The method:
+          - Moves forward in PRE_PROCESS phase.
+          - Moves backward in POST_PROCESS phase.
+          - Delegates split/join behavior to helper methods.
+          - Delegates any advanced buffering or joining logic inside Buffer
+            implementations (the framework only enqueues and stops).
 
         Factored out of ``_run_from`` so the outer function can wrap it in a
         try/finally that detaches the per-invocation root-span context token
@@ -566,16 +581,16 @@ class PipelineExecutor:
         to "failure" so the root span / metrics reflect the actual outcome
         rather than a child's silently-swallowed exception.
         """
-        if jctx.data.get("_oqtopus_obs_finalized"):
+        if jctx.get("_oqtopus_obs_finalized"):
             return
-        if "_oqtopus_obs_span" not in jctx.data:
+        if "_oqtopus_obs_span" not in jctx:
             return
-        jctx.data["_oqtopus_obs_finalized"] = True
+        jctx["_oqtopus_obs_finalized"] = True
 
-        if jctx.data.get("_oqtopus_obs_failed"):
+        if jctx.get("_oqtopus_obs_failed"):
             status = "failure"
 
-        start = jctx.data.get("_oqtopus_obs_start")
+        start = jctx.get("_oqtopus_obs_start")
         if start is not None:
             duration_s = time.perf_counter() - start
             job_duration_histogram.record(
@@ -586,7 +601,7 @@ class PipelineExecutor:
             1, {"oqtopus.job_type": job.job_type, "oqtopus.status": status}
         )
 
-        root_span = jctx.data["_oqtopus_obs_span"]
+        root_span = jctx["_oqtopus_obs_span"]
         root_span.set_attribute("oqtopus.status", status)
         root_span.end()
 
@@ -605,8 +620,8 @@ class PipelineExecutor:
         """
         cur: JobContext | None = jctx
         while cur is not None:
-            if "_oqtopus_obs_span" in cur.data:
-                cur.data["_oqtopus_obs_failed"] = True
+            if "_oqtopus_obs_span" in cur:
+                cur["_oqtopus_obs_failed"] = True
                 return
             cur = cur.parent
 
@@ -796,10 +811,10 @@ class PipelineExecutor:
         child_coroutines: list[Awaitable[None]] = []
 
         # Propagate the parent's per-job OTel context (if any) to each child
-        # via jctx.data. Children inherit the active context naturally when
+        # via jctx. Children inherit the active context naturally when
         # spawned in this task, but the saved context is needed so workers
         # can re-attach it after a child crosses a Buffer.
-        parent_obs_ctx = jctx.data.get("_oqtopus_obs_ctx")
+        parent_obs_ctx = jctx.get("_oqtopus_obs_ctx")
 
         for child_job, child_jctx in zip(job.children, jctx.children, strict=True):
             logger.info(
@@ -812,7 +827,7 @@ class PipelineExecutor:
             )
 
             if parent_obs_ctx is not None:
-                child_jctx.data["_oqtopus_obs_ctx"] = parent_obs_ctx
+                child_jctx["_oqtopus_obs_ctx"] = parent_obs_ctx
 
             # Enqueue child pipelines as coroutines; they will run concurrently
             # via asyncio.gather below.
