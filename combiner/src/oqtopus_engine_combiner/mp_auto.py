@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 TARGET_SIZE = 30
 DEBUG_DRAW_GRAPH = False
+POSITION_EPSILON = 1e-9
 
 
 class JobWithCircuitGraph:
@@ -130,6 +131,10 @@ class OptimalCircuitCombiner:
 
     """
 
+    def __init__(self, *, idle_qubits_insertion_enabled: bool = False) -> None:
+        # This variable determines whether idle qubits are considered for assignment.
+        self._idle_qubits_insertion_enabled = idle_qubits_insertion_enabled
+
     @staticmethod
     def create_topology_graph(topology_json: dict[str, Any]) -> nx.Graph:
         """Create a networkx graph from the device topology JSON.
@@ -151,6 +156,134 @@ class OptimalCircuitCombiner:
             g.add_edge(coupling["control"], coupling["target"])
 
         return g
+
+    @staticmethod
+    def create_device_grid_graph(topology_json: dict[str, Any]) -> nx.Graph:
+        """Create a position-completed grid graph from device topology.
+
+        This function keeps existing couplings and fills in missing edges between
+        orthogonally adjacent qubits based on their position. The x/y thresholds
+        for adjacency are inferred from the maximum |dx| and |dy| among qubit pairs
+        that are already connected in the topology.
+
+        Args:
+            topology_json: Device topology in JSON format.
+
+        Returns:
+            A networkx undirected graph representing the completed device grid.
+
+        """
+        qubits = topology_json["qubits"]
+        couplings = topology_json["couplings"]
+        positions = {
+            qubit["id"]: (
+                float(qubit["position"]["x"]),
+                float(qubit["position"]["y"]),
+            )
+            for qubit in qubits
+        }
+
+        grid = nx.Graph()
+        grid.add_nodes_from(positions)
+        for coupling in couplings:
+            grid.add_edge(coupling["control"], coupling["target"])
+
+        x_threshold, y_threshold = OptimalCircuitCombiner._infer_grid_thresholds(
+            positions,
+            couplings,
+        )
+
+        qubit_ids = list(positions)
+        for index, source in enumerate(qubit_ids):
+            for target in qubit_ids[index + 1:]:
+                if not OptimalCircuitCombiner._is_orthogonal_neighbor(
+                    positions[source],
+                    positions[target],
+                    x_threshold,
+                    y_threshold,
+                ):
+                    continue
+                grid.add_edge(source, target)
+
+        return grid
+
+    @staticmethod
+    def _infer_grid_thresholds(
+        positions: dict[int, tuple[float, float]],
+        couplings: list[dict[str, Any]],
+    ) -> tuple[float, float]:
+        """Infer adjacency thresholds from existing coupled qubit pairs.
+
+        Arguments:
+            positions: A mapping of qubit IDs to their (x, y) positions.
+            couplings: A list of existing couplings between qubits.
+
+        Returns:
+            A tuple containing the inferred x and y thresholds for adjacency.
+
+        """
+        x_threshold = 0.0
+        y_threshold = 0.0
+
+        for coupling in couplings:
+            control_position = positions.get(coupling["control"])
+            target_position = positions.get(coupling["target"])
+            if control_position is None or target_position is None:
+                continue
+
+            x_threshold = max(
+                x_threshold,
+                abs(control_position[0] - target_position[0]),
+            )
+            y_threshold = max(
+                y_threshold,
+                abs(control_position[1] - target_position[1]),
+            )
+
+        return x_threshold, y_threshold
+
+    @staticmethod
+    def _is_orthogonal_neighbor(
+        source_position: tuple[float, float],
+        target_position: tuple[float, float],
+        x_threshold: float,
+        y_threshold: float,
+    ) -> bool:
+        """Return True when two positions are adjacent on the inferred grid.
+
+        Arguments:
+            source_position: (x, y) position of the source qubit.
+            target_position: (x, y) position of the target qubit.
+            x_threshold: Inferred threshold for x-axis adjacency.
+            y_threshold: Inferred threshold for y-axis adjacency.
+
+        Returns:
+            True if the two positions are orthogonally adjacent
+            based on the thresholds, False otherwise.
+
+        """
+        dx = abs(source_position[0] - target_position[0])
+        dy = abs(source_position[1] - target_position[1])
+
+        is_horizontal_neighbor = (
+            dy <= POSITION_EPSILON < dx <= x_threshold + POSITION_EPSILON
+        )
+        is_vertical_neighbor = (
+            dx <= POSITION_EPSILON < dy <= y_threshold + POSITION_EPSILON
+        )
+
+        if is_horizontal_neighbor and is_vertical_neighbor:
+            logger.warning(
+                "two qubits are in the same position or very close.",
+                extra={
+                    "source_position": source_position,
+                    "target_position": target_position,
+                    "x_threshold": x_threshold,
+                    "y_threshold": y_threshold,
+                }
+            )
+
+        return is_horizontal_neighbor or is_vertical_neighbor
 
     def combine_circuits_for_groups(
         self,
@@ -324,6 +457,10 @@ class OptimalCircuitCombiner:
         """
         # convert QPU topology to networkx graph
         topology = self.create_topology_graph(topology_json=device_info)
+        if self._idle_qubits_insertion_enabled:
+            inferred_topology = self.create_device_grid_graph(topology_json=device_info)
+        else:
+            inferred_topology = None
 
         # assigned job_id list
         assigned_ids = set()
@@ -351,7 +488,8 @@ class OptimalCircuitCombiner:
             )
 
             matches = self._find_nonoverlapping_subgraphs_with_t_nodes(topology,
-                                                                 current_batch
+                                                                 current_batch,
+                                                                 inferred_topology
                                                                  )
             assigned_group = []
             for match in matches:
@@ -414,14 +552,133 @@ class OptimalCircuitCombiner:
             logger.exception("failed to draw graph for debugging")
 
     @staticmethod
+    def _calculate_idle_nodes_before_mapping(
+        used_nodes: set[int],
+        exist_idle_nodes: set[int],
+        inferred_topology: nx.Graph | None,
+        g: nx.Graph
+    ) -> set[int]:
+        """Calculate idle nodes before mapping.
+
+        Arguments:
+            exist_idle_nodes: Set of idle nodes that already exist before mapping.
+            used_nodes: Set of nodes that have been used by assigned circuits.
+            inferred_topology: This graph representing the device connectivity.
+            g: Graph G representing the circuit to be mapped.
+
+        Returns:
+            A set of idle nodes that should be avoided for mapping the current circuit.
+
+        """
+        # If there is no edge in G (user circuit), this circuit does not have cnot gate.
+        # In this case, we do not consider idle nodes.
+        g_undirected = g.to_undirected()
+        if not g_undirected.number_of_edges() > 0:
+            return set()
+
+        # If there is no used node, return empty set.
+        if len(used_nodes) == 0:
+            if len(exist_idle_nodes) > 0:
+                logger.warning(
+                    "exist idle nodes but no used nodes, this should not happen",
+                    extra={
+                        "exist_idle_nodes": exist_idle_nodes,
+                        "used_nodes": used_nodes,
+                    }
+                )
+            return set()
+
+        # Calculate idle nodes that should be avoided for mapping.
+        idle_nodes = set()
+        if inferred_topology is not None:
+            undirected_inferred_t = inferred_topology.to_undirected()
+            for node in used_nodes:
+                idle_nodes.update(undirected_inferred_t.neighbors(node))
+        else:
+            logger.warning(
+                "inferred topology is None, cannot calculate idle nodes before mapping"
+            )
+
+        # remove used nodes and existing idle nodes from idle nodes
+        excluded_idle_nodes = used_nodes | exist_idle_nodes
+        idle_nodes.difference_update(excluded_idle_nodes)
+
+        return idle_nodes
+
+    @staticmethod
+    def _calculate_idle_nodes_after_mapping(
+        used_nodes: set[int],
+        exist_idle_nodes: set[int],
+        inferred_topology: nx.Graph | None,
+        g: nx.Graph,
+        result_mapping: dict[int, int],
+    ) -> set[int]:
+        """Calculate idle nodes after mapping.
+
+        Arguments:
+            used_nodes: Set of nodes that have been used by assigned circuits.
+            exist_idle_nodes: Set of idle nodes that already exist before mapping.
+            inferred_topology: This graph representing the device connectivity.
+            g: Graph G representing the circuit that has been mapped.
+            result_mapping: Mapping of nodes in G to nodes in T for the current circuit.
+
+        Returns:
+            A set of idle nodes that should be avoided for mapping.
+
+        """
+        # If there is no edge in G (user circuit), this circuit does not have cnot gate.
+        # In this case, we do not consider idle nodes.
+        g_undirected = g.to_undirected()
+        if not g_undirected.number_of_edges() > 0:
+            return set()
+
+        # Calculate idle nodes that should be avoided for mapping.
+        edge_endpoints = set()
+        for u, v in g_undirected.edges():
+            edge_endpoints.add(u)
+            edge_endpoints.add(v)
+
+        assigned_endpoint_nodes = set()
+        for edge_node in edge_endpoints:
+            value = result_mapping.get(edge_node)
+            if value is not None:
+                assigned_endpoint_nodes.add(value)
+            else:
+                logger.warning(
+                    "Edge endpoint not in result mapping, this should not happen",
+                    extra={
+                        "edge_node": edge_node,
+                        "result_mapping": result_mapping,
+                    }
+                )
+
+        idle_nodes = set()
+        if inferred_topology is not None:
+            undirected_inferred_t = inferred_topology.to_undirected()
+            for node in assigned_endpoint_nodes:
+                idle_nodes.update(undirected_inferred_t.neighbors(node))
+        else:
+            logger.warning(
+                "Inferred topology is None, cannot calculate idle nodes after mapping"
+            )
+
+        excluded_idle_nodes =\
+         used_nodes | exist_idle_nodes | set(result_mapping.values())
+        idle_nodes.difference_update(excluded_idle_nodes)
+
+        return idle_nodes
+
     def _find_nonoverlapping_subgraphs_with_t_nodes(
+        self,
         t: nx.Graph,
-        jobs: list[JobWithCircuitGraph]
+        jobs: list[JobWithCircuitGraph],
+        inferred_topology: nx.Graph | None = None
     ) -> list[dict[str, Any]]:
         """Find subgraphs in jobs' circuit graphs that can be mapped to T.
 
         Args:
             t: Target graph T representing the device connectivity.
+            inferred_topology: This graph representing the device connectivity.
             jobs: List of job dictionaries, each containing a 'circuit_graph' key
                 with the circuit's graph.
 
@@ -434,6 +691,7 @@ class OptimalCircuitCombiner:
 
         """
         used_nodes: set[int] = set()
+        idle_nodes: set[int] = set()
         results = []
 
         for idx, job in enumerate(jobs):
@@ -451,6 +709,18 @@ class OptimalCircuitCombiner:
             for m in mapping:
                 for used in used_nodes:
                     model.Add(m != used)
+
+            if self._idle_qubits_insertion_enabled:
+                # Calculate idle nodes that should be avoided for mapping.
+                current_idle_nodes = (
+                    idle_nodes
+                    | self._calculate_idle_nodes_before_mapping(
+                        used_nodes, idle_nodes, inferred_topology, g
+                    )
+                )
+                for m in mapping:
+                    for node in current_idle_nodes:
+                        model.Add(m != node)
 
             # Get the set of edges in T and create allowed pairs for mapping
             t_edges_set = set(t.edges())
@@ -487,6 +757,13 @@ class OptimalCircuitCombiner:
                     "T_nodes": mapped_t_nodes
                 })
 
+                if self._idle_qubits_insertion_enabled:
+                    # Calculate idle nodes that should be avoided for mapping.
+                    idle_nodes.update(
+                        self._calculate_idle_nodes_after_mapping(
+                            used_nodes, idle_nodes, inferred_topology, g, result_mapping
+                        )
+                    )
                 used_nodes.update(mapped_t_nodes)
             else:
                 logger.debug(
