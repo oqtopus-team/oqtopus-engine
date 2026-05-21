@@ -31,6 +31,10 @@ dependencies = [
   "six>=1.17.0",
   "urllib3>=2.6.1",
   "uuid7>=0.1.0",
+  "opentelemetry-api>=1.27.0",
+  "opentelemetry-sdk>=1.27.0",
+  "opentelemetry-instrumentation-grpc>=0.48b0",
+  "opentelemetry-instrumentation-urllib3>=0.48b0",
 ]
 
 [project.urls]
