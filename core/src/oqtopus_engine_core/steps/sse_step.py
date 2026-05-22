@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import logging
+import os
 import shutil
 import tarfile
 import time
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import docker  # type: ignore[import]
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -18,6 +20,17 @@ from oqtopus_engine_core.framework import (
 )
 
 logger = logging.getLogger(__name__)
+
+# OTel SDK env vars to propagate into the spawned sse-runtime container so it
+# pushes spans/logs to the same collector as the engine. Unset vars are
+# skipped, so this is a no-op when the engine itself runs without OTel.
+_OTEL_ENV_PASSTHROUGH = (
+    "OTEL_EXPORTER_OTLP_ENDPOINT",
+    "OTEL_EXPORTER_OTLP_PROTOCOL",
+    "OTEL_EXPORTER_OTLP_HEADERS",
+    "OTEL_EXPORTER_OTLP_INSECURE",
+    "OTEL_RESOURCE_ATTRIBUTES",
+)
 
 
 class SseStep(Step):
@@ -319,7 +332,12 @@ class SseRunner:
             userprogram_container_path = (
                 self._container_work_path["in"] / self._config["userprogram_name"]
             )
-            cmd = f"uv run --project /app python {userprogram_container_path} 1> /proc/1/fd/1 2> /proc/1/fd/2"  # noqa: E501
+            otel_prefix = (
+                "opentelemetry-instrument "
+                if self._monitoring_enabled()
+                else ""
+            )
+            cmd = f"uv run --project /app {otel_prefix}python {userprogram_container_path} 1> /proc/1/fd/1 2> /proc/1/fd/2"  # noqa: E501
             await self._exec_in_container(
                 user="appuser",
                 privileged=True,
@@ -527,6 +545,7 @@ class SseRunner:
             f"SSE_ENGINE_ADDRESS={self._config['sse_engine_address']}",
             "TERM=dumb",  # to drop ANSI escape codes in logs
         ]
+        env_vars.extend(self._otel_env_vars())
 
         # Run container
         container = self._docker_client.containers.run(
@@ -550,6 +569,36 @@ class SseRunner:
             },
         )
         return container
+
+    def _monitoring_enabled(self) -> bool:
+        return bool(self._gctx.config.get("monitoring", {}).get("enabled", False))
+
+    def _otel_env_vars(self) -> list[str]:
+        """Build OTel env vars to pass into the spawned sse-runtime container.
+
+        Empty when monitoring is disabled. When enabled, propagates the OTLP
+        exporter config plus the current W3C ``traceparent`` so the runtime's
+        spans attach under the engine's per-job root span.
+
+        Returns:
+            List of ``KEY=value`` strings to extend the container ``env_vars``.
+
+        """
+        if not self._monitoring_enabled():
+            return []
+
+        env_vars = ["MONITORING_ENABLED=true", "OTEL_SERVICE_NAME=sse-runtime"]
+        for key in _OTEL_ENV_PASSTHROUGH:
+            value = os.environ.get(key)
+            if value is not None:
+                env_vars.append(f"{key}={value}")
+
+        carrier: dict[str, str] = {}
+        TraceContextTextMapPropagator().inject(carrier)
+        traceparent = carrier.get("traceparent")
+        if traceparent:
+            env_vars.append(f"TRACEPARENT={traceparent}")
+        return env_vars
 
     async def _exec_in_container(
         self,

@@ -5,8 +5,14 @@ from pathlib import Path
 from typing import Any
 
 import grpc
+from opentelemetry import trace
 from oqtopus_client.rest.models.jobs_job_def import JobsJobDef
 from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
+
+from sse_runtime.observability import setup_observability
+
+setup_observability()
+tracer = trace.get_tracer(__name__)
 
 
 class SseRuntimeError(RuntimeError):
@@ -34,44 +40,52 @@ def req_transpile_and_exec(
         SseRuntimeError: If the job execution fails.
 
     """
-    # get gRPC server address from environment variables
-    grpc_sse_engine_address = os.environ.get("SSE_ENGINE_ADDRESS", "localhost:52014")
+    with tracer.start_as_current_span(
+        "sse_runtime.req_transpile_and_exec",
+        attributes={"sse_runtime.n_shots": n_shots},
+    ) as span:
+        # get gRPC server address from environment variables
+        grpc_sse_engine_address = os.environ.get(
+            "SSE_ENGINE_ADDRESS", "localhost:52014"
+        )
 
-    # get job data from environment variable
-    job_json = os.environ.get("JOB_JSON")
-    if not job_json:
-        msg = "Could not get job data"
-        raise OSError(msg)
+        # get job data from environment variable
+        job_json = os.environ.get("JOB_JSON")
+        if not job_json:
+            msg = "Could not get job data"
+            raise OSError(msg)
 
-    with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
-        created = datetime.datetime.now(tz=datetime.UTC)
-        stub = sse_pb2_grpc.SseEngineServiceStub(channel)
-        # insert parameter of qasm, shots and transpiler into the job data
-        req_json = _make_request(job_json, qasm[0], n_shots, transpiler)
-        # gRPC request
-        request = sse_pb2.SseEngineRequest(job_json=json.dumps(req_json))
-        response = stub.SseEngine(request)
+        with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
+            created = datetime.datetime.now(tz=datetime.UTC)
+            stub = sse_pb2_grpc.SseEngineServiceStub(channel)
+            # insert parameter of qasm, shots and transpiler into the job data
+            req_json = _make_request(job_json, qasm[0], n_shots, transpiler)
+            # gRPC request
+            request = sse_pb2.SseEngineRequest(job_json=json.dumps(req_json))
+            response = stub.SseEngine(request)
 
-        # make content of output file to pass the result to sserunner
-        ended = datetime.datetime.now(tz=datetime.UTC)
-        job = _make_job_def(response, req_json)
-        job.submitted_at = created
-        job.ready_at = created
-        job.running_at = created
-        job.ended_at = ended
+            # make content of output file to pass the result to sserunner
+            ended = datetime.datetime.now(tz=datetime.UTC)
+            job = _make_job_def(response, req_json)
+            job.submitted_at = created
+            job.ready_at = created
+            job.running_at = created
+            job.ended_at = ended
 
-        # write the content into result.json
-        _log_result(_make_resultjson(job, req_json), "result.json")
+            # write the content into result.json
+            _log_result(_make_resultjson(job, req_json), "result.json")
 
-        # raise error if the job execution is failed
-        if response.status != "succeeded":
-            msg = f"To execute sampling on OQTOPUS server is failed. reason: {response.message or _job_message(job)}"  # noqa: E501
-            raise SseRuntimeError(msg)
-        if job.status != "succeeded":
-            msg = f"To execute sampling on OQTOPUS server is failed. reason: {_job_message(job)}"  # noqa: E501
-            raise SseRuntimeError(msg)
+            span.set_attribute("sse_runtime.status", job.status or response.status)
 
-        return job
+            # raise error if the job execution is failed
+            if response.status != "succeeded":
+                msg = f"To execute sampling on OQTOPUS server is failed. reason: {response.message or _job_message(job)}"  # noqa: E501
+                raise SseRuntimeError(msg)
+            if job.status != "succeeded":
+                msg = f"To execute sampling on OQTOPUS server is failed. reason: {_job_message(job)}"  # noqa: E501
+                raise SseRuntimeError(msg)
+
+            return job
 
 
 def _make_job_def(
