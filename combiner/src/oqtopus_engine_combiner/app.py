@@ -102,6 +102,9 @@ class CircuitCombiner(CombinerService):
 
     """
 
+    def __init__(self, *, idle_qubits_insertion_enabled: bool = False) -> None:
+        self._idle_qubits_insertion_enabled = idle_qubits_insertion_enabled
+
     def Combine(  # noqa: N802
         self,
         request: CombineRequest,
@@ -300,7 +303,9 @@ class CircuitCombiner(CombinerService):
             device_info = json.loads(request.device_info)
 
             combined_groups = []
-            combiner = OptimalCircuitCombiner()
+            combiner = OptimalCircuitCombiner(
+                idle_qubits_insertion_enabled=self._idle_qubits_insertion_enabled
+            )
             # assign qubits to each circuit and create groups to be combined
             assigned_ids, assigned_groups = combiner.assign_circuits(jobs=jobs,
                                                                      device_info=device_info
@@ -448,11 +453,17 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
         logging.config.dictConfig(logging_yaml)
 
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
-    # create a gRPC server
     address = str(config_yaml["proto"].get("address") or "[::]:52013")
+    str_idle_qubits_insertion_enabled = \
+        str(config_yaml["combiner"].get("idle_qubits_insertion_enabled") or "false")
+    idle_qubits_insertion_enabled = str_idle_qubits_insertion_enabled.lower() == "true"
+
     # create the gRPC server
     server = grpc.server(futures.ThreadPoolExecutor(max_workers))
-    add_CombinerServiceServicer_to_server(CircuitCombiner(), server)
+    add_CombinerServiceServicer_to_server(
+        CircuitCombiner(idle_qubits_insertion_enabled=idle_qubits_insertion_enabled),
+        server,
+    )
 
     service_names = (
         DESCRIPTOR.services_by_name["CombinerService"].full_name,
@@ -465,6 +476,7 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
         extra={
             "address": address,
             "max_workers": max_workers,
+            "idle_qubits_insertion_enabled": idle_qubits_insertion_enabled,
         },
     )
 

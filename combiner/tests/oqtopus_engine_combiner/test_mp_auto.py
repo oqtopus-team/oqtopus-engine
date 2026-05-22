@@ -1,15 +1,18 @@
 import sys
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("src")))
 
 import networkx as nx  # type: ignore[import-untyped]
+import pytest
 from qiskit import QuantumCircuit  # type: ignore[import-untyped]
 
 from oqtopus_engine_combiner.mp_auto import (  # type: ignore[import-untyped]
     JobWithCircuitGraph,
     OptimalCircuitCombiner,
+    POSITION_EPSILON,
 )
 
 
@@ -523,7 +526,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_topology_graph(make_linear_topology(5))
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        results = OptimalCircuitCombiner._find_nonoverlapping_subgraphs_with_t_nodes(
+        combiner = OptimalCircuitCombiner()
+        results = combiner._find_nonoverlapping_subgraphs_with_t_nodes(
             topology, [job]
         )
 
@@ -547,7 +551,8 @@ class TestOptimalCircuitCombiner:
             JobWithCircuitGraph(job_id="job-5", program=SIMPLE_1Q_QASM),
         ]
 
-        results = OptimalCircuitCombiner._find_nonoverlapping_subgraphs_with_t_nodes(
+        combiner = OptimalCircuitCombiner()
+        results = combiner._find_nonoverlapping_subgraphs_with_t_nodes(
             topology, jobs
         )
 
@@ -592,7 +597,8 @@ class TestOptimalCircuitCombiner:
             JobWithCircuitGraph(job_id="job-3", program=SIMPLE_1Q_QASM),
         ]
 
-        results = OptimalCircuitCombiner._find_nonoverlapping_subgraphs_with_t_nodes(
+        combiner = OptimalCircuitCombiner()
+        results = combiner._find_nonoverlapping_subgraphs_with_t_nodes(
             topology, jobs
         )
 
@@ -627,7 +633,8 @@ class TestOptimalCircuitCombiner:
         )
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        results = OptimalCircuitCombiner._find_nonoverlapping_subgraphs_with_t_nodes(
+        combiner = OptimalCircuitCombiner()
+        results = combiner._find_nonoverlapping_subgraphs_with_t_nodes(
             topology, [job]
         )
 
@@ -643,6 +650,407 @@ class TestOptimalCircuitCombiner:
 
         # Should not raise
         OptimalCircuitCombiner._draw_graph(topology, topology_json, matches, filename)
+
+    # --- create_device_grid_graph ---
+
+    @pytest.mark.parametrize(
+        ("topology_json", "expected_nodes", "expected_edges"),
+        [
+            (make_linear_topology(5), 5, 4),
+            (make_grid_topology(3, 3), 9, 12),
+            (make_grid_topology_with_defects(), 64, 112),
+        ],
+        ids=["linear", "complete_3x3_grid", "recover_defects_8x8"],
+    )
+    def test_create_device_grid_graph_shape(
+        self,
+        topology_json: dict[str, Any],
+        expected_nodes: int,
+        expected_edges: int,
+    ):
+        graph = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+
+        assert isinstance(graph, nx.Graph)
+        assert graph.number_of_nodes() == expected_nodes
+        assert graph.number_of_edges() == expected_edges
+
+    def test_create_device_grid_graph_linear_adjacency(self):
+        topology_json = make_linear_topology(5)
+
+        graph = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+
+        assert graph.has_edge(0, 1)
+        assert graph.has_edge(1, 2)
+        assert graph.has_edge(2, 3)
+        assert graph.has_edge(3, 4)
+
+    def test_create_device_grid_graph_orthogonal_only(self):
+        topology_json = make_grid_topology(3, 3)
+
+        graph = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+
+        assert graph.has_edge(0, 1)
+        assert graph.has_edge(0, 3)
+        assert not graph.has_edge(0, 4)
+
+    def test_create_device_grid_graph_recovers_defect_edges(self):
+        topology_json = make_grid_topology_with_defects()
+
+        graph = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+
+        assert graph.has_edge(27, 19)
+        assert graph.has_edge(36, 37)
+
+    def test_create_device_grid_graph_single_qubit(self):
+        topology_json = {
+            "qubits": [{"id": 0, "position": {"x": 0.0, "y": 0.0}}],
+            "couplings": [],
+        }
+
+        graph = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+
+        assert graph.number_of_nodes() == 1
+        assert graph.number_of_edges() == 0
+
+    # --- _infer_grid_thresholds ---
+
+    @pytest.mark.parametrize(
+        ("positions", "couplings", "expected_x", "expected_y"),
+        [
+            (
+                {0: (0.0, 0.0), 1: (1.0, 0.0)},
+                [{"control": 0, "target": 1}],
+                1.0,
+                0.0,
+            ),
+            (
+                {0: (0.0, 0.0), 1: (1.0, 0.0), 2: (0.0, 2.0)},
+                [{"control": 0, "target": 1}, {"control": 0, "target": 2}],
+                1.0,
+                2.0,
+            ),
+            (
+                {0: (0.0, 0.0), 1: (1.0, 0.0)},
+                [{"control": 0, "target": 1}, {"control": 0, "target": 999}],
+                1.0,
+                0.0,
+            ),
+            (
+                {0: (0.5, 0.5), 1: (1.7, 0.5)},
+                [{"control": 0, "target": 1}],
+                1.2,
+                0.0,
+            ),
+            (
+                {0: (0.0, 0.0), 1: (1.0, 0.0)},
+                [],
+                0.0,
+                0.0,
+            ),
+        ],
+        ids=[
+            "single_coupling",
+            "multiple_couplings_max",
+            "missing_positions_skipped",
+            "floating_positions",
+            "no_couplings",
+        ],
+    )
+    def test_infer_grid_thresholds(
+        self,
+        positions: dict[int, tuple[float, float]],
+        couplings: list[dict[str, Any]],
+        expected_x: float,
+        expected_y: float,
+    ):
+        x_threshold, y_threshold = OptimalCircuitCombiner._infer_grid_thresholds(
+            positions,
+            couplings,
+        )
+
+        assert x_threshold == pytest.approx(expected_x)
+        assert y_threshold == pytest.approx(expected_y)
+
+    # --- _is_orthogonal_neighbor ---
+
+    @pytest.mark.parametrize(
+        (
+            "source_position",
+            "target_position",
+            "x_threshold",
+            "y_threshold",
+            "expected",
+        ),
+        [
+            ((0.0, 0.0), (1.0, 0.0), 1.0, 1.0, True),
+            ((0.0, 0.0), (0.0, 2.0), 1.0, 2.0, True),
+            ((0.0, 0.0), (1.0, 1.0), 1.0, 1.0, False),
+            ((0.0, 0.0), (1.0, POSITION_EPSILON / 2), 1.0, 1.0, True),
+            ((0.0, 0.0), (1.0, POSITION_EPSILON * 2), 1.0, 1.0, False),
+            ((0.0, 0.0), (2.0, 0.0), 1.0, 1.0, False),
+            ((0.0, 0.0), (1.0 + POSITION_EPSILON / 2, 0.0), 1.0, 1.0, True),
+        ],
+        ids=[
+            "horizontal",
+            "vertical",
+            "diagonal_false",
+            "epsilon_within",
+            "epsilon_outside",
+            "exceeds_threshold",
+            "threshold_plus_epsilon_allowed",
+        ],
+    )
+    def test_is_orthogonal_neighbor(
+        self,
+        source_position: tuple[float, float],
+        target_position: tuple[float, float],
+        x_threshold: float,
+        y_threshold: float,
+        expected: bool,
+    ):
+        result = OptimalCircuitCombiner._is_orthogonal_neighbor(
+            source_position,
+            target_position,
+            x_threshold=x_threshold,
+            y_threshold=y_threshold,
+        )
+
+        assert result is expected
+
+    def test_is_orthogonal_neighbor_is_symmetric(self):
+        result_1 = OptimalCircuitCombiner._is_orthogonal_neighbor(
+            (0.0, 0.0),
+            (1.0, 0.0),
+            x_threshold=1.0,
+            y_threshold=1.0,
+        )
+        result_2 = OptimalCircuitCombiner._is_orthogonal_neighbor(
+            (1.0, 0.0),
+            (0.0, 0.0),
+            x_threshold=1.0,
+            y_threshold=1.0,
+        )
+
+        assert result_1 is True
+        assert result_2 is True
+
+    # --- _calculate_idle_nodes_before_mapping ---
+
+    def test_calculate_idle_nodes_before_mapping_with_non_edge_of_g(self):
+        topology_json = make_linear_topology(5)
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_1Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+            set(), set(), topology, job.circuit_graph
+        )
+
+        assert idle_nodes == set()
+
+        
+    def test_calculate_idle_nodes_before_mapping_with_empty_exist_idle_nodes_and_used_nodes(self):
+        topology_json = make_linear_topology(5)
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+            set(), set(), topology, job.circuit_graph
+        )
+
+        assert idle_nodes == set()
+
+    def test_calculate_idle_nodes_before_mapping_with_only_used_nodes(self):
+        topology_json = make_linear_topology(5)
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
+            idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+                set(), {0, 1}, topology, job.circuit_graph
+            )
+
+        assert idle_nodes == set()
+        mock_info.assert_called_once_with(
+            "exist idle nodes but no used nodes, this should not happen",
+            extra={
+                "exist_idle_nodes": {0, 1},
+                "used_nodes": set(),
+            },
+        )
+
+    def test_calculate_idle_nodes_before_mapping_with_none_inferred_topology(self):
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
+            idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+                {0}, set(), None, job.circuit_graph
+            )
+
+        assert idle_nodes == set()
+        mock_info.assert_called_once_with(
+            "inferred topology is None, cannot calculate idle nodes before mapping"
+        )
+
+    def test_calculate_idle_nodes_before_mapping_with_only_used_nodes(self):
+        topology_json = make_grid_topology(3, 4)
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+            {5, 6}, set(), topology, job.circuit_graph
+        )
+
+        assert idle_nodes == {1, 2, 4, 7, 9, 10}
+
+    def test_calculate_idle_nodes_before_mapping_with_used_nodes_and_exist_idle_nodes(self):
+        topology_json = make_grid_topology(3, 4)
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+            {5, 6}, {1, 2, 4, 7, 9, 10}, topology, job.circuit_graph
+        )
+
+        assert idle_nodes == set()
+
+    def test_calculate_idle_nodes_before_mapping_with_only_used_nodes_and_defects_topology(self):
+        topology_json = make_grid_topology_with_defects()
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+            {19, 36}, set(), topology, job.circuit_graph
+        )
+
+        assert idle_nodes == {11, 18, 20, 27, 28, 35, 37, 44}
+
+    def test_calculate_idle_nodes_before_mapping_with_used_nodes_and_exist_idle_nodes_and_defects_topology(self):
+        topology_json = make_grid_topology_with_defects()
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+            {19, 35, 36}, {27, 28, 34, 37, 43, 44}, topology, job.circuit_graph
+        )
+
+        assert idle_nodes == {11, 18, 20}
+
+    # --- _calculate_idle_nodes_after_mapping ---
+
+    def test_calculate_idle_nodes_after_mapping_with_non_edge_of_g(self):
+        topology_json = make_linear_topology(5)
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_1Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+            set(), set(), topology, job.circuit_graph, {1: 1}
+        )
+
+        assert idle_nodes == set()
+
+    def test_calculate_idle_nodes_after_mapping_edge_endpoint_not_in_result_mapping(self):
+        topology_json = make_linear_topology(5)
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
+            idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+                set(), set(), topology, job.circuit_graph, {0: 0, 100: 1}
+            )
+
+        assert idle_nodes == set()
+        mock_info.assert_called_once_with(
+            "Edge endpoint not in result mapping, this should not happen",
+            extra={
+                "edge_node": 1,
+                "result_mapping": {0: 0, 100: 1},
+            },
+        )
+
+    def test_calculate_idle_nodes_after_mapping_with_none_inferred_topology(self):
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
+            idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+                set(), set(), None, job.circuit_graph, {0: 0, 1: 1}
+            )
+
+        assert idle_nodes == set()
+        mock_info.assert_called_once_with(
+            "Inferred topology is None, cannot calculate idle nodes after mapping"
+        )
+
+    def test_calculate_idle_nodes_after_mapping_with_non_used_nodes_and_exist_idle_nodes(self):
+        topology_json = make_grid_topology(3, 4)
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+            set(), set(), topology, job.circuit_graph, {0: 0, 1: 1}
+        )
+
+        assert idle_nodes == {2, 4, 5}
+
+    def test_calculate_idle_nodes_after_mapping_with_only_used_nodes(self):
+        topology_json = make_grid_topology(3, 4)
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+            {6}, set(), topology, job.circuit_graph, {0: 0, 1: 1}
+        )
+
+        assert idle_nodes == {2, 4, 5}
+
+    def test_calculate_idle_nodes_after_mapping_with_used_nodes_and_exist_idle_nodes(self):
+        topology_json = make_grid_topology(3, 4)
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+            {8, 9}, {4, 5, 10}, topology, job.circuit_graph, {0: 0, 1: 1}
+        )
+
+        assert idle_nodes == {2}
+
+    def test_calculate_idle_nodes_after_mapping_with_only_used_nodes_on_defects_topology(self):
+        topology_json = make_grid_topology_with_defects()
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+            {17}, set(), topology, job.circuit_graph, {0: 18, 1: 19}
+        )
+
+        assert idle_nodes == {10, 11, 20, 26, 27}
+    
+    def test_calculate_idle_nodes_after_mapping_with_used_nodes_and_exist_idle_nodes_on_defects_topology(self):
+        topology_json = make_grid_topology_with_defects()
+        topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        combiner = OptimalCircuitCombiner()
+        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+            {21, 22}, {13, 14, 20, 23, 29, 30}, topology, job.circuit_graph, {0: 18, 1: 19}
+        )
+
+        assert idle_nodes == {10, 11, 17, 26, 27}
 
     # --- End-to-end: assign + combine ---
 
