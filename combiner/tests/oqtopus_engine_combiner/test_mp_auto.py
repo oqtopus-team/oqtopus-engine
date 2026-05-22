@@ -861,19 +861,19 @@ class TestOptimalCircuitCombiner:
 
         assert idle_nodes == set()
 
-    def test_calculate_idle_nodes_before_mapping_warning(self):
+    def test_calculate_idle_nodes_before_mapping_with_only_used_nodes(self):
         topology_json = make_linear_topology(5)
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
         combiner = OptimalCircuitCombiner()
-        with patch("oqtopus_engine_combiner.mp_auto.logger.warning") as mock_warning:
+        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
             idle_nodes = combiner._calculate_idle_nodes_before_mapping(
                 set(), {0, 1}, topology, job.circuit_graph
             )
 
         assert idle_nodes == set()
-        mock_warning.assert_called_once_with(
+        mock_info.assert_called_once_with(
             "exist idle nodes but no used nodes, this should not happen",
             extra={
                 "exist_idle_nodes": {0, 1},
@@ -885,13 +885,13 @@ class TestOptimalCircuitCombiner:
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
         combiner = OptimalCircuitCombiner()
-        with patch("oqtopus_engine_combiner.mp_auto.logger.warning") as mock_warning:
+        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
             idle_nodes = combiner._calculate_idle_nodes_before_mapping(
                 {0}, set(), None, job.circuit_graph
             )
 
         assert idle_nodes == set()
-        mock_warning.assert_called_once_with(
+        mock_info.assert_called_once_with(
             "inferred topology is None, cannot calculate idle nodes before mapping"
         )
 
@@ -964,13 +964,13 @@ class TestOptimalCircuitCombiner:
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
         combiner = OptimalCircuitCombiner()
-        with patch("oqtopus_engine_combiner.mp_auto.logger.warning") as mock_warning:
+        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
             idle_nodes = combiner._calculate_idle_nodes_after_mapping(
                 set(), set(), topology, job.circuit_graph, {0: 0, 100: 1}
             )
 
         assert idle_nodes == set()
-        mock_warning.assert_called_once_with(
+        mock_info.assert_called_once_with(
             "Edge endpoint not in result mapping, this should not happen",
             extra={
                 "edge_node": 1,
@@ -982,13 +982,13 @@ class TestOptimalCircuitCombiner:
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
         combiner = OptimalCircuitCombiner()
-        with patch("oqtopus_engine_combiner.mp_auto.logger.warning") as mock_warning:
+        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
             idle_nodes = combiner._calculate_idle_nodes_after_mapping(
                 set(), set(), None, job.circuit_graph, {0: 0, 1: 1}
             )
 
         assert idle_nodes == set()
-        mock_warning.assert_called_once_with(
+        mock_info.assert_called_once_with(
             "Inferred topology is None, cannot calculate idle nodes after mapping"
         )
 

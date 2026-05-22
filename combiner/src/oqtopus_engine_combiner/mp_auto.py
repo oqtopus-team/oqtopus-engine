@@ -272,17 +272,6 @@ class OptimalCircuitCombiner:
             dx <= POSITION_EPSILON < dy <= y_threshold + POSITION_EPSILON
         )
 
-        if is_horizontal_neighbor and is_vertical_neighbor:
-            logger.warning(
-                "two qubits are in the same position or very close.",
-                extra={
-                    "source_position": source_position,
-                    "target_position": target_position,
-                    "x_threshold": x_threshold,
-                    "y_threshold": y_threshold,
-                }
-            )
-
         return is_horizontal_neighbor or is_vertical_neighbor
 
     def combine_circuits_for_groups(
@@ -579,8 +568,8 @@ class OptimalCircuitCombiner:
         # If there is no used node, return empty set.
         if len(used_nodes) == 0:
             if len(exist_idle_nodes) > 0:
-                logger.warning(
-                    "exist idle nodes but no used nodes, this should not happen",
+                logger.info(
+                    "Exist idle nodes but no used nodes.",
                     extra={
                         "exist_idle_nodes": exist_idle_nodes,
                         "used_nodes": used_nodes,
@@ -595,8 +584,8 @@ class OptimalCircuitCombiner:
             for node in used_nodes:
                 idle_nodes.update(undirected_inferred_t.neighbors(node))
         else:
-            logger.warning(
-                "inferred topology is None, cannot calculate idle nodes before mapping"
+            logger.info(
+                "Inferred topology is None, cannot calculate idle nodes before mapping"
             )
 
         # remove used nodes and existing idle nodes from idle nodes
@@ -644,7 +633,7 @@ class OptimalCircuitCombiner:
             if value is not None:
                 assigned_endpoint_nodes.add(value)
             else:
-                logger.warning(
+                logger.info(
                     "Edge endpoint not in result mapping, this should not happen",
                     extra={
                         "edge_node": edge_node,
@@ -658,7 +647,7 @@ class OptimalCircuitCombiner:
             for node in assigned_endpoint_nodes:
                 idle_nodes.update(undirected_inferred_t.neighbors(node))
         else:
-            logger.warning(
+            logger.info(
                 "Inferred topology is None, cannot calculate idle nodes after mapping"
             )
 
