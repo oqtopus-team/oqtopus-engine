@@ -81,9 +81,9 @@ class OqtopusStorage:
             raise OqtopusStorageError(msg) from e
 
     @staticmethod
-    def upload(
+    def upload(  # noqa: PLR0913, PLR0917
         presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any],
+        data: dict[str, Any] | str,
         arcname_ext: str = "",
         max_size: int | None = None,
         proxies: dict[str, str] | None = None,
@@ -118,7 +118,11 @@ class OqtopusStorage:
                 if max_size is not None:
                     zipped_file_size = len(zip_buffer.getvalue())
                     if zipped_file_size > max_size:
-                        msg = f"{zip_buffer.name} size: {zipped_file_size}B is larger than the max file size {max_size}B"
+                        msg = (
+                            f"{zip_buffer.name} size: {zipped_file_size}B "
+                            "is larger than the max file size "
+                            f"{max_size}B"
+                        )
                         raise OqtopusStorageError(msg)
 
                 # swagger-codegen generates JobsJobInfoUploadPresignedURLFields class

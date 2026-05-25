@@ -1,8 +1,9 @@
 import asyncio
 import logging
+
 from pydantic import ValidationError
 
-from oqtopus_engine_core.framework import Job, JobContext, JobInput, JobFetcher
+from oqtopus_engine_core.framework import Job, JobContext, JobFetcher, JobInput
 from oqtopus_engine_core.framework.job_fetcher import wait_until_fetchable
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,6 @@ class RepositoryJobFetcher(JobFetcher):
 
     async def start(self) -> None:
         """Start periodically fetching jobs and feeding them into the pipeline."""
-
         self.validate_fetcher_ready()
         gctx = self.gctx
         pipeline = self.pipeline
@@ -86,8 +86,12 @@ class RepositoryJobFetcher(JobFetcher):
         self,
         jobs: list[Job],
     ) -> list[Job]:
-        """ Downloads and validates job inputs. Fails the job if download or validation fail."""
+        """Download and validate job inputs.
 
+        Returns:
+            Jobs whose downloaded input payloads were validated successfully.
+
+        """
         jobs_with_inputs = []
 
         try:
@@ -120,14 +124,14 @@ class RepositoryJobFetcher(JobFetcher):
                         jobs_with_inputs.append(job)
                     except ValidationError as exc:
                         await self._fail_job(
-                            job, f"Job input validation failed: {str(exc)}"
+                            job, f"Job input validation failed: {exc!s}"
                         )
                 else:
                     await self._fail_job(
                         job,
-                        f"Job input download failed: {str(job_download_results[i])}",
+                        f"Job input download failed: {job_download_results[i]!s}",
                     )
-        except Exception as exc:
+        except Exception:
             logger.exception("unexpected error during job input download")
 
         return jobs_with_inputs
@@ -137,7 +141,7 @@ class RepositoryJobFetcher(JobFetcher):
         job: Job,
         message: str,
     ) -> None:
-        """ Sets the job as failed in the job repository."""
+        """Set the job as failed in the job repository."""
         try:
             job.status = "failed"
             job.message = message

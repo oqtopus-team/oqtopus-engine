@@ -244,7 +244,10 @@ class MultiManualStep(Step):
             return
 
         try:
-            job.result.sampling.divided_counts = divide_result(job, jctx.get(COMBINED_QUBITS_LIST_KEY, []))
+            job.result.sampling.divided_counts = divide_result(
+                job,
+                jctx.get(COMBINED_QUBITS_LIST_KEY, []),
+            )
         except Exception:
             logger.exception(
                 "failed to divide result",

@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from .model import Job
-from ..interfaces.oqtopus_cloud import JobsJobInfoUploadPresignedURL
+from oqtopus_engine_core.framework.model import Job
+from oqtopus_engine_core.interfaces.oqtopus_cloud import JobsJobInfoUploadPresignedURL
 
 
 class JobRepository(ABC):
@@ -33,14 +33,16 @@ class JobRepository(ABC):
     async def get_job_upload_url(
         self, job: Job, items: list[str]
     ) -> list[JobsJobInfoUploadPresignedURL]:
-        """Fetch presigned URLs for job information items upload to Oqtopus Cloud storage.
+        """Fetch presigned URLs for job information item uploads.
 
         Args:
-            job: The job to upload
-            items: The list of job information items to upload. Available job information items are: `combined_program`, `transpile_result`, `result`, `sse_log`.
+            job: The job to upload.
+            items: Job information items to upload.
+                Available values are `combined_program`, `transpile_result`,
+                `result`, and `sse_log`.
 
         Returns:
-            A list of presigned URL data for upload, arranged in the order specified by the `items` parameter.
+            Presigned URL data for upload in the same order as `items`.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -171,7 +173,10 @@ class JobRepository(ABC):
             NotImplementedError: If not implemented in subclass.
 
         """
-        message = "`update_job_status_nowait` must be implemented in subclasses of JobRepository."
+        message = (
+            "`update_job_status_nowait` must be implemented in subclasses of "
+            "JobRepository."
+        )
         raise NotImplementedError(message)
 
     @abstractmethod
@@ -210,7 +215,8 @@ class JobRepository(ABC):
 
         """
         message = (
-            "`update_job_transpiler_info_nowait` must be implemented in subclasses of "
+            "`update_job_transpiler_info_nowait` must be implemented in "
+            "subclasses of "
             "JobUpdater."
         )
         raise NotImplementedError(message)

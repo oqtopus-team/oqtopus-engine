@@ -26,7 +26,7 @@ class OqtopusCloudJobRepository(JobRepository):
 
     T = TypeVar("T")
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         url: str = "http://localhost:8888",
         api_key: str = "",
@@ -42,6 +42,8 @@ class OqtopusCloudJobRepository(JobRepository):
             api_key: The API key for authentication.
             proxy: The proxy URL for the API request.
             workers: The number of concurrent workers to use for API requests.
+            storage_op_timeout_seconds: Timeout for storage upload and download.
+            max_file_size: Maximum allowed size for uploaded ZIP payloads.
 
         """
         super().__init__()
@@ -253,7 +255,15 @@ class OqtopusCloudJobRepository(JobRepository):
         label: str,
         extra: dict[str, Any],
     ) -> T | None:
-        """Call a storage request in a worker thread with logging and error handling."""
+        """Call a storage request in a worker thread.
+
+        Returns:
+            The value returned by the storage call, or `None` on failure.
+
+        Raises:
+            OqtopusStorageError: If a storage-specific error occurs.
+
+        """
         async with self._sem:
             try:
                 return await asyncio.to_thread(call)
@@ -333,14 +343,16 @@ class OqtopusCloudJobRepository(JobRepository):
     async def get_job_upload_url(
         self, job: Job, items: list[str]
     ) -> list[JobsJobInfoUploadPresignedURL]:
-        """Fetch presigned URLs for job information items upload to Oqtopus Cloud storage.
+        """Fetch presigned URLs for job information item uploads.
 
         Args:
-            job: The job to upload
-            items: The list of job information items to upload. Available job information items are: `combined_program`, `transpile_result`, `result`, `sse_log`.
+            job: The job to upload.
+            items: Job information items to upload.
+                Available values are `combined_program`, `transpile_result`,
+                `result`, and `sse_log`.
 
         Returns:
-            A list of presigned URL data for upload, arranged in the order specified by the `items` parameter.
+            Presigned URL data for upload in the same order as `items`.
 
         """
 
@@ -383,7 +395,12 @@ class OqtopusCloudJobRepository(JobRepository):
         self,
         job: Job,
     ) -> dict[str, Any]:
-        """Download and extract job input .zip file from cloud storage."""
+        """Download and extract the job input ZIP file from cloud storage.
+
+        Returns:
+            The JSON object extracted from the downloaded ZIP archive.
+
+        """
 
         def _call() -> dict[str, Any]:
             proxies = (
@@ -525,10 +542,10 @@ class OqtopusCloudJobRepository(JobRepository):
         self,
         job: Job,
     ) -> None:
-        """Send a PATCH request to update the job status and status related data and wait for the response.
+        """Send a PATCH request to update job status and related data.
 
         Args:
-            job: The job to patch
+            job: The job to patch.
 
         """
         body = JobsJobStatusUpdate(
@@ -578,7 +595,7 @@ class OqtopusCloudJobRepository(JobRepository):
         *,
         preserve_order: bool = True,
     ) -> None:
-        """Send a PATCH request to update the job status and status related data without waiting.
+        """Send a PATCH request to update job status without waiting.
 
         Args:
             job: The job to patch

@@ -26,16 +26,41 @@ class NullJobRepository(JobRepository):
             "NullJobRepository was initialized",
         )
 
+    def _log_noop(self, operation: str, **extra: object) -> None:
+        """Log a no-op repository operation for debugging."""
+        logger.debug(
+            "NullJobRepository skipped %s",
+            operation,
+            extra={"repository": self.__class__.__name__, **extra},
+        )
+
     async def get_jobs(
         self, device_id: str, status: str = "submitted", limit: int = 10
     ) -> list[Job]:
-        """No-op implementation."""
+        """Return no jobs.
+
+        Returns:
+            An empty list because persistence is disabled.
+
+        """
+        self._log_noop(
+            "get_jobs",
+            device_id=device_id,
+            status=status,
+            limit=limit,
+        )
         return []
 
     async def get_job_upload_url(
         self, job: Job, items: list[str]
     ) -> list[JobsJobInfoUploadPresignedURL]:
-        """Return placeholder upload URLs so callers can stay storage-agnostic."""
+        """Return placeholder upload URLs.
+
+        Returns:
+            Placeholder upload URLs so callers can stay storage-agnostic.
+
+        """
+        self._log_noop("get_job_upload_url", job_id=job.job_id, items=items)
         return [
             JobsJobInfoUploadPresignedURL(
                 url="null://upload",
@@ -50,7 +75,13 @@ class NullJobRepository(JobRepository):
         self,
         job: Job,
     ) -> dict[str, Any]:
-        """No-op implementation."""
+        """Return an empty input payload.
+
+        Returns:
+            An empty dictionary because persistence is disabled.
+
+        """
+        self._log_noop("download_job_input", job_id=job.job_id)
         return {}
 
     async def upload_job_output(
@@ -60,17 +91,15 @@ class NullJobRepository(JobRepository):
         data: dict[str, Any] | str,
         arcname_ext: str = "",
     ) -> None:
-        """No-op implementation."""
-        logger.debug(
-            "NullJobRepository skipped upload",
-            extra={
-                "job_id": job.job_id,
-                "job_type": job.job_type,
-                "key": getattr(getattr(presigned_url, "fields", None), "key", None),
-                "arcname_ext": arcname_ext,
-            },
+        """Log and discard the upload request."""
+        self._log_noop(
+            "upload_job_output",
+            job_id=job.job_id,
+            job_type=job.job_type,
+            key=getattr(getattr(presigned_url, "fields", None), "key", None),
+            arcname_ext=arcname_ext,
+            data_type=type(data).__name__,
         )
-        return None
 
     async def upload_job_output_nowait(
         self,
@@ -81,25 +110,28 @@ class NullJobRepository(JobRepository):
         *,
         preserve_order: bool = True,
     ) -> None:
-        """No-op implementation."""
-        logger.debug(
-            "NullJobRepository skipped upload_nowait",
-            extra={
-                "job_id": job.job_id,
-                "job_type": job.job_type,
-                "key": getattr(getattr(presigned_url, "fields", None), "key", None),
-                "arcname_ext": arcname_ext,
-            },
+        """Log and discard the asynchronous upload request."""
+        self._log_noop(
+            "upload_job_output_nowait",
+            job_id=job.job_id,
+            job_type=job.job_type,
+            key=getattr(getattr(presigned_url, "fields", None), "key", None),
+            arcname_ext=arcname_ext,
+            preserve_order=preserve_order,
+            data_type=type(data).__name__,
         )
-        return None
 
     async def update_job_status(
         self,
         job: Job,
         execution_time: float | None = None,
     ) -> None:
-        """No-op implementation."""
-        return None
+        """Log and discard the status update request."""
+        self._log_noop(
+            "update_job_status",
+            job_id=job.job_id,
+            execution_time=execution_time,
+        )
 
     async def update_job_status_nowait(
         self,
@@ -108,12 +140,17 @@ class NullJobRepository(JobRepository):
         *,
         preserve_order: bool = True,
     ) -> None:
-        """No-op implementation."""
-        return None
+        """Log and discard the asynchronous status update request."""
+        self._log_noop(
+            "update_job_status_nowait",
+            job_id=job.job_id,
+            execution_time=execution_time,
+            preserve_order=preserve_order,
+        )
 
     async def update_job_transpiler_info(self, job: Job) -> None:
-        """No-op implementation."""
-        return None
+        """Log and discard the transpiler info update request."""
+        self._log_noop("update_job_transpiler_info", job_id=job.job_id)
 
     async def update_job_transpiler_info_nowait(
         self,
@@ -121,5 +158,9 @@ class NullJobRepository(JobRepository):
         *,
         preserve_order: bool = True,
     ) -> None:
-        """No-op implementation."""
-        return None
+        """Log and discard the asynchronous transpiler info update request."""
+        self._log_noop(
+            "update_job_transpiler_info_nowait",
+            job_id=job.job_id,
+            preserve_order=preserve_order,
+        )
