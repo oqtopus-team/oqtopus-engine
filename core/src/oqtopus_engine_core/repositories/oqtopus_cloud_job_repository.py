@@ -32,7 +32,7 @@ class OqtopusCloudJobRepository(JobRepository):
         api_key: str = "",
         proxy: str | None = None,
         workers: int = 5,
-        storage_op_timeout_seconds: int = 60,
+        file_op_timeout_seconds: int = 60,
         max_file_size: int = 10485760,
     ) -> None:
         """Initialize the job repository with the API URL and interval.
@@ -42,7 +42,7 @@ class OqtopusCloudJobRepository(JobRepository):
             api_key: The API key for authentication.
             proxy: The proxy URL for the API request.
             workers: The number of concurrent workers to use for API requests.
-            storage_op_timeout_seconds: Timeout for storage upload and download.
+            file_op_timeout_seconds: Timeout for file upload and download.
             max_file_size: Maximum allowed size for uploaded ZIP payloads.
 
         """
@@ -69,7 +69,7 @@ class OqtopusCloudJobRepository(JobRepository):
         self._job_tails_lock = asyncio.Lock()
 
         self._proxy = proxy
-        self._storage_op_timeout_seconds = storage_op_timeout_seconds
+        self._file_op_timeout_seconds = file_op_timeout_seconds
         self._max_file_size = max_file_size
 
         logger.info(
@@ -78,7 +78,7 @@ class OqtopusCloudJobRepository(JobRepository):
                 "url": url,
                 "proxy": proxy,
                 "workers": workers,
-                "storage_op_timeout_seconds": storage_op_timeout_seconds,
+                "file_op_timeout_seconds": file_op_timeout_seconds,
             },
         )
 
@@ -409,7 +409,7 @@ class OqtopusCloudJobRepository(JobRepository):
             return OqtopusStorage.download(
                 presigned_url=job.input,
                 proxies=proxies,
-                timeout_s=self._storage_op_timeout_seconds,
+                timeout_s=self._file_op_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -463,7 +463,7 @@ class OqtopusCloudJobRepository(JobRepository):
                 arcname_ext=arcname_ext,
                 max_size=self._max_file_size,
                 proxies=proxies,
-                timeout_s=self._storage_op_timeout_seconds,
+                timeout_s=self._file_op_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
