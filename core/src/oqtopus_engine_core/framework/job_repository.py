@@ -105,6 +105,8 @@ class JobRepository(ABC):
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
         arcname_ext: str = "",
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """Upload job output data to the backing storage without waiting.
 
@@ -113,6 +115,11 @@ class JobRepository(ABC):
             presigned_url: Presigned URL for upload.
             data: Data to be uploaded.
             arcname_ext: Data file extension to be zipped, e.g. `.json`.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -147,11 +154,18 @@ class JobRepository(ABC):
     async def update_job_status_nowait(
         self,
         job: Job,
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """Update job status and status related data.
 
         Args:
             job: The job to update
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -178,11 +192,18 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def update_job_transpiler_info_nowait(self, job: Job) -> None:
+    async def update_job_transpiler_info_nowait(
+        self, job: Job, *, preserve_order: bool = True
+    ) -> None:
         """Update transpiler info without waiting.
 
         Args:
             job: The job to update
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         Raises:
             NotImplementedError: If not implemented in subclass.

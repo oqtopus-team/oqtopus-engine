@@ -59,13 +59,13 @@ def divide_string_by_lengths(input_str: str, lengths: list[int]) -> list[str]:
 
 def divide_result(
     job: Job,
-    jctx: dict,
+    combined_qubits_list: list[int],
 ) -> dict[int, dict[str, int]]:
     """Divide the job result into multiple results based on combined qubits list.
 
     Args:
         job (Job): The job object containing the result to be divided.
-        jctx (dict): The job context containing the combined qubits list.
+        combined_qubits_list (list[int]): The list of combined qubits.
 
     Returns:
         dict[int, dict[str, int]]: A dictionary mapping circuit index to divided result.
@@ -78,7 +78,9 @@ def divide_result(
         message = "inconsistent qubit property"
         logger.error(message, extra={"job_id": job.job_id})
         raise ValueError(message)
-    combined_qubits_list = jctx.get(COMBINED_QUBITS_LIST_KEY, [])
+
+    # reverse the order for the convenience
+    combined_qubits_list.reverse()
 
     # Divide results
     divided_job_result: dict[int, dict[str, int]] = {}
@@ -156,11 +158,9 @@ class MultiManualStep(Step):
         max_qubits = len(device_info["qubits"])
 
         # Call combiner
-        qasm_array = json.dumps(job.program)
-        qasm_array = qasm_array.replace("\\n", "")
-        qasm_array = qasm_array.replace('\\"', '\\\\"')
+        programs = json.dumps(job.program)
         request = combiner_pb2.CombineRequest(
-            qasm_array=qasm_array,
+            programs=programs,
             max_qubits=max_qubits,
         )
         logger.info(
@@ -202,10 +202,10 @@ class MultiManualStep(Step):
             raise RuntimeError(message)
 
         # Update job object
-        job.combined_program = response.combined_qasm
+        job.combined_program = response.combined_program
         jctx[COMBINED_QUBITS_LIST_KEY] = response.combined_qubits_list
         jctx["max_qubits"] = max_qubits
-        jctx["combined_program"] = response.combined_qasm
+        jctx["combined_program"] = response.combined_program
 
         # Upload to storage
         urls = await gctx.job_repository.get_job_upload_url(
@@ -244,7 +244,7 @@ class MultiManualStep(Step):
             return
 
         try:
-            job.result.sampling.divided_counts = divide_result(job, jctx)
+            job.result.sampling.divided_counts = divide_result(job, jctx.get(COMBINED_QUBITS_LIST_KEY, []))
         except Exception:
             logger.exception(
                 "failed to divide result",

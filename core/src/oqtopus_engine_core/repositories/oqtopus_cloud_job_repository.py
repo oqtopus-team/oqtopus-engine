@@ -1,7 +1,8 @@
 import asyncio
+import copy
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
 from oqtopus_engine_core.framework import Job, JobRepository
@@ -60,6 +61,10 @@ class OqtopusCloudJobRepository(JobRepository):
         # Background request tasks:
         # Requests that are sent without waiting for the response
         self._background_requests: set[asyncio.Task[Any]] = set()
+
+        # Per-job task chains to ensure sequential execution for the same job_id
+        self._job_tails: dict[str, asyncio.Future] = {}
+        self._job_tails_lock = asyncio.Lock()
 
         self._proxy = proxy
         self._storage_op_timeout_seconds = storage_op_timeout_seconds
@@ -150,6 +155,97 @@ class OqtopusCloudJobRepository(JobRepository):
                 logger.exception("%s: failed", label, extra=extra)
 
         task.add_done_callback(_done)
+
+    async def _enqueue_and_run(
+        self,
+        job_id: str,
+        coroutine: Coroutine[Any, Any, Any],
+    ) -> None:
+        """Schedule a coroutine for the given job_id while preserving execution order.
+
+        This method ensures that all operations associated with the same ``job_id``
+        are executed strictly in FIFO order, even when scheduled concurrently.
+
+        The implementation uses a *per-job task chain* instead of an explicit queue
+        or worker. For each ``job_id`` we keep a reference to the last scheduled
+        task (the "tail"). A new task waits for the previous one before executing.
+
+        Conceptually:
+
+            job_id = X
+
+                task A
+                ↓
+                task B waits A
+                ↓
+                task C waits B
+
+        This guarantees that requests affecting the same job (for example
+        status updates, job_info updates, or SSE log updates) are never sent
+        concurrently and cannot overtake each other.
+
+        Advantages of this design:
+
+        - No background worker management
+        - No queue lifecycle management
+        - Strict per-job ordering
+        - Minimal shared state
+        - No race conditions around queue creation or deletion
+
+        The last task reference is stored in ``_job_tails``. When the final task
+        in the chain completes, the entry is removed to prevent memory growth.
+
+        Args:
+            job_id:
+                Identifier of the job used as the ordering key.
+
+            coroutine:
+                The coroutine that performs the actual operation
+                (typically an HTTP request).
+
+        """
+        async with self._job_tails_lock:
+            previous = self._job_tails.get(job_id)
+
+            async def runner() -> None:
+                """Execute the coroutine after the previous task finishes."""
+                if previous is not None:
+                    try:
+                        # Wait for the previous operation for this job.
+                        # Errors from the previous task must not block
+                        # subsequent operations.
+                        await previous
+                    except Exception:
+                        # Log the exception to ensure traceability while
+                        # allowing subsequent operations to proceed.
+                        logger.exception(
+                            "Previous task failed",
+                            extra={"job_id": job_id},
+                        )
+
+                try:
+                    # Execute the requested operation.
+                    await coroutine
+                except Exception:
+                    logger.exception(
+                        "job task failed",
+                        extra={"job_id": job_id},
+                    )
+
+            # Create the new task and set it as the new tail.
+            task = asyncio.create_task(runner())
+            self._job_tails[job_id] = task
+
+        try:
+            # Wait for this task to complete.
+            # This ensures proper propagation when called directly.
+            await task
+        finally:
+            # Remove the tail entry if this task is still the latest one.
+            # This prevents memory leaks when no further tasks are scheduled.
+            async with self._job_tails_lock:
+                if self._job_tails.get(job_id) is task:
+                    self._job_tails.pop(job_id, None)
 
     async def _storage_request_with_error_logging(
         self,
@@ -393,16 +489,32 @@ class OqtopusCloudJobRepository(JobRepository):
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
         arcname_ext: str = "",
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """Upload job output data to cloud storage without waiting."""
-        task = asyncio.create_task(
-            self.upload_job_output(
-                job,
-                presigned_url,
-                data,
-                arcname_ext,
+        if preserve_order:
+            task = asyncio.create_task(
+                self._enqueue_and_run(
+                    job.job_id,
+                    self.upload_job_output(
+                        job,
+                        presigned_url,
+                        data,
+                        arcname_ext,
+                    ),
+                )
             )
-        )
+        else:
+            task = asyncio.create_task(
+                self.upload_job_output(
+                    job,
+                    presigned_url,
+                    data,
+                    arcname_ext,
+                )
+            )
+
         self._track_background_request(
             task,
             label="job output upload",
@@ -463,18 +575,33 @@ class OqtopusCloudJobRepository(JobRepository):
     async def update_job_status_nowait(
         self,
         job: Job,
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """Send a PATCH request to update the job status and status related data without waiting.
 
         Args:
             job: The job to patch
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         """
-        task = asyncio.create_task(
-            self.update_job_status(
-                job,
+        # Take a shallow copy immediately to capture the current 'status'.
+        # This prevents the value from changing while waiting in the queue.
+        output_files_snapshot = copy.deepcopy(job.output_files)
+        job_snapshot = job.model_copy(deep=False)
+        job_snapshot.output_files = output_files_snapshot
+
+        if preserve_order:
+            task = asyncio.create_task(
+                self._enqueue_and_run(job.job_id, self.update_job_status(job_snapshot))
             )
-        )
+        else:
+            task = asyncio.create_task(self.update_job_status(job_snapshot))
+
         self._track_background_request(
             task,
             label="PATCH /jobs/{job_id}/status",
@@ -491,7 +618,9 @@ class OqtopusCloudJobRepository(JobRepository):
             job: The job to update.
 
         """
-        body = job.transpiler_info
+        # Use deepcopy for transpiler_info to ensure all nested structures
+        # are preserved as they were at the moment of the call.
+        body = copy.deepcopy(job.transpiler_info)
 
         def _call() -> tuple[object, int, dict]:
             return self._jobs_api.update_job_transpiler_info_with_http_info(
@@ -533,14 +662,34 @@ class OqtopusCloudJobRepository(JobRepository):
     async def update_job_transpiler_info_nowait(
         self,
         job: Job,
+        *,
+        preserve_order: bool = True,
     ) -> None:
         """Send a PUT request to update transpiler info without waiting.
 
         Args:
             job: The job to update.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
 
         """
-        task = asyncio.create_task(self.update_job_transpiler_info(job))
+        # Take a shallow copy immediately to capture the current 'transpiler_info'.
+        # This prevents the value from changing while waiting in the queue.
+        transpiler_info_snapshot = copy.deepcopy(job.transpiler_info)
+        job_snapshot = job.model_copy(deep=False)
+        job_snapshot.transpiler_info = transpiler_info_snapshot
+
+        if preserve_order:
+            task = asyncio.create_task(
+                self._enqueue_and_run(
+                    job.job_id, self.update_job_transpiler_info(job_snapshot)
+                )
+            )
+        else:
+            task = asyncio.create_task(self.update_job_transpiler_info(job_snapshot))
         self._track_background_request(
             task,
             label="PUT /jobs/{job_id}/transpiler_info",
