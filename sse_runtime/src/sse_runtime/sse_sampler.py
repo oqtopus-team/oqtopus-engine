@@ -5,15 +5,12 @@ from pathlib import Path
 from typing import Any
 
 import grpc
-from quri_parts.backend import BackendError
-from quri_parts_oqtopus.rest.models.jobs_job_def import JobsJobDef
-from quri_parts_oqtopus.rest.models.jobs_job_info import JobsJobInfo
-from quri_parts_oqtopus.rest.models.jobs_sampling_result import JobsSamplingResult
-from quri_parts_oqtopus.rest.models.jobs_transpile_result import JobsTranspileResult
-from oqtopus_engine_core.interfaces.sse_interface.v1 import (
-    sse_pb2,
-    sse_pb2_grpc
-)
+from oqtopus_client.rest.models.jobs_job_def import JobsJobDef
+from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
+
+
+class SseRuntimeError(RuntimeError):
+    """Error raised when SSE runtime execution fails."""
 
 
 def req_transpile_and_exec(
@@ -34,7 +31,7 @@ def req_transpile_and_exec(
 
     Raises:
         OSError: If the job data is not set.
-        BackendError: If the job execution fails.
+        SseRuntimeError: If the job execution fails.
 
     """
     # get gRPC server address from environment variables
@@ -47,8 +44,7 @@ def req_transpile_and_exec(
         raise OSError(msg)
 
     with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
-        created = datetime.datetime.now(tz=datetime.UTC) \
-                                    .strftime("%Y-%m-%d %H:%M:%S")
+        created = datetime.datetime.now(tz=datetime.UTC)
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
         # insert parameter of qasm, shots and transpiler into the job data
         req_json = _make_request(job_json, qasm[0], n_shots, transpiler)
@@ -57,56 +53,112 @@ def req_transpile_and_exec(
         response = stub.SseEngine(request)
 
         # make content of output file to pass the result to sserunner
-        ended = datetime.datetime.now(tz=datetime.UTC) \
-                        .strftime("%Y-%m-%d %H:%M:%S")
-        job = _make_job_def(response)
+        ended = datetime.datetime.now(tz=datetime.UTC)
+        job = _make_job_def(response, req_json)
         job.submitted_at = created
         job.ready_at = created
         job.running_at = created
         job.ended_at = ended
 
         # write the content into result.json
-        _log_result(_make_resultjson(job), "result.json")
+        _log_result(_make_resultjson(job, req_json), "result.json")
 
         # raise error if the job execution is failed
         if response.status != "succeeded":
-            msg = f"To execute sampling on OQTOPUS server is failed. reason: {response.message}"  # noqa: E501
-            raise BackendError(msg)
+            msg = f"To execute sampling on OQTOPUS server is failed. reason: {response.message or _job_message(job)}"  # noqa: E501
+            raise SseRuntimeError(msg)
         if job.status != "succeeded":
-            msg = f"To execute sampling on OQTOPUS server is failed. reason: {job.job_info.message}"  # noqa: E501
-            raise BackendError(msg)
+            msg = f"To execute sampling on OQTOPUS server is failed. reason: {_job_message(job)}"  # noqa: E501
+            raise SseRuntimeError(msg)
 
         return job
 
 
 def _make_job_def(
     response: sse_pb2.SseEngineResponse,
+    request_job: dict[str, Any],
 ) -> JobsJobDef:
-    result_dict = json.loads(response.job_json or "{}")
-    result_dict["name"] = result_dict["name"] or ""
+    result_dict = _load_json_dict(response.job_json)
+
+    payload = {
+        "job_id": result_dict.get("job_id") or request_job.get("job_id") or "",
+        "name": result_dict.get("name") or request_job.get("name") or "",
+        "description": result_dict.get("description") or request_job.get("description"),
+        "job_type": (
+            result_dict.get("job_type")
+            or request_job.get("job_type")
+            or "sampling"
+        ),
+        "status": result_dict.get("status") or response.status or "failed",
+        "device_id": result_dict.get("device_id") or request_job.get("device_id") or "",
+        "shots": result_dict.get("shots") or request_job.get("shots") or 1,
+        "job_info": _make_client_job_info(result_dict, request_job, response.message),
+        "transpiler_info": (
+            result_dict.get("transpiler_info")
+            or request_job.get("transpiler_info")
+            or {}
+        ),
+        "simulator_info": (
+            result_dict.get("simulator_info")
+            or request_job.get("simulator_info")
+            or {}
+        ),
+        "mitigation_info": (
+            result_dict.get("mitigation_info")
+            or request_job.get("mitigation_info")
+            or {}
+        ),
+        "execution_time": result_dict.get("execution_time"),
+        "submitted_at": result_dict.get("submitted_at"),
+        "ready_at": result_dict.get("ready_at"),
+        "running_at": result_dict.get("running_at"),
+        "ended_at": result_dict.get("ended_at"),
+    }
 
     # Filter out unsupported fields to ensure compatibility with JobsJobDef
     for key in ["parent", "children"]:
-        result_dict.pop(key, None)
-    # Convert to JobsJobDef
-    job = JobsJobDef(**result_dict)
-    # Convert job_info and its nested objects
-    job.job_info = JobsJobInfo(**result_dict.get("job_info", {}))
-    job.job_info.result = {
-        "sampling": JobsSamplingResult(**(job.job_info.result or {}).get("sampling", {})),
-        "estimation": None,
-    }
-    # Convert transpile_result if exists
-    transpile_result = job.job_info.transpile_result
-    if transpile_result:
-        job.job_info.transpile_result = JobsTranspileResult(**transpile_result)
+        payload.pop(key, None)
+
+    job = JobsJobDef.from_dict(payload)
+    if job is None:
+        msg = "Could not parse job data"
+        raise SseRuntimeError(msg)
     return job
 
 
-def _make_resultjson(job: JobsJobDef) -> dict[str, Any]:
-    # convert the job data in order to make it readable in engine
-    output_contents = job.to_dict()
-    return output_contents
+def _make_resultjson(job: JobsJobDef, request_job: dict[str, Any]) -> dict[str, Any]:
+    job_info = job.job_info.to_dict() if job.job_info is not None else {}
+    return {
+        "job_id": job.job_id,
+        "name": job.name,
+        "description": job.description,
+        "device_id": job.device_id,
+        "shots": job.shots,
+        "job_type": _enum_value(job.job_type),
+        "input": request_job.get("input") or "",
+        "program": request_job.get("program") or [],
+        "operator": request_job.get("operator") or [],
+        "sse_program": request_job.get("sse_program"),
+        "combined_program": job_info.get("combined_program"),
+        "transpile_result": job_info.get("transpile_result"),
+        "result": job_info.get("result"),
+        "sse_log": job_info.get("sse_log"),
+        "output_files": request_job.get("output_files") or [],
+        "transpiler_info": (
+            job.transpiler_info or request_job.get("transpiler_info") or {}
+        ),
+        "simulator_info": job.simulator_info or request_job.get("simulator_info") or {},
+        "mitigation_info": (
+            job.mitigation_info or request_job.get("mitigation_info") or {}
+        ),
+        "status": _enum_value(job.status),
+        "message": _job_message(job),
+        "execution_time": job.execution_time,
+        "submitted_at": job.submitted_at,
+        "ready_at": job.ready_at,
+        "running_at": job.running_at,
+        "ended_at": job.ended_at,
+    }
 
 
 def _make_request(
@@ -115,12 +167,72 @@ def _make_request(
         shots: int,
         transpiler_info: dict[str, Any]
 ) -> dict[str, Any]:
-    job_dict = json.loads(job_json)
-    job_dict["job_info"]["program"] = [qasm]
-    job_dict["shots"] = shots
-    job_dict["transpiler_info"] = transpiler_info or {}
-    job_dict["job_type"] = "sampling"
-    return job_dict
+    job_dict = _load_json_dict(job_json)
+
+    return {
+        "job_id": job_dict.get("job_id") or "",
+        "name": job_dict.get("name") or "",
+        "description": job_dict.get("description"),
+        "device_id": job_dict.get("device_id") or "",
+        "shots": shots,
+        "job_type": "sampling",
+        "input": job_dict.get("input") or "",
+        "program": [qasm],
+        "operator": job_dict.get("operator") or [],
+        "sse_program": job_dict.get("sse_program"),
+        "combined_program": job_dict.get("combined_program"),
+        "transpile_result": None,
+        "result": None,
+        "sse_log": None,
+        "output_files": job_dict.get("output_files") or [],
+        "transpiler_info": transpiler_info or {},
+        "simulator_info": job_dict.get("simulator_info") or {},
+        "mitigation_info": job_dict.get("mitigation_info") or {},
+        "status": "submitted",
+        "message": None,
+    }
+
+
+def _load_json_dict(raw_json: str | None) -> dict[str, Any]:
+    if not raw_json:
+        return {}
+
+    loaded = json.loads(raw_json)
+    if not isinstance(loaded, dict):
+        msg = "Expected job data to be a JSON object"
+        raise SseRuntimeError(msg)
+    return loaded
+
+
+def _make_client_job_info(
+    result_dict: dict[str, Any],
+    request_job: dict[str, Any],
+    response_message: str,
+) -> dict[str, Any]:
+    return {
+        "input": {
+            "program": request_job.get("program") or [],
+            "operator": request_job.get("operator") or [],
+            "sse_program": request_job.get("sse_program"),
+        },
+        "program": request_job.get("program") or [],
+        "combined_program": result_dict.get("combined_program"),
+        "operator": request_job.get("operator") or [],
+        "result": result_dict.get("result"),
+        "transpile_result": result_dict.get("transpile_result"),
+        "sse_log": result_dict.get("sse_log"),
+        "message": result_dict.get("message") or response_message,
+    }
+
+
+def _enum_value(value: object) -> object:
+    return getattr(value, "value", value)
+
+
+def _job_message(job: JobsJobDef) -> str | None:
+    if job.job_info is None:
+        return None
+    return job.job_info.message
 
 
 def _log_result(contents_dict: dict[str, Any], filename: str) -> None:
@@ -129,8 +241,15 @@ def _log_result(contents_dict: dict[str, Any], filename: str) -> None:
     p = Path(dir_path)
     if not p.exists():
         msg = f"The path to output does not exist {dir_path}"
-        raise BackendError(msg)
+        raise SseRuntimeError(msg)
 
     file_path = Path(dir_path, filename)
     with Path.open(file_path, "w") as f:
-        json.dump(contents_dict, f, indent=2)
+        json.dump(contents_dict, f, indent=2, default=_json_default)
+
+
+def _json_default(value: object) -> str:
+    if isinstance(value, datetime.datetime):
+        return value.isoformat()
+    msg = f"Object of type {type(value).__name__} is not JSON serializable"
+    raise TypeError(msg)

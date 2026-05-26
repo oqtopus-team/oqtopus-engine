@@ -54,21 +54,40 @@ def _make_job(**overrides: Any) -> Job:
         "device_id": "test-device",
         "job_type": "multi_manual",
         "shots": 1024,
+        "input": "test-job-001/input.zip",
         "status": "ready",
+        "program": ["OPENQASM 3; h q[0];", "OPENQASM 3; cx q[0],q[1];"],
+        "combined_program": None,
+        "transpile_result": None,
+        "message": None,
+        "result": None,
+        "operator": [],
         "transpiler_info": {},
         "simulator_info": {},
         "mitigation_info": {},
-        "job_info": {
-            "program": ["OPENQASM 3; h q[0];", "OPENQASM 3; cx q[0],q[1];"],
-            "transpile_result": None,
-            "message": None,
-            "result": None,
-            "operator": [],
-        },
     }
     data: dict[str, Any] = {**defaults, **overrides}
     if "job_info" in overrides and isinstance(overrides["job_info"], dict):
-        data["job_info"] = {**defaults["job_info"], **overrides["job_info"]}
+        job_info = {
+            "program": defaults["program"],
+            "combined_program": defaults["combined_program"],
+            "transpile_result": defaults["transpile_result"],
+            "message": defaults["message"],
+            "result": defaults["result"],
+            "operator": defaults["operator"],
+            **overrides["job_info"],
+        }
+        data.pop("job_info", None)
+        for key in (
+            "program",
+            "combined_program",
+            "transpile_result",
+            "message",
+            "result",
+            "operator",
+        ):
+            if key in job_info:
+                data[key] = job_info[key]
     return Job(**data)
 
 
@@ -224,7 +243,7 @@ class TestDivideResult:
                 job=job,
                 combined_qubits_list=combined_qubits_list,
             )
-            assert job.job_info.result.sampling.counts == counts
+            assert job.result.sampling.counts == counts
             assert divided_counts == expected_divided
 
 
@@ -313,11 +332,19 @@ class TestMultiManualStepPreProcess:
 
         await step.pre_process(gctx, jctx, job)
 
-        assert job.job_info.combined_program == "combined_qasm_result"
+        assert job.combined_program == "combined_qasm_result"
         assert jctx[COMBINED_QUBITS_LIST_KEY] == [1, 3]
         assert jctx["max_qubits"] == 5
         assert jctx["combined_program"] == "combined_qasm_result"
-        gctx.job_repository.update_job_info_nowait.assert_awaited_once_with(job)
+        gctx.job_repository.get_job_upload_url.assert_awaited_once_with(
+            job=job,
+            items=["combined_program"],
+        )
+        gctx.job_repository.upload_job_output.assert_awaited_once_with(
+            job=job,
+            presigned_url=gctx.job_repository.get_job_upload_url.return_value[0],
+            data="combined_qasm_result",
+        )
 
     @pytest.mark.asyncio
     async def test_pre_process_failure_status(
@@ -354,7 +381,7 @@ class TestMultiManualStepPreProcess:
         """Should send programs as JSON and max_qubits from device_info."""
         step, mock_stub = step_and_stub
         programs: list[str] = ["OPENQASM 3; h q[0];", "OPENQASM 3; cx q[0],q[1];"]
-        job: Job = _make_job(job_info={"program": programs})
+        job: Job = _make_job(program=programs)
         gctx: GlobalContext = _make_gctx()
 
         mock_stub.Combine.return_value = _make_combine_response(status=0)
@@ -419,11 +446,11 @@ class TestMultiManualStepPostProcess:
 
         await step.post_process(gctx, jctx, job)
 
-        assert job.job_info.result.sampling.divided_counts is not None
+        assert job.result.sampling.divided_counts is not None
         # reversed [1,3] -> [3,1]
         # "0001" -> split("0001",[3,1]) -> ["000","1"] -> circuit1="000", circuit0="1"
         # "1110" -> split("1110",[3,1]) -> ["111","0"] -> circuit1="111", circuit0="0"
-        assert job.job_info.result.sampling.divided_counts == {
+        assert job.result.sampling.divided_counts == {
             0: {"1": 10, "0": 20},
             1: {"000": 10, "111": 20},
         }
@@ -453,7 +480,7 @@ class TestMultiManualStepPostProcess:
         await step.post_process(gctx, jctx, job)
 
         # divide_result raises for empty list with non-empty counts → caught
-        assert job.job_info.result.sampling.divided_counts == {}
+        assert job.result.sampling.divided_counts == {}
 
     @pytest.mark.asyncio
     async def test_post_process_divide_error_sets_empty(
@@ -480,4 +507,4 @@ class TestMultiManualStepPostProcess:
         await step.post_process(gctx, jctx, job)
 
         # Empty counts raises ValueError, caught by except block
-        assert job.job_info.result.sampling.divided_counts == {}
+        assert job.result.sampling.divided_counts == {}
