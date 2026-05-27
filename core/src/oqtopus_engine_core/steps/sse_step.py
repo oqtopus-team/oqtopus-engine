@@ -52,6 +52,7 @@ class SseStep(Step):
 
         Raises:
             RuntimeError: If the SSE run fails.
+            ValueError: If the SSE program is missing from the job.
 
         """
         if job.job_type != "sse":

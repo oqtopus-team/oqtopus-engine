@@ -450,6 +450,7 @@ class OqtopusCloudJobRepository(JobRepository):
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
         arcname_ext: str = "",
+        arcname: str | None = None,
     ) -> None:
         """Upload job output data as a .zip file to cloud storage."""
 
@@ -461,6 +462,7 @@ class OqtopusCloudJobRepository(JobRepository):
                 presigned_url=presigned_url,
                 data=data,
                 arcname_ext=arcname_ext,
+                arcname=arcname,
                 max_size=self._max_file_size,
                 proxies=proxies,
                 timeout_s=self._file_op_timeout_seconds,
@@ -500,12 +502,13 @@ class OqtopusCloudJobRepository(JobRepository):
 
         job.output_files.append(presigned_url.fields.key)
 
-    async def upload_job_output_nowait(
+    async def upload_job_output_nowait(  # noqa: PLR0913
         self,
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
         arcname_ext: str = "",
+        arcname: str | None = None,
         *,
         preserve_order: bool = True,
     ) -> None:
@@ -519,6 +522,7 @@ class OqtopusCloudJobRepository(JobRepository):
                         presigned_url,
                         data,
                         arcname_ext,
+                        arcname,
                     ),
                 )
             )
@@ -529,6 +533,7 @@ class OqtopusCloudJobRepository(JobRepository):
                     presigned_url,
                     data,
                     arcname_ext,
+                    arcname,
                 )
             )
 
