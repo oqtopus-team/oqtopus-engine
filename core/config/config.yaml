@@ -1,3 +1,6 @@
+monitoring:
+  enabled: ${MONITORING_ENABLED, false}
+
 # Pipeline Executor Configuration (get instances from DI container)
 pipeline_executor:
   pipeline:
@@ -47,6 +50,8 @@ di_container:
       url: ${JOB_REPOSITORY_URL, "http://localhost:8888"}
       api_key: ${JOB_REPOSITORY_API_KEY, ""}
       workers: ${JOB_REPOSITORY_WORKERS, 10}
+      file_op_timeout_seconds: ${JOB_FILE_OP_TIMEOUT_SECONDS, 60}
+      max_file_size: ${MAX_FILE_SIZE, 10485760}
 
     _device_repository:
       _target_: oqtopus_engine_core.repositories.NullDeviceRepository
@@ -129,7 +134,6 @@ di_container:
         container_extra_hosts:
           - sse_engine:${SSE_ENGINE_IP, localhost}
         timeout: ${SSE_TIMEOUT, 600}
-        max_file_size: ${SSE_MAX_FILE_SIZE, 10485760}
 
     # exception handler configurations
     pipeline_exception_handler:

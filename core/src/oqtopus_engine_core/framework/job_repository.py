@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
+from typing import Any
 
-from .model import Job
+from oqtopus_engine_core.framework.model import Job
+from oqtopus_engine_core.interfaces.oqtopus_cloud import JobsJobInfoUploadPresignedURL
 
 
 class JobRepository(ABC):
@@ -28,8 +30,119 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def update_job_status(self, job: Job) -> None:
-        """Update job status.
+    async def get_job_upload_url(
+        self, job: Job, items: list[str]
+    ) -> list[JobsJobInfoUploadPresignedURL]:
+        """Fetch presigned URLs for job information item uploads.
+
+        Args:
+            job: The job to upload.
+            items: Job information items to upload.
+                Available values are `combined_program`, `transpile_result`,
+                `result`, and `sse_log`.
+
+        Returns:
+            Presigned URL data for upload in the same order as `items`.
+
+        Raises:
+            NotImplementedError: If not implemented in subclass.
+
+        """
+        message = (
+            "`get_job_upload_url` must be implemented in subclasses of JobRepository."
+        )
+        raise NotImplementedError(message)
+
+    @abstractmethod
+    async def download_job_input(
+        self,
+        job: Job,
+    ) -> dict[str, Any]:
+        """Download and extract the job input payload.
+
+        Args:
+            job: The job for input download.
+
+        Returns:
+            A dictionary containing downloaded and extracted job input items.
+
+        Raises:
+            NotImplementedError: If not implemented in subclass.
+
+        """
+        message = (
+            "`download_job_input` must be implemented in subclasses of JobRepository."
+        )
+        raise NotImplementedError(message)
+
+    @abstractmethod
+    async def upload_job_output(
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any] | str,
+        arcname_ext: str = "",
+        arcname: str | None = None,
+    ) -> None:
+        """Upload job output data to the backing storage.
+
+        Args:
+            job: The job for output upload.
+            presigned_url: Presigned URL for upload.
+            data: Data to be uploaded.
+            arcname_ext: Data file extension to be zipped, e.g. `.json`.
+            arcname: Override filename to store inside the uploaded zip archive.
+
+        Raises:
+            NotImplementedError: If not implemented in subclass.
+
+        """
+        message = (
+            "`upload_job_output` must be implemented in subclasses of JobRepository."
+        )
+        raise NotImplementedError(message)
+
+    @abstractmethod
+    async def upload_job_output_nowait(  # noqa: PLR0913
+        self,
+        job: Job,
+        presigned_url: JobsJobInfoUploadPresignedURL,
+        data: dict[str, Any] | str,
+        arcname_ext: str = "",
+        arcname: str | None = None,
+        *,
+        preserve_order: bool = True,
+    ) -> None:
+        """Upload job output data to the backing storage without waiting.
+
+        Args:
+            job: The job for output upload.
+            presigned_url: Presigned URL for upload.
+            data: Data to be uploaded.
+            arcname_ext: Data file extension to be zipped, e.g. `.json`.
+            arcname: Override filename to store inside the uploaded zip archive.
+            preserve_order:
+                If ``True`` (default), operations targeting the same ``job_id``
+                are executed sequentially so that updates cannot overtake each
+                other. If ``False``, this ordering guarantee is disabled and the
+                request may run concurrently with other updates for the same job.
+
+        Raises:
+            NotImplementedError: If not implemented in subclass.
+
+        """
+        message = (
+            "`upload_job_output_nowait` must be implemented in subclasses of "
+            "JobRepository."
+        )
+        raise NotImplementedError(message)
+
+    @abstractmethod
+    async def update_job_status(
+        self,
+        job: Job,
+    ) -> None:
+        """Update job status and status related data.
 
         Args:
             job: The job to update
@@ -45,66 +158,15 @@ class JobRepository(ABC):
 
     @abstractmethod
     async def update_job_status_nowait(
-        self, job: Job, *, preserve_order: bool = True
-    ) -> None:
-        """Update job status without waiting.
-
-        Args:
-            job: The job to update
-            preserve_order:
-                If ``True`` (default), operations targeting the same ``job_id``
-                are executed sequentially so that updates cannot overtake each
-                other. If ``False``, this ordering guarantee is disabled and the
-                request may run concurrently with other updates for the same job.
-
-        Raises:
-            NotImplementedError: If not implemented in subclass.
-
-        """
-        message = (
-            "`update_job_status_nowait` must be implemented "
-            "in subclasses of JobRepository."
-        )
-        raise NotImplementedError(message)
-
-    @abstractmethod
-    async def update_job_info(
         self,
         job: Job,
-        overwrite_status: str | None = None,
-        execution_time: float | None = None,
-    ) -> None:
-        """Update job info.
-
-        Args:
-            job: The job to update
-            overwrite_status: The status to overwrite in the job info if not None.
-            execution_time: The execution time to overwrite in the job info if not None.
-
-        Raises:
-            NotImplementedError: If not implemented in subclass.
-
-        """
-        message = (
-            "`update_job_info` must be implemented in subclasses of JobRepository."
-        )
-        raise NotImplementedError(message)
-
-    @abstractmethod
-    async def update_job_info_nowait(
-        self,
-        job: Job,
-        overwrite_status: str | None = None,
-        execution_time: float | None = None,
         *,
         preserve_order: bool = True,
     ) -> None:
-        """Update job info.
+        """Update job status and status related data.
 
         Args:
             job: The job to update
-            overwrite_status: The status to overwrite in the job info if not None.
-            execution_time: The execution time to overwrite in the job info if not None.
             preserve_order:
                 If ``True`` (default), operations targeting the same ``job_id``
                 are executed sequentially so that updates cannot overtake each
@@ -116,8 +178,8 @@ class JobRepository(ABC):
 
         """
         message = (
-            "`update_job_info_nowait` must be implemented "
-            "in subclasses of JobRepository."
+            "`update_job_status_nowait` must be implemented in subclasses of "
+            "JobRepository."
         )
         raise NotImplementedError(message)
 
@@ -157,63 +219,8 @@ class JobRepository(ABC):
 
         """
         message = (
-            "`update_job_transpiler_info_nowait` must be implemented in subclasses of "
+            "`update_job_transpiler_info_nowait` must be implemented in "
+            "subclasses of "
             "JobUpdater."
-        )
-        raise NotImplementedError(message)
-
-    @abstractmethod
-    async def get_ssesrc(self, job_id: str) -> str:
-        """Get SSE source URL for job updates.
-
-        Args:
-            job_id: The job ID.
-
-        Returns:
-            The SSE source URL as a string.
-
-        Raises:
-            NotImplementedError: If not implemented in subclass.
-
-        """
-        message = "`get_ssesrc` must be implemented in subclasses of JobRepository."
-        raise NotImplementedError(message)
-
-    @abstractmethod
-    async def update_sselog(self, job_id: str, sselog: str) -> None:
-        """Update SSE log.
-
-        Args:
-            job_id: The job ID.
-            sselog: The SSE log to update.
-
-        Raises:
-            NotImplementedError: If not implemented in subclass.
-
-        """
-        message = "`update_sselog` must be implemented in subclasses of JobRepository."
-        raise NotImplementedError(message)
-
-    @abstractmethod
-    async def update_sselog_nowait(
-        self, job_id: str, sselog: str, *, preserve_order: bool = True
-    ) -> None:
-        """Update SSE log without waiting.
-
-        Args:
-            job_id: The job ID.
-            sselog: The SSE log to update.
-            preserve_order:
-                If ``True`` (default), operations targeting the same ``job_id``
-                are executed sequentially so that updates cannot overtake each
-                other. If ``False``, this ordering guarantee is disabled and the
-                request may run concurrently with other updates for the same job.
-
-        Raises:
-            NotImplementedError: If not implemented in subclass.
-
-        """
-        message = (
-            "`update_sselog_nowait` must be implemented in subclasses of JobRepository."
         )
         raise NotImplementedError(message)

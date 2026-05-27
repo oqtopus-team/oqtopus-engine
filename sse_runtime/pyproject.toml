@@ -1,6 +1,6 @@
 [project]
 name = "sse-runtime"
-version = "2.0.4"
+version = "2.1.0"
 description = "SSE Runtime: A runtime container for SSE"
 license = "Apache-2.0"
 authors = [{ name = "oqtopus-team", email = "oqtopus-team@googlegroups.com" }]
@@ -31,8 +31,7 @@ dependencies = [
   "tqdm==4.67.1",
   "scipy>=1.15.3",
   "scikit-learn==1.7.0",
-  "quri-parts==0.22.1",
-  "quri-parts-oqtopus==1.0.3",
+  "oqtopus-client>=1.1.0",
   "qiskit==1.4.3",
   "qulacs==0.6.12",
   "skqulacs==0.5.3",
@@ -42,6 +41,8 @@ dependencies = [
   "pennylane==0.42.0",
   "openfermion==1.7.1",
   "mypy>=1.17.0",
+  "quri-parts-oqtopus==1.0.3",
+  "quri-parts==0.22.1",
 ]
 
 [tool.uv]
@@ -59,7 +60,6 @@ include = [
 ]
 exclude = [
   "src/**/v1/**/*.py", # Generated codes
-  "src/quri_parts_oqtopus/rest/**/*.py",
 ]
 lint.select = ["ALL"]
 lint.ignore = [

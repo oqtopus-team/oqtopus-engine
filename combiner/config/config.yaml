@@ -1,3 +1,5 @@
 proto: # Settings for gRPC server
   max_workers: ${WORKERS} # Maximum number of workers
   address: "${ADDRESS}" # Address and port for RPCs
+combiner:
+  idle_qubits_insertion_enabled: "${IDLE_QUBITS_INSERTION_ENABLED}" # Enable or disable insertion of idle qubits (true/false)

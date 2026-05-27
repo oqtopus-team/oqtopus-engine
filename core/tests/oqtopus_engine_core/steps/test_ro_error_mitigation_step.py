@@ -25,8 +25,8 @@ def setup_sampling_job():
     job.job_id = "job-1"
     job.job_type = "sampling"
     job.mitigation_info = {"ro_error_mitigation": "pseudo_inverse"}
-    job.job_info.program = ["OPENQASM 3.0;\n"]
-    job.job_info.result.sampling.counts = {"00": 500, "01": 300, "10": 150, "11": 50}
+    job.program = ["OPENQASM 3.0;\n"]
+    job.result.sampling.counts = {"00": 500, "01": 300, "10": 150, "11": 50}
 
     return gctx, jctx, job
 
@@ -62,7 +62,7 @@ async def test_post_process_sampling_calls_grpc_and_updates_counts(
     assert request.device_topology.qubits[1].mes_error.p0m1 == pytest.approx(0.03)
     assert request.device_topology.qubits[1].mes_error.p1m0 == pytest.approx(0.04)
 
-    assert job.job_info.result.sampling.counts == {
+    assert job.result.sampling.counts == {
         "00": 480,
         "01": 320,
         "10": 140,
@@ -76,7 +76,7 @@ async def test_post_process_skips_when_mitigation_is_unset(
     mitigation_step: ReadoutErrorMitigationStep,
 ) -> None:
     gctx, jctx, job = setup_sampling_job
-    original_counts = dict(job.job_info.result.sampling.counts)
+    original_counts = dict(job.result.sampling.counts)
 
     job.mitigation_info = {}
     await mitigation_step.post_process(gctx, jctx, job)
@@ -85,7 +85,7 @@ async def test_post_process_skips_when_mitigation_is_unset(
     await mitigation_step.post_process(gctx, jctx, job)
 
     mitigation_step._stub.ReqMitigation.assert_not_awaited()
-    assert job.job_info.result.sampling.counts == original_counts
+    assert job.result.sampling.counts == original_counts
 
 
 @pytest.mark.asyncio
@@ -99,7 +99,7 @@ async def test_post_process_non_sampling_job_is_skipped(
     job.job_id = "job-2"
     job.job_type = "estimation"
     job.mitigation_info = {"ro_error_mitigation": "pseudo_inverse"}
-    job.job_info.program = ["ignored-program"]
+    job.program = ["ignored-program"]
 
     await mitigation_step.post_process(gctx, {}, job)
 

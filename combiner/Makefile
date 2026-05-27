@@ -6,7 +6,7 @@ LOG_DIR ?= logs
 
 .PHONY: run, test
 run:
-	@WORKERS=10 ADDRESS="localhost:52013" uv run python src/oqtopus_engine_combiner/app.py -c config/config.yaml -l config/logging.yaml
+	@WORKERS=10 ADDRESS="localhost:52013" IDLE_QUBITS_INSERTION_ENABLED="false" uv run python src/oqtopus_engine_combiner/app.py -c config/config.yaml -l config/logging.yaml
 
 build:
 	@docker compose build

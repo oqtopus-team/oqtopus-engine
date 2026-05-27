@@ -56,15 +56,10 @@ class JobResult(BaseModel):
     estimation: EstimationResult | None = None
 
 
-class JobInfo(BaseModel):
-    """Job detail information model."""
-
-    program: list[str]
-    combined_program: str | None = None
+class JobInput(BaseModel):
+    program: list[str] | None = None
     operator: list[OperatorItem] | None = None
-    result: JobResult | None = None
-    transpile_result: TranspileResult | None = None
-    message: str | None = None
+    sse_program: str | None = None
 
 
 class Job(BaseModel):
@@ -78,11 +73,20 @@ class Job(BaseModel):
     device_id: str
     shots: int
     job_type: str
-    job_info: JobInfo
+    input: str
+    program: list[str] | None = None
+    operator: list[OperatorItem] | None = None
+    sse_program: str | None = None
+    combined_program: str | None = None
+    transpile_result: TranspileResult | None = None
+    result: JobResult | None = None
+    sse_log: str | None = None
+    output_files: list[str] = []
     transpiler_info: dict[str, Any]
     simulator_info: dict[str, Any]
     mitigation_info: dict[str, Any]
     status: str
+    message: str | None = None
     execution_time: float | None = None
     submitted_at: datetime | None = None
     ready_at: datetime | None = None

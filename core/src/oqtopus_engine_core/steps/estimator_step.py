@@ -10,7 +10,6 @@ from oqtopus_engine_core.framework import (
     GlobalContext,
     Job,
     JobContext,
-    JobInfo,
     JobResult,
     JoinOnPostprocess,
     SamplingResult,
@@ -66,10 +65,10 @@ def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
         A tuple of transpilation-ready QASM and the qubit mapping list.
 
     """
-    if job.job_info.transpile_result is None:
-        return job.job_info.program[0], []
+    if job.transpile_result is None:
+        return job.program[0], []
 
-    transpile_result = job.job_info.transpile_result
+    transpile_result = job.transpile_result
     virtual_physical_mapping = transpile_result.virtual_physical_mapping[
         "qubit_mapping"
     ]
@@ -106,16 +105,15 @@ def _build_child_job(
         device_id=parent_job.device_id,
         shots=parent_job.shots,
         job_type="sampling",
-        job_info=JobInfo(
-            program=[program],
-            result=JobResult(sampling=SamplingResult()),
-            transpile_result=child_transpile_result,
-            message=parent_job.job_info.message,
-        ),
+        input=parent_job.input,
+        program=[program],
+        transpile_result=child_transpile_result,
+        result=JobResult(sampling=SamplingResult()),
         transpiler_info=deepcopy(parent_job.transpiler_info),
         simulator_info=deepcopy(parent_job.simulator_info),
         mitigation_info=deepcopy(parent_job.mitigation_info),
         status=parent_job.status,
+        message=parent_job.message,
         submitted_at=parent_job.submitted_at,
         ready_at=parent_job.ready_at,
         running_at=parent_job.running_at,
@@ -169,12 +167,12 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             )
             return
 
-        if job.job_info.operator is None:
+        if job.operator is None:
             message = "the operator is not specified in the job."
             raise ValueError(message)
 
         qasm_code, mapping_list = _build_estimator_request_payload(job)
-        operators_str = str([(op.pauli, op.coeff) for op in job.job_info.operator])
+        operators_str = str([(op.pauli, op.coeff) for op in job.operator])
         request = estimator_pb2.ReqEstimationPreProcessRequest(
             qasm_code=qasm_code,
             operators=operators_str,
@@ -213,7 +211,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
                     job,
                     child_job_id=child_job_id,
                     program=program,
-                    transpile_result=job.job_info.transpile_result
+                    transpile_result=job.transpile_result
                 )
             )
             child_ctxs.append(
@@ -283,7 +281,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             if child is None:
                 message = f"child job not found during join: {child_id}"
                 raise RuntimeError(message)
-            sampling = child.job_info.result.sampling if child.job_info.result else None
+            sampling = child.result.sampling if child.result else None
             counts = sampling.counts if sampling else None
             if counts is None:
                 message = f"child job counts are missing during join: {child_id}"
@@ -317,13 +315,13 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             },
         )
 
-        if parent_job.job_info.result is None:
-            parent_job.job_info.result = JobResult()
-        if parent_job.job_info.result.estimation is None:
-            parent_job.job_info.result.estimation = EstimationResult()
-        parent_job.job_info.result.estimation.exp_value = float(response.expval)
-        parent_job.job_info.result.estimation.stds = float(response.stds)
+        if parent_job.result is None:
+            parent_job.result = JobResult()
+        if parent_job.result.estimation is None:
+            parent_job.result.estimation = EstimationResult()
+        parent_job.result.estimation.exp_value = float(response.expval)
+        parent_job.result.estimation.stds = float(response.stds)
         parent_job.execution_time = float(
             f"{sum(child.execution_time or 0.0 for child in parent_job.children):.3f}"
         )
-        parent_job.job_info.message = last_child.job_info.message
+        parent_job.message = last_child.message
