@@ -15,6 +15,13 @@ class JobRepositoryUpdateStep(Step):
             "JobRepositoryUpdateStep was initialized",
         )
 
+    @staticmethod
+    def _get_sse_log_file_name(gctx: GlobalContext) -> str | None:
+        registry = gctx.config.get("di_container", {}).get("registry", {})
+        sse_step = registry.get("sse_step", {})
+        runner_settings = sse_step.get("runner_settings", {})
+        return runner_settings.get("log_file_name")
+
     async def pre_process(
         self,
         gctx: GlobalContext,
@@ -32,7 +39,7 @@ class JobRepositoryUpdateStep(Step):
 
         """
 
-    async def post_process(  # noqa: PLR6301
+    async def post_process(
         self,
         gctx: GlobalContext,
         jctx: JobContext,  # noqa: ARG002
@@ -46,6 +53,9 @@ class JobRepositoryUpdateStep(Step):
             gctx: The global context.
             jctx: The job context.
             job: The job object.
+
+        Raises:
+            ValueError: If the job result or SSE log is missing.
 
         """
         items = ["result"]
@@ -74,7 +84,8 @@ class JobRepositoryUpdateStep(Step):
                 job=job,
                 presigned_url=urls[1],
                 data=job.sse_log,
-                arcname_ext=".log"
+                arcname_ext=".log",
+                arcname=self._get_sse_log_file_name(gctx),
             )
 
         job.status = "succeeded"

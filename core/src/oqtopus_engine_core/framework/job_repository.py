@@ -82,6 +82,7 @@ class JobRepository(ABC):
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
         arcname_ext: str = "",
+        arcname: str | None = None,
     ) -> None:
         """Upload job output data to the backing storage.
 
@@ -90,6 +91,7 @@ class JobRepository(ABC):
             presigned_url: Presigned URL for upload.
             data: Data to be uploaded.
             arcname_ext: Data file extension to be zipped, e.g. `.json`.
+            arcname: Override filename to store inside the uploaded zip archive.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -101,12 +103,13 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def upload_job_output_nowait(
+    async def upload_job_output_nowait(  # noqa: PLR0913
         self,
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
         arcname_ext: str = "",
+        arcname: str | None = None,
         *,
         preserve_order: bool = True,
     ) -> None:
@@ -117,6 +120,7 @@ class JobRepository(ABC):
             presigned_url: Presigned URL for upload.
             data: Data to be uploaded.
             arcname_ext: Data file extension to be zipped, e.g. `.json`.
+            arcname: Override filename to store inside the uploaded zip archive.
             preserve_order:
                 If ``True`` (default), operations targeting the same ``job_id``
                 are executed sequentially so that updates cannot overtake each

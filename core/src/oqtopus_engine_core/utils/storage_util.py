@@ -85,6 +85,7 @@ class OqtopusStorage:
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
         arcname_ext: str = "",
+        arcname: str | None = None,
         max_size: int | None = None,
         proxies: dict[str, str] | None = None,
         timeout_s: int = DEFAULT_TIMEOUT_S,
@@ -95,6 +96,7 @@ class OqtopusStorage:
             presigned_url (JobsJobInfoUploadPresignedURL): presigned URL for upload
             data (dict[str, Any]): data to upload
             arcname_ext: data file extension to be zipped e.g. `.json`
+            arcname: override filename to store inside the zip archive
             max_size: maximum size of the .zip file in bytes
             proxies: connection proxies to use
             timeout_s: operation timeout in seconds
@@ -109,9 +111,14 @@ class OqtopusStorage:
                 with ZipFile(
                     file=zip_buffer, mode="w", compression=ZIP_DEFLATED
                 ) as zip_arch:
+                    archive_name = (
+                        arcname
+                        if arcname is not None
+                        else f"{Path(zip_buffer.name).stem}{arcname_ext}"
+                    )
                     zip_arch.writestr(
-                        zinfo_or_arcname=f"{Path(zip_buffer.name).stem}{arcname_ext}",
-                        data=json.dumps(data),
+                        zinfo_or_arcname=archive_name,
+                        data=data if isinstance(data, str) else json.dumps(data),
                     )
                 zip_buffer.seek(0)
 

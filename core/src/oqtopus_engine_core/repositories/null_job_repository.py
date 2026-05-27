@@ -90,6 +90,7 @@ class NullJobRepository(JobRepository):
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
         arcname_ext: str = "",
+        arcname: str | None = None,
     ) -> None:
         """Log and discard the upload request."""
         self._log_noop(
@@ -98,15 +99,17 @@ class NullJobRepository(JobRepository):
             job_type=job.job_type,
             key=getattr(getattr(presigned_url, "fields", None), "key", None),
             arcname_ext=arcname_ext,
+            arcname=arcname,
             data_type=type(data).__name__,
         )
 
-    async def upload_job_output_nowait(
+    async def upload_job_output_nowait(  # noqa: PLR0913
         self,
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
         data: dict[str, Any] | str,
         arcname_ext: str = "",
+        arcname: str | None = None,
         *,
         preserve_order: bool = True,
     ) -> None:
@@ -117,6 +120,7 @@ class NullJobRepository(JobRepository):
             job_type=job.job_type,
             key=getattr(getattr(presigned_url, "fields", None), "key", None),
             arcname_ext=arcname_ext,
+            arcname=arcname,
             preserve_order=preserve_order,
             data_type=type(data).__name__,
         )
