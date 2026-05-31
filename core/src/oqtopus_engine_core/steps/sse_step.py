@@ -181,6 +181,18 @@ class SseStep(Step):
             elapsed_sec = time.perf_counter() - start
             self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)
             await gctx.job_repository.update_job_transpiler_info(job)
+            # Upload to storage
+            urls = await gctx.job_repository.get_job_upload_url(
+                job=job,
+                items=["transpile_result"],
+            )
+
+            await gctx.job_repository.upload_job_output(
+                job=job,
+                presigned_url=urls[0],
+                data=job.transpile_result.model_dump(),
+                arcname_ext=".json"
+        )
 
     @staticmethod
     async def _make_userprogram_file(
@@ -240,6 +252,7 @@ class SseStep(Step):
         job.result = result_job.result
         job.sse_log = result_job.sse_log
         job.transpiler_info = result_job.transpiler_info
+        job.transpile_result = result_job.transpile_result
         job.execution_time = execution_time_in_sec
 
 
