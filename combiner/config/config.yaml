@@ -1,5 +1,5 @@
 proto: # Settings for gRPC server
-  max_workers: ${WORKERS} # Maximum number of workers
-  address: "${ADDRESS}" # Address and port for RPCs
+  max_workers: ${COMBINER_WORKERS, 10} # Maximum number of workers
+  address: ${COMBINER_ADDRESS, "localhost:51013"} # Address and port for RPCs
 combiner:
-  idle_qubits_insertion_enabled: "${IDLE_QUBITS_INSERTION_ENABLED}" # Enable or disable insertion of idle qubits (true/false)
+  idle_qubits_insertion_enabled: ${IDLE_QUBITS_INSERTION_ENABLED, false} # Enable or disable insertion of idle qubits (true/false)
