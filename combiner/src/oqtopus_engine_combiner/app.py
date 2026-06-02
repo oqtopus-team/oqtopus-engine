@@ -2,20 +2,17 @@ import argparse
 import datetime
 import json
 import logging
-import logging.config
-import os
 import time
 from concurrent import futures
 from io import TextIOWrapper
 from logging.handlers import TimedRotatingFileHandler
-from pathlib import Path
 from typing import Any
 
 import grpc  # type: ignore[import-untyped]
 import numpy as np
 import qiskit.qasm3  # type: ignore[import-untyped]
-import yaml  # type: ignore[import-untyped]
 from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
+from oqtopus_util.config import load_config, setup_logging
 from qiskit import QuantumCircuit
 
 from oqtopus_engine_combiner.mp_auto import OptimalCircuitCombiner
@@ -54,26 +51,6 @@ def _parse_args() -> argparse.Namespace:
         help="Path to the logging configuration file (YAML format).",
     )
     return parser.parse_args()
-
-
-def assign_environ(config: dict) -> dict:
-    """Expand environment variables and the user directory "~" in the values of `dict`.
-
-    Args:
-        config (dict): `dict` that expands environment variables
-            and the user directory "~" in its values.
-
-    Returns:
-        dict: expanded `dict`.
-
-    """
-    for key, value in config.items():
-        if type(value) is dict:
-            config[key] = assign_environ(value)
-        elif type(value) is str:
-            tmp_value = str(os.path.expandvars(value))
-            config[key] = os.path.expanduser(tmp_value)  # noqa: PTH111
-    return config
 
 
 # Exception class in case of invalid number of qubits
@@ -446,14 +423,12 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
 
     """
     # load config
-    with Path(config_yaml_path).open("r", encoding="utf-8") as file:
-        config_yaml = assign_environ(yaml.safe_load(file))
-    with Path(logging_yaml_path).open("r", encoding="utf-8") as file:
-        logging_yaml = assign_environ(yaml.safe_load(file))
-        logging.config.dictConfig(logging_yaml)
+    config_yaml = load_config(config_yaml_path)
+    logging_yaml = load_config(logging_yaml_path)
+    setup_logging(logging_yaml)
 
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
-    address = str(config_yaml["proto"].get("address") or "[::]:52013")
+    address = str(config_yaml["proto"].get("address") or "[::]:51013")
     str_idle_qubits_insertion_enabled = \
         str(config_yaml["combiner"].get("idle_qubits_insertion_enabled") or "false")
     idle_qubits_insertion_enabled = str_idle_qubits_insertion_enabled.lower() == "true"
