@@ -428,7 +428,7 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     setup_logging(logging_yaml)
 
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
-    address = str(config_yaml["proto"].get("address") or "[::]:52013")
+    address = str(config_yaml["proto"].get("address") or "[::]:51013")
     str_idle_qubits_insertion_enabled = \
         str(config_yaml["combiner"].get("idle_qubits_insertion_enabled") or "false")
     idle_qubits_insertion_enabled = str_idle_qubits_insertion_enabled.lower() == "true"
