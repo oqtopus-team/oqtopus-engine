@@ -5,7 +5,13 @@ import time
 
 import grpc
 
-from oqtopus_engine_core.framework import GlobalContext, Job, JobContext, JobFetcher
+from oqtopus_engine_core.framework import (
+    GlobalContext,
+    Job,
+    JobContext,
+    JobFetcher,
+    OperatorItem,
+)
 from oqtopus_engine_core.framework.pipeline import PipelineExecutor
 from oqtopus_engine_core.interfaces.sse_interface.v1 import (
     sse_pb2,
@@ -189,7 +195,8 @@ class SseEngineGatewayServicer:
             job_dict = json.loads(job_json)
             job = Job(**job_dict.get("submit_job_request", {}))
             job.program = job_dict.get("upload_info", {}).get("program", [])
-            job.operator = job_dict.get("upload_info", {}).get("operator", [])
+            operator = job_dict.get("upload_info", {}).get("operator", [])
+            job.operator = [OperatorItem.parse_obj(op) for op in operator]
             logger.debug(
                 "converted strings of job json to a Job object",
                 extra={"job": job}

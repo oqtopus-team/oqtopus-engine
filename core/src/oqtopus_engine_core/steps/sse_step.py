@@ -62,6 +62,10 @@ class SseStep(Step):
             )
             return
 
+        if job.sse_program is None:
+            message = "the sse_program is not specified in the job."
+            raise ValueError(message)
+
         # Update job status
         job.status = "running"
         await gctx.job_repository.update_job_status(job)
@@ -69,10 +73,6 @@ class SseStep(Step):
         config = self._settings
         # Make tmp dir
         temp_dirs = self._make_tmpdir(job.job_id, config["host_work_path"])
-
-        if job.sse_program is None:
-            message = "the sse_program is not specified in the job."
-            raise ValueError(message)
 
         try:
             # save python program to the temporary directory
