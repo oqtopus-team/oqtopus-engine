@@ -87,7 +87,7 @@ class OqtopusCloudJobRepository(JobRepository):
         call: Callable[[], T],
         label: str,
         extra: dict[str, Any],
-    ) -> T | None:
+    ) -> T:
         """Call an API in a worker thread with logging and error handling.
 
         Args:
@@ -97,7 +97,7 @@ class OqtopusCloudJobRepository(JobRepository):
             extra: Extra fields to log on error.
 
         Returns:
-            The data returned by the call, or None if an error occurred.
+            The data returned by the call.
 
         Raises:
             ApiException: If an API error occurs.
@@ -254,11 +254,11 @@ class OqtopusCloudJobRepository(JobRepository):
         call: Callable[[], T],
         label: str,
         extra: dict[str, Any],
-    ) -> T | None:
+    ) -> T:
         """Call a storage request in a worker thread.
 
         Returns:
-            The value returned by the storage call, or `None` on failure.
+            The value returned by the storage call.
 
         Raises:
             OqtopusStorageError: If a storage-specific error occurs.
@@ -318,11 +318,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "GET /jobs",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -330,12 +331,12 @@ class OqtopusCloudJobRepository(JobRepository):
             extra={
                 "status_code": status_code,
                 "elapsed_ms": round(elapsed_ms, 3),
-                "len(body)": len(response) if response is not None else 0,
+                "len(body)": len(response) if response is not None else 0,  # type: ignore[arg-type]
             },
         )
 
         jobs: list[Job] = []
-        for job_oas in response:
+        for job_oas in response:  # type: ignore[attr-defined]
             job = Job(**job_oas.to_dict())  # type: ignore[call-arg]
             jobs.append(job)
         return jobs
@@ -372,11 +373,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "GET /jobs/{job_id}/upload",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -577,11 +579,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "PATCH /jobs/{job_id}/status",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -664,11 +667,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "PUT /jobs/{job_id}/transpiler_info",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(

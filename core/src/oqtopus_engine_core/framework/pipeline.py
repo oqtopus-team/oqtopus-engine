@@ -248,7 +248,7 @@ class PipelineExecutor:
             if token is not None:
                 otel_context.detach(token)
 
-    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912
+    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912, PLR0915
         self,
         step_phase: StepPhase,
         index: int,
@@ -354,7 +354,7 @@ class PipelineExecutor:
                                     "job_type": job.job_type,
                                     "phase": StepPhase.PRE_PROCESS,
                                     "next_cursor": next_cursor,
-                                }
+                                },
                             )
 
                             task = asyncio.create_task(
@@ -427,7 +427,7 @@ class PipelineExecutor:
                                     "job_type": job.job_type,
                                     "phase": StepPhase.POST_PROCESS,
                                     "next_cursor": next_cursor,
-                                }
+                                },
                             )
 
                             task = asyncio.create_task(
@@ -566,9 +566,7 @@ class PipelineExecutor:
             return True
 
     @staticmethod
-    def _finalize_job_observability(
-        jctx: JobContext, job: Job, status: str
-    ) -> None:
+    def _finalize_job_observability(jctx: JobContext, job: Job, status: str) -> None:
         """End the job-level root span and emit completion metrics.
 
         Safe to call multiple times for the same job; only the first call

@@ -64,7 +64,7 @@ class JobBaggageSpanProcessor(SpanProcessor):
         ctx = parent_context if parent_context is not None else context.get_current()
         for key, value in baggage.get_all(ctx).items():
             if key.startswith(_BAGGAGE_PREFIX) and value is not None:
-                span.set_attribute(key, value)
+                span.set_attribute(key, value)  # type: ignore[arg-type]
 
 
 def register_span_processor() -> None:

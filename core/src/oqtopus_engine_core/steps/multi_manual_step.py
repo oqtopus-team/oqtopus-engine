@@ -4,7 +4,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import GlobalContext, Job, JobContext, Step
 from oqtopus_engine_core.interfaces.combiner_interface.v1 import (
@@ -76,7 +76,7 @@ def divide_result(
         ValueError: If the job result counts are inconsistent.
 
     """
-    if not job.result.sampling.counts:
+    if not job.result.sampling.counts:  # type: ignore[union-attr]
         message = "inconsistent qubit property"
         logger.error(message, extra={"job_id": job.job_id})
         raise ValueError(message)
@@ -87,7 +87,7 @@ def divide_result(
     # Divide results
     divided_job_result: dict[int, dict[str, int]] = {}
 
-    for key, value in job.result.sampling.counts.items():
+    for key, value in job.result.sampling.counts.items():  # type: ignore[union-attr]
         try:
             divided_keys = divide_string_by_lengths(key, combined_qubits_list)
             logger.debug(
@@ -166,12 +166,12 @@ class MultiManualStep(Step):
             )
             return
 
-        device_info = json.loads(gctx.device.device_info)
+        device_info = json.loads(gctx.device.device_info)  # type: ignore[union-attr, arg-type]
         max_qubits = len(device_info["qubits"])
 
         # Call combiner
         programs = json.dumps(job.program)
-        request = combiner_pb2.CombineRequest(
+        request = combiner_pb2.CombineRequest(  # type: ignore[attr-defined]
             programs=programs,
             max_qubits=max_qubits,
         )
@@ -195,19 +195,19 @@ class MultiManualStep(Step):
         )
 
         # When failed
-        if response.combined_status != combiner_pb2.STATUS_SUCCESS:
+        if response.combined_status != combiner_pb2.STATUS_SUCCESS:  # type: ignore[attr-defined]
             logger.error(
                 "failed to combine programs",
                 extra={
                     "job_id": job.job_id,
                     "job_type": job.job_type,
-                    "combined_status": combiner_pb2.Status.Name(
+                    "combined_status": combiner_pb2.Status.Name(  # type: ignore[attr-defined]
                         response.combined_status
                     ),
                 },
             )
             # message to return to user
-            if response.combined_status == combiner_pb2.STATUS_INVALID_QUBIT_SIZE:
+            if response.combined_status == combiner_pb2.STATUS_INVALID_QUBIT_SIZE:  # type: ignore[attr-defined]
                 message = "failed to combine programs: invalid qubit size"
             else:
                 message = "failed to combine programs"
@@ -220,12 +220,12 @@ class MultiManualStep(Step):
         jctx["combined_program"] = response.combined_program
 
         # Upload to storage
-        urls = await gctx.job_repository.get_job_upload_url(
+        urls = await gctx.job_repository.get_job_upload_url(  # type: ignore[union-attr]
             job=job,
             items=["combined_program"],
         )
 
-        await gctx.job_repository.upload_job_output(
+        await gctx.job_repository.upload_job_output(  # type: ignore[union-attr]
             job=job,
             presigned_url=urls[0],
             data=job.combined_program,
@@ -256,7 +256,7 @@ class MultiManualStep(Step):
             return
 
         try:
-            job.result.sampling.divided_counts = divide_result(
+            job.result.sampling.divided_counts = divide_result(  # type: ignore[union-attr]
                 job,
                 jctx.get(COMBINED_QUBITS_LIST_KEY, []),
             )
@@ -265,4 +265,4 @@ class MultiManualStep(Step):
                 "failed to divide result",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            job.result.sampling.divided_counts = {}
+            job.result.sampling.divided_counts = {}  # type: ignore[union-attr]

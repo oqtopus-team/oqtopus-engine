@@ -57,6 +57,8 @@ class JobResult(BaseModel):
 
 
 class JobInput(BaseModel):
+    """Input payload for a job submitted to the pipeline."""
+
     program: list[str] | None = None
     operator: list[OperatorItem] | None = None
     sse_program: str | None = None

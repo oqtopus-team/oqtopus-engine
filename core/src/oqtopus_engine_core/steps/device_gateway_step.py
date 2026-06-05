@@ -4,7 +4,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -131,7 +131,7 @@ def _find_all_root_jobs(
 def _select_program(job: Job) -> str:
     transpile_result = job.transpile_result
     if transpile_result is None or transpile_result.transpiled_program is None:
-        return job.program[0]
+        return job.program[0]  # type: ignore[index]
     return transpile_result.transpiled_program
 
 
@@ -196,7 +196,7 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
 
         # Check device status immediately before using the gateway.
         service_status = await self._stub.GetServiceStatus(
-            qpu_pb2.GetServiceStatusRequest()
+            qpu_pb2.GetServiceStatusRequest()  # type: ignore[attr-defined]
         )
         logger.info(
             "GetServiceStatus response",
@@ -206,16 +206,13 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
                 "service_status": service_status.service_status,
             },
         )
-        if (
-            service_status.service_status
-            != qpu_pb2.ServiceStatus.SERVICE_STATUS_ACTIVE
-        ):
+        if service_status.service_status != qpu_pb2.ServiceStatus.SERVICE_STATUS_ACTIVE:  # type: ignore[attr-defined]
             message = "device status is not available"
             raise RuntimeError(message)
 
         # Call device gateway
         if job.job_type in {"sampling", "multi_manual"}:
-            job_request = qpu_pb2.CallJobRequest(
+            job_request = qpu_pb2.CallJobRequest(  # type: ignore[attr-defined]
                 job_id=job.job_id,
                 shots=job.shots,
                 program=_select_program(job),
@@ -229,7 +226,7 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
                 },
             )
             job_response = await self._stub.CallJob(job_request)
-            if job_response.status != qpu_pb2.JobStatus.JOB_STATUS_SUCCESS:
+            if job_response.status != qpu_pb2.JobStatus.JOB_STATUS_SUCCESS:  # type: ignore[attr-defined]
                 logger.error(
                     "failed to execute job on device gateway",
                     extra={
@@ -257,9 +254,7 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
             )
             job.message = job_response.result.message
         elif job.job_type == "estimation":
-            message = (
-                "estimation jobs must be split before reaching device gateway"
-            )
+            message = "estimation jobs must be split before reaching device gateway"
             raise RuntimeError(message)
 
     async def post_process(
@@ -285,4 +280,4 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
         for job in jobs:
             if job.status == "ready":
                 job.status = "running"
-                await gctx.job_repository.update_job_status_nowait(job)
+                await gctx.job_repository.update_job_status_nowait(job)  # type: ignore[union-attr]

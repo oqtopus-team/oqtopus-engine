@@ -22,7 +22,7 @@ class DummyBuffer(Buffer):
     """Simple in-memory buffer for testing Buffer's abstract interface."""
 
     def __init__(self, max_concurrency: int = 1):
-        self._items = []
+        self._items: list[tuple[GlobalContext, JobContext, Job]] = []
         self._max_concurrency = max_concurrency
 
     async def put(self, gctx: GlobalContext, jctx: JobContext, job: Job):

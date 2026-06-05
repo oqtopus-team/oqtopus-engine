@@ -4,7 +4,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -102,14 +102,14 @@ class TranquStep(Step):
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
             # Update job repository
-            await gctx.job_repository.update_job_transpiler_info_nowait(job)
+            await gctx.job_repository.update_job_transpiler_info_nowait(job)  # type: ignore[union-attr]
 
         # Call tranqu
         if job.job_type == "multi_manual":
             program_to_transpile = job.combined_program
         else:
-            program_to_transpile = job.program[0]
-        request = tranqu_pb2.TranspileRequest(
+            program_to_transpile = job.program[0]  # type: ignore[index]
+        request = tranqu_pb2.TranspileRequest(  # type: ignore[attr-defined]
             request_id="id",
             program=program_to_transpile,
             program_lib="openqasm3",
@@ -149,16 +149,16 @@ class TranquStep(Step):
         )
 
         # Upload to storage
-        urls = await gctx.job_repository.get_job_upload_url(
+        urls = await gctx.job_repository.get_job_upload_url(  # type: ignore[union-attr]
             job=job,
             items=["transpile_result"],
         )
 
-        await gctx.job_repository.upload_job_output(
+        await gctx.job_repository.upload_job_output(  # type: ignore[union-attr]
             job=job,
             presigned_url=urls[0],
             data=job.transpile_result.model_dump(),
-            arcname_ext=".json"
+            arcname_ext=".json",
         )
 
     async def post_process(

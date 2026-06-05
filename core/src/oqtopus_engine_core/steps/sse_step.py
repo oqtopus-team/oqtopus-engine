@@ -64,7 +64,7 @@ class SseStep(Step):
 
         # Update job status
         job.status = "running"
-        await gctx.job_repository.update_job_status(job)
+        await gctx.job_repository.update_job_status(job)  # type: ignore[union-attr]
 
         config = self._settings
         # Make tmp dir
@@ -164,6 +164,9 @@ class SseStep(Step):
             msg = "internal server error"
             raise RuntimeError(msg) from e
         else:
+            if sse_runner.result_job is None:
+                msg = "SSE runner completed without a result_job"
+                raise RuntimeError(msg)
             job.status = sse_runner.result_job.status
             logger.info(
                 "succeeded to run SSE",
@@ -179,8 +182,8 @@ class SseStep(Step):
                 raise RuntimeError(msg)
         finally:
             elapsed_sec = time.perf_counter() - start
-            self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)
-            await gctx.job_repository.update_job_transpiler_info(job)
+            self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)  # type: ignore[arg-type]
+            await gctx.job_repository.update_job_transpiler_info(job)  # type: ignore[union-attr]
 
     @staticmethod
     async def _make_userprogram_file(
@@ -483,7 +486,8 @@ class SseRunner:
                     "container log",
                     extra={"job_id": self._job_id, "container_log": logs_content},
                 )
-            self.result_job.sse_log = logs_content
+            if self.result_job is not None:
+                self.result_job.sse_log = logs_content
         except Exception:
             logger.exception(
                 "failed to get container log",

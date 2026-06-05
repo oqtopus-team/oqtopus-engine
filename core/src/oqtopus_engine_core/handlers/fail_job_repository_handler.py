@@ -34,16 +34,14 @@ class FailJobRepositoryHandler(PipelineExceptionHandler):
 
     @staticmethod
     async def _update_jobs_status(
-        ex: Exception,
-        gctx: GlobalContext,
-        jobs: list[Job]
+        ex: Exception, gctx: GlobalContext, jobs: list[Job]
     ) -> None:
         """Update the job status to "failed" for the given jobs."""
         for job in jobs:
             try:
                 job.status = "failed"
                 job.message = str(ex)
-                await gctx.job_repository.update_job_status(
+                await gctx.job_repository.update_job_status(  # type: ignore[union-attr]
                     job=job,
                 )
             except Exception:

@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 from typing import TYPE_CHECKING
@@ -50,8 +49,7 @@ class Engine:
 
         # Build the pipeline executor using the PipelineBuilder
         self._pipeline = PipelineBuilder.build(
-            self._gctx.config["pipeline_executor"],
-            self._dicon
+            self._gctx.config["pipeline_executor"], self._dicon
         )
 
     async def start(self) -> None:

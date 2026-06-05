@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
     EstimationResult,
@@ -68,7 +68,7 @@ def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
 
     """
     if job.transpile_result is None:
-        return job.program[0], []
+        return job.program[0], []  # type: ignore[index]
 
     transpile_result = job.transpile_result
     virtual_physical_mapping = transpile_result.virtual_physical_mapping[
@@ -83,12 +83,12 @@ def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
 
 
 def _build_child_job(
-        parent_job: Job,
-        *,
-        child_job_id: str,
-        program: str,
-        transpile_result: TranspileResult
-    ) -> Job:
+    parent_job: Job,
+    *,
+    child_job_id: str,
+    program: str,
+    transpile_result: TranspileResult,
+) -> Job:
     """Create an internal sampling child job for a single measurement circuit.
 
     Returns:
@@ -180,7 +180,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
 
         qasm_code, mapping_list = _build_estimator_request_payload(job)
         operators_str = str([(op.pauli, op.coeff) for op in job.operator])
-        request = estimator_pb2.ReqEstimationPreProcessRequest(
+        request = estimator_pb2.ReqEstimationPreProcessRequest(  # type: ignore[attr-defined]
             qasm_code=qasm_code,
             operators=operators_str,
             basis_gates=self._basis_gates,
@@ -218,7 +218,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
                     job,
                     child_job_id=child_job_id,
                     program=program,
-                    transpile_result=job.transpile_result
+                    transpile_result=job.transpile_result,  # type: ignore[arg-type]
                 )
             )
             child_ctxs.append(
@@ -293,9 +293,9 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             if counts is None:
                 message = f"child job counts are missing during join: {child_id}"
                 raise RuntimeError(message)
-            counts_pb_list.append(estimator_pb2.Counts(counts=counts))
+            counts_pb_list.append(estimator_pb2.Counts(counts=counts))  # type: ignore[attr-defined]
 
-        request = estimator_pb2.ReqEstimationPostProcessRequest(
+        request = estimator_pb2.ReqEstimationPostProcessRequest(  # type: ignore[attr-defined]
             counts=counts_pb_list,
             grouped_operators=json.dumps(join_info.grouped_operators),
         )

@@ -92,7 +92,7 @@ lint.ignore = [
 ]
 
 [tool.mypy]
-files = ["src", "tests"]
+packages = ["oqtopus_engine_core"]
 exclude = [
   "src/.*/interfaces/", # Generated codes
 ]

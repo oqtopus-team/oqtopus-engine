@@ -45,6 +45,8 @@ class RepositoryJobFetcher(JobFetcher):
         self.validate_fetcher_ready()
         gctx = self.gctx
         pipeline = self.pipeline
+        if gctx is None or pipeline is None:  # pragma: no cover
+            return
 
         logger.info("RepositoryJobFetcher was started")
         while True:
@@ -53,8 +55,8 @@ class RepositoryJobFetcher(JobFetcher):
                     gctx, pipeline, self._interval_seconds, self._job_fetch_threshold
                 )
 
-                jobs = await gctx.job_repository.get_jobs(
-                    device_id=gctx.device.device_id,
+                jobs = await gctx.job_repository.get_jobs(  # type: ignore[union-attr]
+                    device_id=gctx.device.device_id,  # type: ignore[union-attr]
                     status="submitted",
                     limit=self._limit,
                 )
@@ -97,7 +99,8 @@ class RepositoryJobFetcher(JobFetcher):
         try:
             # Create a list of awaitable tasks for downloading job inputs
             job_download_tasks = [
-                self.gctx.job_repository.download_job_input(job) for job in jobs
+                self.gctx.job_repository.download_job_input(job)  # type: ignore[union-attr]
+                for job in jobs
             ]
             # Run all download tasks concurrently
             job_download_results = await asyncio.gather(
@@ -117,7 +120,7 @@ class RepositoryJobFetcher(JobFetcher):
             for i, job in enumerate(jobs):
                 if not isinstance(job_download_results[i], Exception):
                     try:
-                        validated_input = JobInput(**job_download_results[i])
+                        validated_input = JobInput(**job_download_results[i])  # type: ignore[arg-type]
                         job.program = validated_input.program
                         job.operator = validated_input.operator
                         job.sse_program = validated_input.sse_program
@@ -145,7 +148,7 @@ class RepositoryJobFetcher(JobFetcher):
         try:
             job.status = "failed"
             job.message = message
-            await self.gctx.job_repository.update_job_status(job=job)
+            await self.gctx.job_repository.update_job_status(job=job)  # type: ignore[union-attr]
         except Exception:
             logger.exception(
                 "failed to update job status to 'failed' in the repository",

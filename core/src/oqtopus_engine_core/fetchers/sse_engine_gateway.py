@@ -5,7 +5,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import GlobalContext, Job, JobContext, JobFetcher
 from oqtopus_engine_core.framework.pipeline import PipelineExecutor
@@ -59,15 +59,12 @@ class SseEngineGateway(JobFetcher):
 
         server = grpc.aio.server(options=self._grpc_options)
         sse_servicer = SseEngineGatewayServicer(self.pipeline, self.gctx)
-        sse_pb2_grpc.add_SseEngineServiceServicer_to_server(
-            sse_servicer,
-            server
-        )
+        sse_pb2_grpc.add_SseEngineServiceServicer_to_server(sse_servicer, server)
         server.add_insecure_port(self._sse_engine_address)
         await server.start()
         logger.info(
             "SseEngineGateway gRPC server started",
-            extra={"sse_engine_address": self._sse_engine_address}
+            extra={"sse_engine_address": self._sse_engine_address},
         )
         await server.wait_for_termination()
 
@@ -87,9 +84,9 @@ class SseEngineGatewayServicer:
 
     async def SseEngine(  # noqa: N802
         self,
-        request: sse_pb2.SseEngineRequest,
-        context: grpc.RpcContext,   # noqa: ARG002
-    ) -> sse_pb2.SseEngineResponse:
+        request: sse_pb2.SseEngineRequest,  # type: ignore[name-defined]
+        context: grpc.RpcContext,  # noqa: ARG002
+    ) -> sse_pb2.SseEngineResponse:  # type: ignore[name-defined]
         """Handle gRPC requests for executing pipeline.
 
         Args:
@@ -102,14 +99,11 @@ class SseEngineGatewayServicer:
         """
         # Extract job information from the request
         logger.info("received gRPC request of transpiling and executing QPU")
-        logger.debug(
-            "received request",
-            extra={"request": request}
-        )
+        logger.debug("received request", extra={"request": request})
         start = time.perf_counter()
 
         # Placeholder response structure
-        res = sse_pb2.SseEngineResponse(
+        res = sse_pb2.SseEngineResponse(  # type: ignore[attr-defined]
             status="failed",
             message="",
             job_json="",
@@ -143,15 +137,13 @@ class SseEngineGatewayServicer:
                     await asyncio.sleep(0.1)
         except TimeoutError:
             logger.exception(
-                "pipeline execution timed out",
-                extra={"job_id": job.job_id}
+                "pipeline execution timed out", extra={"job_id": job.job_id}
             )
             res.status = "failed"
             res.message = "pipeline execution timed out"
         except Exception:
             logger.exception(
-                "error during pipeline execution",
-                extra={"job_id": job.job_id}
+                "error during pipeline execution", extra={"job_id": job.job_id}
             )
             res.status = "failed"
             res.message = "error during pipeline execution"
@@ -166,13 +158,13 @@ class SseEngineGatewayServicer:
                     "elapsed_ms": round(elapsed_ms, 3),
                     "job_id": job.job_id,
                     "status": job.status,
-                    "response": res
+                    "response": res,
                 },
             )
         return res
 
     @staticmethod
-    def _get_job_from_request(request: sse_pb2.SseEngineRequest) -> Job:
+    def _get_job_from_request(request: sse_pb2.SseEngineRequest) -> Job:  # type: ignore[name-defined]
         """Convert gRPC request to Job object.
 
         Args:
@@ -197,8 +189,7 @@ class SseEngineGatewayServicer:
             job_dict = json.loads(job_json)
             job = Job(**job_dict)
             logger.debug(
-                "converted strings of job json to a Job object",
-                extra={"job": job}
+                "converted strings of job json to a Job object", extra={"job": job}
             )
         except json.JSONDecodeError as e:
             msg = "failed to decode string of job_json to JSON dict"

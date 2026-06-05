@@ -4,7 +4,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -129,14 +129,14 @@ class ReadoutErrorMitigationStep(Step):
             # Prepare device_topology protobuf (common for both job types)
             qubits_pb = []
             for qubit in device_info_json["qubits"]:
-                mes_error = mitigator_pb2.MesError(
+                mes_error = mitigator_pb2.MesError(  # type: ignore[attr-defined]
                     p0m1=float(qubit["meas_error"]["prob_meas1_prep0"]),
                     p1m0=float(qubit["meas_error"]["prob_meas0_prep1"]),
                 )
-                qubit_pb = mitigator_pb2.Qubit(mes_error=mes_error)
+                qubit_pb = mitigator_pb2.Qubit(mes_error=mes_error)  # type: ignore[attr-defined]
                 qubits_pb.append(qubit_pb)
 
-            device_topology = mitigator_pb2.DeviceTopology(qubits=qubits_pb)
+            device_topology = mitigator_pb2.DeviceTopology(qubits=qubits_pb)  # type: ignore[attr-defined]
 
             if job.job_type != "sampling":
                 logger.debug(
@@ -146,10 +146,7 @@ class ReadoutErrorMitigationStep(Step):
                 return
 
             if job.result is None:  # pragma: no cover
-                message = (
-                    "job.result is None. "
-                    "Cannot perform readout error mitigation."
-                )
+                message = "job.result is None. Cannot perform readout error mitigation."
                 raise ValueError(message)
             if job.result.sampling is None:  # pragma: no cover
                 message = (
@@ -165,10 +162,10 @@ class ReadoutErrorMitigationStep(Step):
                 raise ValueError(message)
             orig_counts = job.result.sampling.counts
 
-            request = mitigator_pb2.ReqMitigationRequest(
+            request = mitigator_pb2.ReqMitigationRequest(  # type: ignore[attr-defined]
                 device_topology=device_topology,
                 counts=orig_counts,
-                program=job.program[0],
+                program=job.program[0],  # type: ignore[index]
             )
             logger.info(
                 "ReqMitigation request",
