@@ -11,9 +11,11 @@ from oqtopus_engine_core.framework import (
     JobContext,
     JobResult,
     OperatorItem,
+    PipelineDirective,
     PipelineExecutor,
     SamplingResult,
     Step,
+    StepResult,
 )
 from oqtopus_engine_core.framework.context import GlobalContext
 from oqtopus_engine_core.framework.model import TranspileResult
@@ -21,7 +23,6 @@ from oqtopus_engine_core.framework.pipeline import StepPhase
 from oqtopus_engine_core.steps.estimator_step import (
     ESTIMATION_CHILD_INDEX_KEY,
     ESTIMATION_JOIN_INFO_KEY,
-    ESTIMATOR_STEP_NAME,
     EstimationJoinInfo,
     EstimatorStep,
 )
@@ -65,7 +66,7 @@ async def test_pre_process_calls_grpc_and_creates_children(
         grouped_operators=json.dumps([[["X"]], [[1.0]]]),
     )
 
-    await estimator_step_instance.pre_process(gctx, jctx, job)
+    result = await estimator_step_instance.pre_process(gctx, jctx, job)
 
     estimator_step_instance._stub.ReqEstimationPreProcess.assert_awaited_once()
     request = estimator_step_instance._stub.ReqEstimationPreProcess.call_args.args[0]
@@ -77,14 +78,14 @@ async def test_pre_process_calls_grpc_and_creates_children(
     join_info = jctx[ESTIMATION_JOIN_INFO_KEY]
     assert isinstance(join_info, EstimationJoinInfo)
     assert join_info.grouped_operators == [[["X"]], [[1.0]]]
-    assert len(job.children) == 2
-    assert len(jctx.children) == 2
-    assert join_info.child_order == [child.job_id for child in job.children]
-    assert all(child.job_type == "sampling" for child in job.children)
-    assert "has_actual_children" not in jctx.children[0]
-    assert jctx.children[0]["has_actual_parent"] is True
-    assert jctx.children[0][ESTIMATION_CHILD_INDEX_KEY] == 0
-    assert jctx.children[1][ESTIMATION_CHILD_INDEX_KEY] == 1
+    assert result.directive == PipelineDirective.SPLIT_FOR_JOIN
+    assert len(result.child_jobs) == 2
+    assert len(result.child_contexts) == 2
+    assert join_info.child_order == [j.job_id for j in result.child_jobs]
+    assert all(j.job_type == "sampling" for j in result.child_jobs)
+    assert result.child_contexts[0]["has_actual_parent"] is True
+    assert result.child_contexts[0][ESTIMATION_CHILD_INDEX_KEY] == 0
+    assert result.child_contexts[1][ESTIMATION_CHILD_INDEX_KEY] == 1
 
 
 @pytest.mark.asyncio
@@ -198,18 +199,17 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
 
 
 class FakeSamplingExecutionStep(Step):
-    async def pre_process(self, gctx, jctx, job):
-        """Populate counts for internal sampling children."""
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
-    async def post_process(self, gctx, jctx, job):
-        if (
-            jctx.get("has_actual_parent", False)
-        ):
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        if jctx.get("has_actual_parent", False):
             index = jctx[ESTIMATION_CHILD_INDEX_KEY]
             job.result = JobResult(
                 sampling=SamplingResult(counts={f"{index}": index + 1})
             )
             job.message = f"child-{index}"
+        return StepResult()
 
 
 @pytest.mark.asyncio
@@ -272,13 +272,13 @@ async def test_non_estimation_jobs_are_skipped(
         status="submitted",
     )
 
-    await estimator_step_instance.pre_process(gctx, jctx, job)
-    await estimator_step_instance.post_process(gctx, jctx, job)
+    pre_result = await estimator_step_instance.pre_process(gctx, jctx, job)
+    post_result = await estimator_step_instance.post_process(gctx, jctx, job)
 
     estimator_step_instance._stub.ReqEstimationPreProcess.assert_not_awaited()
     estimator_step_instance._stub.ReqEstimationPostProcess.assert_not_awaited()
-    assert ESTIMATOR_STEP_NAME in jctx["split_skip_steps"]
-    assert ESTIMATOR_STEP_NAME in jctx["join_skip_steps"]
+    assert pre_result.directive == PipelineDirective.NONE
+    assert post_result.directive == PipelineDirective.NONE
 
 
 @pytest.mark.asyncio
@@ -289,6 +289,6 @@ async def test_estimation_parent_skips_join_gate(
     jctx = JobContext(initial={})
     job = _make_estimation_job("job-6")
 
-    await estimator_step_instance.post_process(gctx, jctx, job)
+    result = await estimator_step_instance.post_process(gctx, jctx, job)
 
-    assert ESTIMATOR_STEP_NAME in jctx["join_skip_steps"]
+    assert result.directive == PipelineDirective.NONE

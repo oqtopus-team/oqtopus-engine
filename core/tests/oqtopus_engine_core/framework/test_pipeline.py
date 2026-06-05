@@ -4,16 +4,10 @@ import pytest
 
 from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.framework.buffer import Buffer
-from oqtopus_engine_core.framework.context import GlobalContext, JobContext, PipelineDirective, link_parent_and_children
+from oqtopus_engine_core.framework.context import GlobalContext, JobContext
 from oqtopus_engine_core.framework.model import Job
 from oqtopus_engine_core.framework.pipeline import PipelineExecutor, StepPhase
-from oqtopus_engine_core.framework.step import (
-    JoinOnPostprocess,
-    JoinOnPreprocess,
-    SplitOnPostprocess,
-    SplitOnPreprocess,
-    Step,
-)
+from oqtopus_engine_core.framework.step import PipelineDirective, Step, StepResult
 
 # ---------------------------------------------------------------------------
 # Helper factory functions
@@ -43,10 +37,10 @@ def make_test_global_context() -> GlobalContext:
 # Helper Step Implementations
 # ---------------------------------------------------------------------------
 
-class SplitOnPreStep(Step, SplitOnPreprocess):
-    """Create two children during pre-process."""
+class SplitOnPreStep(Step):
+    """Create two children during pre-process (SPLIT_FOR_JOIN)."""
 
-    async def pre_process(self, gctx, jctx, job):
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
         child_jobs = []
         child_ctxs = []
         for i in range(2):
@@ -54,20 +48,28 @@ class SplitOnPreStep(Step, SplitOnPreprocess):
             c_jctx = JobContext(initial={})
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
+        return StepResult(
+            directive=PipelineDirective.SPLIT_FOR_JOIN,
+            child_jobs=child_jobs,
+            child_contexts=child_ctxs,
+        )
 
-        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
-
-    async def post_process(self, gctx, jctx, job):
-        pass
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
 
-class SplitOnPostStep(Step, SplitOnPostprocess):
-    """Create two children during post-process."""
+class SplitOnPostStep(Step):
+    """Create two children during post-process (SPLIT_WITHOUT_JOIN).
 
-    async def pre_process(self, gctx, jctx, job):
-        pass
+    Only splits for root jobs (job.parent is None); children pass through.
+    """
 
-    async def post_process(self, gctx, jctx, job):
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
+
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        if job.parent is not None:
+            return StepResult()
         child_jobs = []
         child_ctxs = []
         for i in range(2):
@@ -75,164 +77,183 @@ class SplitOnPostStep(Step, SplitOnPostprocess):
             c_jctx = JobContext(initial={})
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
+        return StepResult(
+            directive=PipelineDirective.SPLIT_WITHOUT_JOIN,
+            child_jobs=child_jobs,
+            child_contexts=child_ctxs,
+        )
 
-        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
 
+class JoinOnPreStep(Step):
+    """Signal JOIN in pre-process phase (for split children only)."""
 
-class JoinOnPreStep(Step, JoinOnPreprocess):
-    """Join in pre-process phase."""
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        if job.parent is not None:
+            return StepResult(directive=PipelineDirective.JOIN)
+        return StepResult()
 
-    async def pre_process(self, gctx, jctx, job):
-        pass
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
-    async def post_process(self, gctx, jctx, job):
-        pass
-
-    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child):
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child) -> None:
         parent_jctx["pre_join"] = True
 
 
-class JoinOnPostStep(Step, JoinOnPostprocess):
-    """Join step triggered only on post-process."""
+class JoinOnPostStep(Step):
+    """Signal JOIN in post-process phase (for split children only)."""
 
-    async def pre_process(self, gctx, jctx, job):
-        pass
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
-    async def post_process(self, gctx, jctx, job):
-        pass
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        if job.parent is not None:
+            return StepResult(directive=PipelineDirective.JOIN)
+        return StepResult()
 
-    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child):
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child) -> None:
         parent_jctx["joined"] = True
 
 
 class RecordStep(Step):
-    """Record execution order in pre- and post- phases."""
+    """Record execution order in pre- and post-phases."""
 
-    async def pre_process(self, gctx, jctx, job):
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
         jctx.setdefault("record", []).append(("pre", self.__class__.__name__))
+        return StepResult()
 
-    async def post_process(self, gctx, jctx, job):
+    async def post_process(self, gctx, jctx, job) -> StepResult:
         jctx["record"].append(("post", self.__class__.__name__))
+        return StepResult()
 
 
 class ErrorStep(Step):
-    """Throw error during PRE to simulate child failure."""
+    """Raise RuntimeError during pre-process to simulate child failure."""
 
-    async def pre_process(self, gctx, jctx, job):
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
         raise RuntimeError("child exploded")
 
-    async def post_process(self, gctx, jctx, job):
-        pass
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
 
-class SlowJoinStep(Step, JoinOnPostprocess):
+class SlowJoinStep(Step):
     """Join step with artificial delay to force race conditions."""
 
-    async def pre_process(self, gctx, jctx, job):
-        pass
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
-    async def post_process(self, gctx, jctx, job):
+    async def post_process(self, gctx, jctx, job) -> StepResult:
         await asyncio.sleep(0.01)
+        if job.parent is not None:
+            return StepResult(directive=PipelineDirective.JOIN)
+        return StepResult()
 
-    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child):
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child) -> None:
         parent_jctx["joined"] = last_child.job_id
 
 
 class FlagStep(Step):
-    """Set a flag during post-process to confirm parent post-process execution."""
+    """Set a flag during post-process to confirm execution."""
 
-    async def pre_process(self, gctx, jctx, job):
-        pass
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
-    async def post_process(self, gctx, jctx, job):
+    async def post_process(self, gctx, jctx, job) -> StepResult:
         jctx["flag"] = True
+        return StepResult()
 
 
-class CountJoinStep(Step, JoinOnPostprocess):
+class CountJoinStep(Step):
     """Count how many times join_jobs is called."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.calls = 0
 
-    async def pre_process(self, gctx, jctx, job):
-        """No-op pre-process (required for abstract base class)."""
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
-    async def post_process(self, gctx, jctx, job):
-        pass
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        if job.parent is not None:
+            return StepResult(directive=PipelineDirective.JOIN)
+        return StepResult()
 
-    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child):
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child) -> None:
         self.calls += 1
         parent_jctx["joined"] = True
 
 
-class SplitJoinSameStep(Step, SplitOnPreprocess, JoinOnPostprocess):
+class SplitJoinSameStep(Step):
     """Split in pre-process and join on this same step in post-process."""
 
-    async def pre_process(self, gctx, jctx, job):
-        if (
-            jctx.get("has_actual_parent", False)
-        ):
-            return
-
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        if job.parent is not None:
+            return StepResult()
         child_jobs = []
         child_ctxs = []
         for i in range(2):
             c_job = make_test_job(job_id=f"{job.job_id}-child{i}", job_type=job.job_type)
-            c_jctx = JobContext(initial={"has_actual_parent": True})
+            c_jctx = JobContext(initial={})
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
+        return StepResult(
+            directive=PipelineDirective.SPLIT_FOR_JOIN,
+            child_jobs=child_jobs,
+            child_contexts=child_ctxs,
+        )
 
-        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        if job.parent is not None:
+            return StepResult(directive=PipelineDirective.JOIN)
+        return StepResult()
 
-
-    async def post_process(self, gctx, jctx, job):
-        pass
-
-    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child):
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child) -> None:
         parent_jctx["same_step_joined"] = last_child.job_id
 
 
-class TripleSplitStep(Step, SplitOnPreprocess):
-    """Generate 3 children during pre-process."""
+class TripleSplitStep(Step):
+    """Generate 3 children during pre-process (SPLIT_FOR_JOIN)."""
 
-    async def pre_process(self, gctx, jctx, job):
-        jobs = []
-        ctxs = []
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        child_jobs = []
+        child_ctxs = []
         for i in range(3):
             c_job = make_test_job(f"{job.job_id}-child{i}", job_type="child")
-            c_ctx = JobContext(initial={}, parent=jctx)
-            c_job.parent = job
-            jobs.append(c_job)
-            ctxs.append(c_ctx)
+            c_jctx = JobContext(initial={})
+            child_jobs.append(c_job)
+            child_ctxs.append(c_jctx)
+        return StepResult(
+            directive=PipelineDirective.SPLIT_FOR_JOIN,
+            child_jobs=child_jobs,
+            child_contexts=child_ctxs,
+        )
 
-        link_parent_and_children(jctx, job, ctxs, jobs)
-
-    async def post_process(self, gctx, jctx, job):
-        """No-op post-process (required for abstract base class)."""
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
 
 class ErrorInPostStep(Step):
-    """Throw error during POST_PROCESS."""
+    """Raise RuntimeError during post-process."""
 
-    async def pre_process(self, gctx, jctx, job):
-        pass
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
-    async def post_process(self, gctx, jctx, job):
+    async def post_process(self, gctx, jctx, job) -> StepResult:
         raise RuntimeError("post exploded")
 
 
 class SlowPostStep(Step):
     """Step whose post_process blocks for 1 second.
 
-    This prevents worker threads from re-entering the buffer.get() loop
-    and ensures each worker calls get() exactly once.
+    Prevents worker threads from re-entering the buffer.get() loop so each
+    worker calls get() exactly once.
     """
 
-    async def pre_process(self, gctx, jctx, job):
-        pass
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
 
-    async def post_process(self, gctx, jctx, job):
+    async def post_process(self, gctx, jctx, job) -> StepResult:
         await asyncio.sleep(1.0)
+        return StepResult()
 
 # ---------------------------------------------------------------------------
 # Helper Buffer Implementations
@@ -433,22 +454,25 @@ async def test_parent_post_runs_after_join():
 @pytest.mark.asyncio
 async def test_parent_reaching_join_does_not_trigger_join():
     """
-    Parent reaching JoinStep should NOT trigger join because join
-    is executed only when job.parent is not None.
+    A root job (no parent) reaching a join step returns NONE from post_process.
+    join_jobs is never called and the pipeline completes normally.
     """
-    pipeline = [JoinOnPostStep(), FlagStep()]
+    join_step = CountJoinStep()
+    pipeline = [join_step, FlagStep()]
 
     executor = PipelineExecutor(pipeline, QueueBuffer())
     jctx = JobContext(initial={})
 
-    with pytest.raises(RuntimeError):
-        await executor._run_from(
-            StepPhase.PRE_PROCESS,
-            0,
-            make_test_global_context(),
-            jctx,
-            make_test_job("root"),
-        )
+    await executor._run_from(
+        StepPhase.PRE_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    assert join_step.calls == 0
+    assert jctx["flag"] is True
     assert jctx.step_history == [
         ("pre_process", 0),
         ("pre_process", 1),
@@ -525,8 +549,7 @@ async def test_join_jobs_called_once():
 @pytest.mark.asyncio
 async def test_same_step_split_pre_and_join_post():
     """
-    A step combining SplitOnPreprocess and JoinOnPostprocess should be able to
-    receive child callbacks on its own post_process phase.
+    A step that splits in pre-process and joins on the same step's post-process.
     """
     pipeline = [SplitJoinSameStep(), RecordStep()]
     executor = PipelineExecutor(pipeline, QueueBuffer())
@@ -614,7 +637,7 @@ async def test_join_at_pipeline_end_no_resume():
 @pytest.mark.asyncio
 async def test_join_on_preprocess_runs_only_for_children():
     """
-    JoinOnPreprocess should fire only for children, not for parent.
+    JoinOnPreStep should fire only for children (job.parent is not None), not for parent.
     """
     pipeline = [SplitOnPreStep(), JoinOnPreStep()]
     executor = PipelineExecutor(pipeline, QueueBuffer())
@@ -918,305 +941,6 @@ async def test_executor_workers_call_buffer_get():
 
 
 # ---------------------------------------------------------------------------
-# Dynamic split/join gating via JobContext
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_split_enabled_steps_undefined_triggers_split():
-    """
-    Regression: when split_enabled_steps is absent from jctx the split still
-    fires (backward-compatible behaviour).
-    """
-    pipeline = [SplitOnPreStep(), JoinOnPostStep()]
-    executor = PipelineExecutor(pipeline, QueueBuffer())
-    jctx = JobContext(initial={})  # no split_enabled_steps key
-
-    await executor._run_from(
-        StepPhase.PRE_PROCESS,
-        0,
-        make_test_global_context(),
-        jctx,
-        make_test_job("root"),
-    )
-
-    assert jctx.get("joined") is True
-    assert len(jctx.children) == 2
-
-
-@pytest.mark.asyncio
-async def test_split_disabled_via_empty_enabled_steps():
-    """
-    split_enabled_steps=set() disables all splits.
-
-    The step's pre_process is still called (and may populate children), but
-    the split fan-out is skipped so the pipeline continues as a plain
-    forward/backward pass without interruption.
-    """
-    pipeline = [RecordStep(), SplitOnPreStep(), RecordStep()]
-    executor = PipelineExecutor(pipeline, QueueBuffer())
-    jctx = JobContext(initial={"split_enabled_steps": set()})
-
-    await executor._run_from(
-        StepPhase.PRE_PROCESS,
-        0,
-        make_test_global_context(),
-        jctx,
-        make_test_job("root"),
-    )
-
-    # Full forward + backward pass with no fan-out interruption.
-    assert jctx.step_history == [
-        ("pre_process", 0),
-        ("pre_process", 1),
-        ("pre_process", 2),
-        ("post_process", 2),
-        ("post_process", 1),
-        ("post_process", 0),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_join_disabled_via_empty_enabled_steps():
-    """
-    join_enabled_steps=set() in child jctx disables all joins.
-
-    A custom split step propagates the join_enabled_steps key to each child
-    context so that children inherit the disabled-join policy.  Children
-    traverse the join step without triggering the join handler and exit
-    normally via cascade_cleanup.  After all children complete,
-    pending_children must be empty.
-    """
-
-    class PropagatingSplitStep(Step, SplitOnPreprocess):
-        """Split that copies join_enabled_steps from parent jctx to children."""
-
-        async def pre_process(self, gctx, jctx, job):
-            child_jobs = []
-            child_ctxs = []
-            for i in range(2):
-                c_job = make_test_job(f"{job.job_id}-child{i}", job_type="child")
-                initial = {}
-                if "join_enabled_steps" in jctx:
-                    initial["join_enabled_steps"] = jctx["join_enabled_steps"]
-                c_jctx = JobContext(initial=initial)
-                child_jobs.append(c_job)
-                child_ctxs.append(c_jctx)
-            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
-
-        async def post_process(self, gctx, jctx, job):
-            pass
-
-    pipeline = [PropagatingSplitStep(), JoinOnPostStep()]
-    executor = PipelineExecutor(pipeline, QueueBuffer())
-    jctx = JobContext(initial={"join_enabled_steps": set()})
-
-    await executor._run_from(
-        StepPhase.PRE_PROCESS,
-        0,
-        make_test_global_context(),
-        jctx,
-        make_test_job("root"),
-    )
-
-    # Join was never triggered on the parent context.
-    assert "joined" not in jctx
-    # Children were still created by the split.
-    assert len(jctx.children) == 2
-    # All pending_children counters cleaned up by cascade_cleanup.
-    assert executor._pending_children == {}
-
-
-@pytest.mark.asyncio
-async def test_join_enabled_but_no_split_raises_runtime_error():
-    """
-    join_enabled_steps={"JoinOnPostStep"} enables the join for that step,
-    but when the root job (no parent) reaches the join step a RuntimeError
-    is raised.  This is the defined caveat behaviour.
-    """
-    pipeline = [JoinOnPostStep()]
-    executor = PipelineExecutor(pipeline, QueueBuffer())
-    jctx = JobContext(initial={"join_enabled_steps": {"JoinOnPostStep"}})
-
-    with pytest.raises(RuntimeError):
-        await executor._run_from(
-            StepPhase.PRE_PROCESS,
-            0,
-            make_test_global_context(),
-            jctx,
-            make_test_job("root"),
-        )
-
-
-# ---------------------------------------------------------------------------
-# Dynamic split/join gating via split_skip_steps / join_skip_steps
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_split_skip_steps_skips_named_step():
-    """
-    split_skip_steps={"SplitOnPreStep"} prevents the named step from
-    triggering a split while all other (unnamed) split steps still fire.
-
-    The pipeline continues as a plain forward/backward pass without fan-out.
-    """
-    pipeline = [RecordStep(), SplitOnPreStep(), RecordStep()]
-    executor = PipelineExecutor(pipeline, QueueBuffer())
-    jctx = JobContext(initial={"split_skip_steps": {"SplitOnPreStep"}})
-
-    await executor._run_from(
-        StepPhase.PRE_PROCESS,
-        0,
-        make_test_global_context(),
-        jctx,
-        make_test_job("root"),
-    )
-
-    # Full forward + backward pass with no fan-out interruption.
-    assert jctx.step_history == [
-        ("pre_process", 0),
-        ("pre_process", 1),
-        ("pre_process", 2),
-        ("post_process", 2),
-        ("post_process", 1),
-        ("post_process", 0),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_split_skip_steps_takes_priority_over_enabled_steps():
-    """
-    When both split_skip_steps and split_enabled_steps are present, a step
-    listed in split_skip_steps is NOT split even if it also appears in
-    split_enabled_steps.
-    """
-    pipeline = [RecordStep(), SplitOnPreStep(), RecordStep()]
-    executor = PipelineExecutor(pipeline, QueueBuffer())
-    jctx = JobContext(initial={
-        "split_skip_steps": {"SplitOnPreStep"},
-        "split_enabled_steps": {"SplitOnPreStep"},
-    })
-
-    await executor._run_from(
-        StepPhase.PRE_PROCESS,
-        0,
-        make_test_global_context(),
-        jctx,
-        make_test_job("root"),
-    )
-
-    # split_skip_steps wins: full forward + backward pass, no fan-out.
-    assert jctx.step_history == [
-        ("pre_process", 0),
-        ("pre_process", 1),
-        ("pre_process", 2),
-        ("post_process", 2),
-        ("post_process", 1),
-        ("post_process", 0),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_join_skip_steps_skips_named_step():
-    """
-    join_skip_steps={"JoinOnPostStep"} in child jctx disables the join for
-    that specific step.
-
-    A propagating split copies join_skip_steps to child contexts; children
-    traverse the join step without triggering the handler and exit normally
-    via cascade_cleanup.
-    """
-
-    class PropagatingSplitStep(Step, SplitOnPreprocess):
-        """Split that copies join_skip_steps from parent jctx to children."""
-
-        async def pre_process(self, gctx, jctx, job):
-            child_jobs = []
-            child_ctxs = []
-            for i in range(2):
-                c_job = make_test_job(f"{job.job_id}-child{i}", job_type="child")
-                initial = {}
-                if "join_skip_steps" in jctx:
-                    initial["join_skip_steps"] = jctx["join_skip_steps"]
-                c_jctx = JobContext(initial=initial)
-                child_jobs.append(c_job)
-                child_ctxs.append(c_jctx)
-            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
-
-        async def post_process(self, gctx, jctx, job):
-            pass
-
-    pipeline = [PropagatingSplitStep(), JoinOnPostStep()]
-    executor = PipelineExecutor(pipeline, QueueBuffer())
-    jctx = JobContext(initial={"join_skip_steps": {"JoinOnPostStep"}})
-
-    await executor._run_from(
-        StepPhase.PRE_PROCESS,
-        0,
-        make_test_global_context(),
-        jctx,
-        make_test_job("root"),
-    )
-
-    # Join was never triggered on the parent context.
-    assert "joined" not in jctx
-    # Children were still created by the split.
-    assert len(jctx.children) == 2
-    # All pending_children counters cleaned up by cascade_cleanup.
-    assert executor._pending_children == {}
-
-
-@pytest.mark.asyncio
-async def test_join_skip_steps_takes_priority_over_enabled_steps():
-    """
-    When both join_skip_steps and join_enabled_steps are present for a child
-    context, a step listed in join_skip_steps is NOT joined even if it also
-    appears in join_enabled_steps.
-    """
-
-    class PropagatingSplitStep(Step, SplitOnPreprocess):
-        """Split that copies both join context keys to children."""
-
-        async def pre_process(self, gctx, jctx, job):
-            child_jobs = []
-            child_ctxs = []
-            for i in range(2):
-                c_job = make_test_job(f"{job.job_id}-child{i}", job_type="child")
-                initial = {}
-                for key in ("join_skip_steps", "join_enabled_steps"):
-                    if key in jctx:
-                        initial[key] = jctx[key]
-                c_jctx = JobContext(initial=initial)
-                child_jobs.append(c_job)
-                child_ctxs.append(c_jctx)
-            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
-
-        async def post_process(self, gctx, jctx, job):
-            pass
-
-    pipeline = [PropagatingSplitStep(), JoinOnPostStep()]
-    executor = PipelineExecutor(pipeline, QueueBuffer())
-    # join_skip_steps should win even though the step is in join_enabled_steps.
-    jctx = JobContext(initial={
-        "join_skip_steps": {"JoinOnPostStep"},
-        "join_enabled_steps": {"JoinOnPostStep"},
-    })
-
-    await executor._run_from(
-        StepPhase.PRE_PROCESS,
-        0,
-        make_test_global_context(),
-        jctx,
-        make_test_job("root"),
-    )
-
-    # join_skip_steps wins: join not triggered.
-    assert "joined" not in jctx
-    assert len(jctx.children) == 2
-    assert executor._pending_children == {}
-
-
-# ---------------------------------------------------------------------------
 # OTel observability lifecycle tests
 #
 # Verify that `oqtopus_engine.job.process` span / metrics are finalized on
@@ -1345,135 +1069,40 @@ async def test_obs_failed_when_child_post_process_fails():
 
 
 # ---------------------------------------------------------------------------
-# Pipeline directive (IGNORE_SPLIT_TRACKING) tests
+# SPLIT_WITHOUT_JOIN tests
 # ---------------------------------------------------------------------------
+
 @pytest.mark.asyncio
-async def test_ignore_split_tracking_skips_pending_children():
+async def test_split_without_join_children_cleaned_via_cascade():
     """
-    When jctx.pipeline_directive is set to IGNORE_SPLIT_TRACKING before a split,
-    _handle_split must NOT register a pending-children counter for the parent job.
-    After the split, _pending_children should remain empty.
+    SPLIT_WITHOUT_JOIN creates children that complete without triggering join_jobs.
+    cascade_cleanup removes the pending-children counter when all children finish.
     """
 
-    class SplitWithDirectiveStep(Step, SplitOnPostprocess):
-        """Sets IGNORE_SPLIT_TRACKING directive and then creates children."""
+    class SplitWithoutJoinStep(Step):
+        async def pre_process(self, gctx, jctx, job) -> StepResult:
+            return StepResult()
 
-        async def pre_process(self, gctx, jctx, job):
-            pass
+        async def post_process(self, gctx, jctx, job) -> StepResult:
+            if job.parent is not None:
+                return StepResult()
+            child_jobs = [make_test_job(f"{job.job_id}-child{i}") for i in range(2)]
+            child_ctxs = [JobContext() for _ in range(2)]
+            return StepResult(
+                directive=PipelineDirective.SPLIT_WITHOUT_JOIN,
+                child_jobs=child_jobs,
+                child_contexts=child_ctxs,
+            )
 
-        async def post_process(self, gctx, jctx, job):
-            # Signal to the pipeline engine to skip tracking
-            jctx.pipeline_directive = PipelineDirective.IGNORE_SPLIT_TRACKING
-
-            child_jobs = []
-            child_ctxs = []
-            for i in range(2):
-                c_job = make_test_job(job_id=f"{job.job_id}-child{i}", job_type="child")
-                c_jctx = JobContext(initial={})
-                child_jobs.append(c_job)
-                child_ctxs.append(c_jctx)
-            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
-
-    pipeline = [SplitWithDirectiveStep()]
+    pipeline = [SplitWithoutJoinStep()]
     executor = PipelineExecutor(pipeline, QueueBuffer())
     jctx = JobContext()
 
     await executor._run_from(
-        StepPhase.PRE_PROCESS,
-        0,
-        make_test_global_context(),
-        jctx,
-        make_test_job("root"),
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, make_test_job("root")
     )
 
-    # No pending-children counter should have been registered.
-    assert executor._pending_children == {}
-    # Children were still created.
+    # Children were created.
     assert len(jctx.children) == 2
-    # Directive was reset to NONE after use.
-    assert jctx.pipeline_directive is PipelineDirective.NONE
-
-
-@pytest.mark.asyncio
-async def test_ignore_split_tracking_directive_is_consumed_once():
-    """
-    IGNORE_SPLIT_TRACKING must be reset to NONE after the first split so that
-    subsequent splits on the same context use the normal tracking path.
-    """
-
-    class PostSplitWithDirectiveStep(Step, SplitOnPostprocess):
-        """Sets IGNORE_SPLIT_TRACKING on the second (post-process) split."""
-
-        async def pre_process(self, gctx, jctx, job):
-            pass
-
-        async def post_process(self, gctx, jctx, job):
-            jctx.pipeline_directive = PipelineDirective.IGNORE_SPLIT_TRACKING
-            child_jobs = []
-            child_ctxs = []
-            for i in range(2):
-                c_job = make_test_job(job_id=f"{job.job_id}-post-child{i}", job_type="child")
-                c_jctx = JobContext(initial={})
-                child_jobs.append(c_job)
-                child_ctxs.append(c_jctx)
-            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
-
-    # Use only the directive step to keep the test simple
-    pipeline = [PostSplitWithDirectiveStep()]
-    executor = PipelineExecutor(pipeline, QueueBuffer())
-    jctx = JobContext()
-
-    await executor._run_from(
-        StepPhase.PRE_PROCESS,
-        0,
-        make_test_global_context(),
-        jctx,
-        make_test_job("root"),
-    )
-
-    # IGNORE_SPLIT_TRACKING was active: no pending-children counter.
+    # Pending-children cleaned up via cascade_cleanup (no join triggered).
     assert executor._pending_children == {}
-    # Directive was consumed (reset to NONE).
-    assert jctx.pipeline_directive is PipelineDirective.NONE
-
-
-@pytest.mark.asyncio
-async def test_normal_split_tracking_unaffected_by_directive_feature():
-    """
-    A standard split (no directive set) must still register a pending-children
-    counter exactly as before, confirming no regression.
-    """
-
-    class NormalSplitStep(Step, SplitOnPostprocess):
-        """Standard split without any directive."""
-
-        async def pre_process(self, gctx, jctx, job):
-            pass
-
-        async def post_process(self, gctx, jctx, job):
-            child_jobs = []
-            child_ctxs = []
-            for i in range(2):
-                c_job = make_test_job(job_id=f"{job.job_id}-child{i}", job_type="child")
-                c_jctx = JobContext(initial={})
-                child_jobs.append(c_job)
-                child_ctxs.append(c_jctx)
-            link_parent_and_children(jctx, job, child_ctxs, child_jobs)
-
-    pipeline = [NormalSplitStep()]
-    executor = PipelineExecutor(pipeline, QueueBuffer())
-    jctx = JobContext()
-
-    await executor._run_from(
-        StepPhase.PRE_PROCESS,
-        0,
-        make_test_global_context(),
-        jctx,
-        make_test_job("root"),
-    )
-
-    # No join step in the pipeline: cascade_cleanup removes the counter.
-    assert executor._pending_children == {}
-    assert len(jctx.children) == 2
-    # Directive remains NONE (was never changed).
-    assert jctx.pipeline_directive is PipelineDirective.NONE
