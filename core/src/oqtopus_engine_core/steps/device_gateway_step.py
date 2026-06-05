@@ -11,10 +11,11 @@ from oqtopus_engine_core.framework import (
     Job,
     JobContext,
     JobResult,
+    PipelineDirective,
     SamplingResult,
     Step,
+    StepResult,
 )
-from oqtopus_engine_core.framework.step import DetachOnPostprocess
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2, qpu_pb2_grpc
 
 logger = logging.getLogger(__name__)
@@ -135,7 +136,7 @@ def _select_program(job: Job) -> str:
     return transpile_result.transpiled_program
 
 
-class DeviceGatewayStep(Step, DetachOnPostprocess):
+class DeviceGatewayStep(Step):
     """Step that sends a job to the device gateway via gRPC during pre_process."""
 
     def __init__(
@@ -164,7 +165,7 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
         gctx: GlobalContext,
         jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Pre-process the job by sending a request to the device gateway.
 
         This method sends a gRPC request to the device gateway for job execution,
@@ -178,6 +179,9 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
         Raises:
             RuntimeError: If the device status is not available.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
         # Skip SSE job
         if job.job_type == "sse":
@@ -185,7 +189,7 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
                 "job_type is sse, skipping",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         start = time.perf_counter()
 
@@ -256,23 +260,26 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
         elif job.job_type == "estimation":
             message = "estimation jobs must be split before reaching device gateway"
             raise RuntimeError(message)
+        return StepResult()
 
-    async def post_process(
+    async def post_process(  # noqa: PLR6301
         self,
-        gctx: GlobalContext,
-        jctx: JobContext,
-        job: Job,
-    ) -> None:
-        """Post-process the job by sending a request to the device gateway.
-
-        Do nothing.
+        gctx: GlobalContext,  # noqa: ARG002
+        jctx: JobContext,  # noqa: ARG002
+        job: Job,  # noqa: ARG002
+    ) -> StepResult:
+        """Post-process the job; detach so subsequent steps run asynchronously.
 
         Args:
             gctx: The global context.
             jctx: The job context.
             job: The job object.
 
+        Returns:
+            StepResult: DETACH directive — spawns a background task and returns.
+
         """
+        return StepResult(directive=PipelineDirective.DETACH)
 
     @staticmethod
     async def _update_jobs_status(gctx: GlobalContext, jobs: list[Job]) -> None:

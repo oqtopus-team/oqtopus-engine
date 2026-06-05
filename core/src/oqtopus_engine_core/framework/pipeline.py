@@ -10,21 +10,13 @@ from opentelemetry import baggage, trace
 from opentelemetry import context as otel_context
 
 from .buffer import Buffer
-from .context import PipelineDirective
+from .context import link_parent_and_children
 from .observability import (
     job_completed_counter,
     job_duration_histogram,
     job_ready_counter,
 )
-from .step import (
-    DetachOnPostprocess,
-    DetachOnPreprocess,
-    JoinOnPostprocess,
-    JoinOnPreprocess,
-    SplitOnPostprocess,
-    SplitOnPreprocess,
-    Step,
-)
+from .step import PipelineDirective, Step, StepResult
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -248,7 +240,7 @@ class PipelineExecutor:
             if token is not None:
                 otel_context.detach(token)
 
-    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912, PLR0915
+    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912
         self,
         step_phase: StepPhase,
         index: int,
@@ -309,182 +301,182 @@ class PipelineExecutor:
             # record execution trace for debugging ---
             jctx.step_history.append((current_phase.value, cursor))
 
-            try:
-                # ========================================================
-                # handle Buffer nodes
-                # ========================================================
-                if isinstance(node, Buffer):
-                    if current_phase == StepPhase.PRE_PROCESS:
-                        # Delegate all buffering, scheduling, and any join-like
-                        # semantics to the Buffer implementation itself.
-                        await node.put(gctx, jctx, job)
-                        return
-                    # In POST_PROCESS, Buffers are not expected. If they appear,
-                    # the safest option is to skip them and continue backward.
-                    cursor -= 1
-                    continue
-
-                # from here, we expect Step-like nodes.
-                # ========================================================
-                # PRE_PROCESS: forward execution
-                # ========================================================
+            # ========================================================
+            # handle Buffer nodes
+            # ========================================================
+            if isinstance(node, Buffer):
                 if current_phase == StepPhase.PRE_PROCESS:
-                    success = await self._safe_call(
-                        fn=node.pre_process,
-                        gctx=gctx,
-                        jctx=jctx,
-                        job=job,
-                        step=node,
-                        phase=StepPhase.PRE_PROCESS,
-                    )
-                    if not success:
-                        # stop the pipeline for this job if the step failed.
-                        return
-
-                    next_cursor = cursor + 1
-
-                    # ----- detach on PRE_PROCESS -----
-                    if isinstance(node, DetachOnPreprocess):
-                        # Continue pipeline asynchronously
-                        if next_cursor < len(self._pipeline):
-                            logger.info(
-                                "detach executed",
-                                extra={
-                                    "job_id": job.job_id,
-                                    "job_type": job.job_type,
-                                    "phase": StepPhase.PRE_PROCESS,
-                                    "next_cursor": next_cursor,
-                                },
-                            )
-
-                            task = asyncio.create_task(
-                                self._run_from(
-                                    step_phase=StepPhase.PRE_PROCESS,
-                                    index=next_cursor,
-                                    gctx=gctx,
-                                    jctx=jctx,
-                                    job=job,
-                                )
-                            )
-                            self._background_tasks.add(task)
-                        return  # Worker returns immediately
-
-                    # ----- join on PRE_PROCESS (children only) -----
-                    if self._is_join_enabled(node, jctx, JoinOnPreprocess):
-                        await self._handle_join(
-                            step=node,
-                            step_phase=StepPhase.PRE_PROCESS,
-                            next_index=next_cursor,
-                            gctx=gctx,
-                            jctx=jctx,
-                            job=job,
-                        )
-                        return  # stop forward execution for this child job.
-
-                    # ----- split on PRE_PROCESS -----
-                    if self._is_split_enabled(node, jctx, SplitOnPreprocess):
-                        await self._handle_split(
-                            step=node,
-                            step_phase=StepPhase.PRE_PROCESS,
-                            next_index=next_cursor,
-                            gctx=gctx,
-                            jctx=jctx,
-                            job=job,
-                        )
-                        return  # parent stops; children will be scheduled separately.
-
-                    # normal step: just move forward.
-                    cursor = next_cursor
-                    continue
-
-                # ========================================================
-                # POST_PROCESS: backward execution
-                # ========================================================
-                # only Step instances are expected to implement post_process.
-                if isinstance(node, Step):
-                    success = await self._safe_call(
-                        fn=node.post_process,
-                        gctx=gctx,
-                        jctx=jctx,
-                        job=job,
-                        step=node,
-                        phase=StepPhase.POST_PROCESS,
-                    )
-                    if not success:
-                        # stop the pipeline for this job if the step failed.
-                        return
-
-                    next_cursor = cursor - 1
-
-                    # ----- detach on POST_PROCESS -----
-                    if isinstance(node, DetachOnPostprocess):
-                        # Continue pipeline asynchronously
-                        if next_cursor < len(self._pipeline):
-                            logger.info(
-                                "detach executed",
-                                extra={
-                                    "job_id": job.job_id,
-                                    "job_type": job.job_type,
-                                    "phase": StepPhase.POST_PROCESS,
-                                    "next_cursor": next_cursor,
-                                },
-                            )
-
-                            task = asyncio.create_task(
-                                self._run_from(
-                                    step_phase=StepPhase.POST_PROCESS,
-                                    index=next_cursor,
-                                    gctx=gctx,
-                                    jctx=jctx,
-                                    job=job,
-                                )
-                            )
-                            self._background_tasks.add(task)
-                        return  # Worker returns immediately
-
-                    # ----- join on POST_PROCESS (children only) -----
-                    if self._is_join_enabled(node, jctx, JoinOnPostprocess):
-                        # parent should resume from the next step after the join.
-                        await self._handle_join(
-                            step=node,
-                            step_phase=StepPhase.POST_PROCESS,
-                            next_index=next_cursor,
-                            gctx=gctx,
-                            jctx=jctx,
-                            job=job,
-                        )
-                        return  # stop backward execution for this child job.
-
-                    # ----- split on POST_PROCESS -----
-                    if self._is_split_enabled(node, jctx, SplitOnPostprocess):
-                        # children created from a post-process split start from
-                        # the step immediately after the splitter.
-                        await self._handle_split(
-                            step=node,
-                            step_phase=StepPhase.POST_PROCESS,
-                            next_index=next_cursor,
-                            gctx=gctx,
-                            jctx=jctx,
-                            job=job,
-                        )
-                        return  # stop backward execution for the current job.
-
-                # for non-step nodes in POST_PROCESS (unexpected) or normal steps,
-                # simply move to the previous index.
+                    # Delegate all buffering, scheduling, and any join-like
+                    # semantics to the Buffer implementation itself.
+                    await node.put(gctx, jctx, job)
+                    return
+                # In POST_PROCESS, Buffers are not expected. If they appear,
+                # the safest option is to skip them and continue backward.
                 cursor -= 1
-            finally:
-                # Reset per step; never carry a directive into the next iteration.
-                jctx.pipeline_directive = PipelineDirective.NONE
+                continue
+
+            # from here, we expect Step-like nodes.
+            # ========================================================
+            # PRE_PROCESS: forward execution
+            # ========================================================
+            if current_phase == StepPhase.PRE_PROCESS:
+                result = await self._safe_call(
+                    fn=node.pre_process,
+                    gctx=gctx,
+                    jctx=jctx,
+                    job=job,
+                    step=node,
+                    phase=StepPhase.PRE_PROCESS,
+                )
+                if result is None:
+                    # stop the pipeline for this job if the step failed.
+                    return
+
+                next_cursor = cursor + 1
+
+                # ----- detach on PRE_PROCESS -----
+                if result.directive == PipelineDirective.DETACH:
+                    if next_cursor < len(self._pipeline):
+                        logger.info(
+                            "detach executed",
+                            extra={
+                                "job_id": job.job_id,
+                                "job_type": job.job_type,
+                                "phase": StepPhase.PRE_PROCESS,
+                                "next_cursor": next_cursor,
+                            },
+                        )
+                        task = asyncio.create_task(
+                            self._run_from(
+                                step_phase=StepPhase.PRE_PROCESS,
+                                index=next_cursor,
+                                gctx=gctx,
+                                jctx=jctx,
+                                job=job,
+                            )
+                        )
+                        self._background_tasks.add(task)
+                    return  # Worker returns immediately
+
+                # ----- join on PRE_PROCESS (children only) -----
+                if result.directive == PipelineDirective.JOIN:
+                    await self._handle_join(
+                        step=node,
+                        step_phase=StepPhase.PRE_PROCESS,
+                        next_index=next_cursor,
+                        gctx=gctx,
+                        jctx=jctx,
+                        job=job,
+                    )
+                    return  # stop forward execution for this child job.
+
+                # ----- split on PRE_PROCESS -----
+                if result.directive in {
+                    PipelineDirective.SPLIT_FOR_JOIN,
+                    PipelineDirective.SPLIT_WITHOUT_JOIN,
+                }:
+                    await self._handle_split(
+                        result=result,
+                        step=node,
+                        step_phase=StepPhase.PRE_PROCESS,
+                        next_index=next_cursor,
+                        gctx=gctx,
+                        jctx=jctx,
+                        job=job,
+                    )
+                    return  # parent stops; children will be scheduled separately.
+
+                # NONE: normal step, just move forward.
+                cursor = next_cursor
+                continue
+
+            # ========================================================
+            # POST_PROCESS: backward execution
+            # ========================================================
+            # only Step instances are expected to implement post_process.
+            if isinstance(node, Step):
+                result = await self._safe_call(
+                    fn=node.post_process,
+                    gctx=gctx,
+                    jctx=jctx,
+                    job=job,
+                    step=node,
+                    phase=StepPhase.POST_PROCESS,
+                )
+                if result is None:
+                    # stop the pipeline for this job if the step failed.
+                    return
+
+                next_cursor = cursor - 1
+
+                # ----- detach on POST_PROCESS -----
+                if result.directive == PipelineDirective.DETACH:
+                    if next_cursor < len(self._pipeline):
+                        logger.info(
+                            "detach executed",
+                            extra={
+                                "job_id": job.job_id,
+                                "job_type": job.job_type,
+                                "phase": StepPhase.POST_PROCESS,
+                                "next_cursor": next_cursor,
+                            },
+                        )
+                        task = asyncio.create_task(
+                            self._run_from(
+                                step_phase=StepPhase.POST_PROCESS,
+                                index=next_cursor,
+                                gctx=gctx,
+                                jctx=jctx,
+                                job=job,
+                            )
+                        )
+                        self._background_tasks.add(task)
+                    return  # Worker returns immediately
+
+                # ----- join on POST_PROCESS (children only) -----
+                if result.directive == PipelineDirective.JOIN:
+                    # parent should resume from the next step after the join.
+                    await self._handle_join(
+                        step=node,
+                        step_phase=StepPhase.POST_PROCESS,
+                        next_index=next_cursor,
+                        gctx=gctx,
+                        jctx=jctx,
+                        job=job,
+                    )
+                    return  # stop backward execution for this child job.
+
+                # ----- split on POST_PROCESS -----
+                if result.directive in {
+                    PipelineDirective.SPLIT_FOR_JOIN,
+                    PipelineDirective.SPLIT_WITHOUT_JOIN,
+                }:
+                    # children created from a post-process split start from
+                    # the step immediately before the splitter.
+                    await self._handle_split(
+                        result=result,
+                        step=node,
+                        step_phase=StepPhase.POST_PROCESS,
+                        next_index=next_cursor,
+                        gctx=gctx,
+                        jctx=jctx,
+                        job=job,
+                    )
+                    return  # stop backward execution for the current job.
+
+            # for non-step nodes in POST_PROCESS (unexpected) or normal steps,
+            # simply move to the previous index.
+            cursor -= 1
 
     async def _safe_call(  # noqa: PLR0913, PLR0917
         self,
-        fn: Callable[[GlobalContext, JobContext, Job], Awaitable[None]],
+        fn: Callable[[GlobalContext, JobContext, Job], Awaitable[StepResult]],
         gctx: GlobalContext,
         jctx: JobContext,
         job: Job,
         step: Step,
         phase: StepPhase,
-    ) -> bool:
+    ) -> StepResult | None:
         """Call a step function with exception handling and optional error handler.
 
         Args:
@@ -496,7 +488,7 @@ class PipelineExecutor:
             phase: The phase of the pipeline (pre_process or post_process).
 
         Returns:
-            True if the function executed successfully, False otherwise.
+            The StepResult from the function, or None if an exception occurred.
 
         """
         try:
@@ -522,7 +514,7 @@ class PipelineExecutor:
                     "oqtopus.pipeline.phase": phase.value,
                 },
             ):
-                await fn(gctx, jctx, job)
+                result = await fn(gctx, jctx, job)
             elapsed_ms = (time.perf_counter() - start) * 1000.0
 
             # Completed log
@@ -561,9 +553,9 @@ class PipelineExecutor:
             # split-path finalize would tag the root span as "success".
             self._mark_root_observability_failed(jctx)
             self._finalize_job_observability(jctx, job, status="failure")
-            return False
+            return None
         else:
-            return True
+            return result
 
     @staticmethod
     def _finalize_job_observability(jctx: JobContext, job: Job, status: str) -> None:
@@ -623,84 +615,9 @@ class PipelineExecutor:
                 return
             cur = cur.parent
 
-    @staticmethod
-    def _is_split_enabled(
-        step: Step,
-        jctx: JobContext,
-        target_type: type,
-    ) -> bool:
-        """Determine whether a split should be triggered for the given step.
-
-        The decision is gated by ``split_skip_steps`` and/or
-        ``split_enabled_steps`` keys in *jctx*, checked in that order:
-
-        1. If *step* is not an instance of *target_type*, return ``False``.
-        2. If ``jctx["split_skip_steps"]`` is present and the step's class
-           name is in the set, return ``False`` (skip takes priority).
-        3. If ``jctx["split_enabled_steps"]`` is absent, return ``True``
-           (backward-compatible: all splits are allowed).
-        4. Otherwise return ``True`` only when the step's class name appears in
-           the enabled set.
-
-        Args:
-            step: The current step instance.
-            jctx: The job context for the current job.
-            target_type: The mixin type to check (e.g. ``SplitOnPreprocess``).
-
-        Returns:
-            ``True`` if the split should be executed, ``False`` otherwise.
-
-        """
-        if not isinstance(step, target_type):
-            return False
-        skip_steps: set[str] | None = jctx.get("split_skip_steps")
-        if skip_steps is not None and step.__class__.__name__ in skip_steps:
-            return False
-        enabled_steps: set[str] | None = jctx.get("split_enabled_steps")
-        if enabled_steps is None:
-            return True
-        return step.__class__.__name__ in enabled_steps
-
-    @staticmethod
-    def _is_join_enabled(
-        step: Step,
-        jctx: JobContext,
-        target_type: type,
-    ) -> bool:
-        """Determine whether a join should be triggered for the given step.
-
-        The decision is gated by ``join_skip_steps`` and/or
-        ``join_enabled_steps`` keys in *jctx*, checked in that order:
-
-        1. If *step* is not an instance of *target_type*, return ``False``.
-        2. If ``jctx["join_skip_steps"]`` is present and the step's class
-           name is in the set, return ``False`` (skip takes priority).
-        3. If ``jctx["join_enabled_steps"]`` is absent, return ``True``
-           (backward-compatible: all joins are allowed).
-        4. Otherwise return ``True`` only when the step's class name appears in
-           the enabled set.
-
-        Args:
-            step: The current step instance.
-            jctx: The job context for the current job.
-            target_type: The mixin type to check (e.g. ``JoinOnPostprocess``).
-
-        Returns:
-            ``True`` if the join should be executed, ``False`` otherwise.
-
-        """
-        if not isinstance(step, target_type):
-            return False
-        skip_steps: set[str] | None = jctx.get("join_skip_steps")
-        if skip_steps is not None and step.__class__.__name__ in skip_steps:
-            return False
-        enabled_steps: set[str] | None = jctx.get("join_enabled_steps")
-        if enabled_steps is None:
-            return True
-        return step.__class__.__name__ in enabled_steps
-
     async def _handle_split(  # noqa: PLR0913, PLR0917
         self,
+        result: StepResult,
         step: Step,
         step_phase: StepPhase,
         next_index: int,
@@ -710,25 +627,36 @@ class PipelineExecutor:
     ) -> None:
         """Handle a split event triggered by a Step.
 
-        A split occurs when a Step implementing SplitOnPreprocess or
-        SplitOnPostprocess finishes execution and has populated both
-        jctx.children (child contexts) and job.children (child jobs).
+        A split occurs when a step's pre_process or post_process returns a
+        StepResult with SPLIT_FOR_JOIN or SPLIT_WITHOUT_JOIN directive.
 
         Responsibilities:
-        - Validate children consistency.
+        - Link parent job/context with the child jobs/contexts from StepResult.
         - Initialize pending-children counter.
-        - Start child pipelines.
+        - Start child pipelines concurrently.
         - Stop the parent pipeline.
 
         Raises:
-            RuntimeError: If the children are not properly set up for the split.
+            RuntimeError: If child_jobs or child_contexts are empty.
 
         """
+        child_jobs = result.child_jobs
+        child_contexts = result.child_contexts
+
+        # StepResult.__post_init__ guarantees these are not None for SPLIT_*.
+        assert child_jobs is not None  # noqa: S101
+        assert child_contexts is not None  # noqa: S101
+
         # ------------------------------------------------------------
-        # 1. Validate children existence and consistency
+        # 1. Establish parent ↔ child links
         # ------------------------------------------------------------
-        if not job.children:
-            message = "split requested but job.children is empty"
+        link_parent_and_children(jctx, job, child_contexts, child_jobs)
+
+        # ------------------------------------------------------------
+        # 2. Validate non-empty children
+        # ------------------------------------------------------------
+        if not child_jobs:
+            message = "split requested but child_jobs is empty"
             logger.error(
                 message,
                 extra={
@@ -740,68 +668,24 @@ class PipelineExecutor:
             )
             raise RuntimeError(message)
 
-        if not jctx.children:
-            message = "split requested but jctx.children is empty"
-            logger.error(
-                message,
-                extra={
-                    "step": step.__class__.__name__,
-                    "phase": step_phase.value,
-                    "job_id": job.job_id,
-                    "job_type": job.job_type,
-                },
-            )
-            raise RuntimeError(message)
-
-        if len(jctx.children) != len(job.children):
-            message = (
-                "split requested but number of jctx.children "
-                "does not match number of job.children"
-            )
-            logger.error(
-                message,
-                extra={
-                    "step": step.__class__.__name__,
-                    "phase": step_phase.value,
-                    "job_id": job.job_id,
-                    "job_type": job.job_type,
-                    "job_children_count": len(job.children),
-                    "jctx_children_count": len(jctx.children),
-                },
-            )
-            raise RuntimeError(message)
-
         # ------------------------------------------------------------
-        # 2. Initialize pending-child counter for join handling
-        # (skipped when IGNORE_SPLIT_TRACKING directive is set)
+        # 3. Initialize pending-child counter for join/cleanup handling
         # ------------------------------------------------------------
         parent_id = job.job_id
-        child_count = len(job.children)
-        if jctx.pipeline_directive is not PipelineDirective.IGNORE_SPLIT_TRACKING:
-            async with self._pending_children_lock:
-                # Overwrite is allowed but indicates a nested split on the same parent.
-                # For now we just log it to make debugging easier.
-                if parent_id in self._pending_children:
-                    logger.warning(
-                        (
-                            "overwriting pending-children counter for parent "
-                            "(nested split?)"
-                        ),
-                        extra={
-                            "parent_job_id": parent_id,
-                            "old_value": self._pending_children[parent_id],
-                            "new_value": child_count,
-                        },
-                    )
-                self._pending_children[parent_id] = child_count
-        else:
-            logger.info(
-                "IGNORE_SPLIT_TRACKING directive set",
-                extra={
-                    "parent_job_id": parent_id,
-                    "child_count": child_count,
-                },
-            )
+        child_count = len(child_jobs)
+        async with self._pending_children_lock:
+            # Overwrite is allowed but indicates a nested split on the same parent.
+            # For now we just log it to make debugging easier.
+            if parent_id in self._pending_children:
+                logger.warning(
+                    "overwriting pending-children counter for parent (nested split?)",
+                    extra={
+                        "parent_job_id": parent_id,
+                        "old_value": self._pending_children[parent_id],
+                        "new_value": child_count,
+                    },
+                )
+            self._pending_children[parent_id] = child_count
 
         # ------------------------------------------------------------
         # 3. Start child pipelines (and wait for them)

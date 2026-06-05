@@ -6,7 +6,13 @@ from typing import Any
 
 import grpc  # type: ignore[import-untyped]
 
-from oqtopus_engine_core.framework import GlobalContext, Job, JobContext, Step
+from oqtopus_engine_core.framework import (
+    GlobalContext,
+    Job,
+    JobContext,
+    Step,
+    StepResult,
+)
 from oqtopus_engine_core.interfaces.combiner_interface.v1 import (
     combiner_pb2,
     combiner_pb2_grpc,
@@ -142,7 +148,7 @@ class MultiManualStep(Step):
         gctx: GlobalContext,
         jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Pre-process the job to combine multiple circuits.
 
         This method prepares the job's QASM data, sends a gRPC request to the
@@ -158,13 +164,16 @@ class MultiManualStep(Step):
         Raises:
             RuntimeError: If the CombineRequest fails or returns an error status.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
         if job.job_type != "multi_manual":
             logger.debug(
                 "job_type is not 'multi_manual', skipping pre_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         device_info = json.loads(gctx.device.device_info)  # type: ignore[union-attr, arg-type]
         max_qubits = len(device_info["qubits"])
@@ -230,13 +239,14 @@ class MultiManualStep(Step):
             presigned_url=urls[0],
             data=job.combined_program,
         )
+        return StepResult()
 
     async def post_process(  # noqa: PLR6301
         self,
         gctx: GlobalContext,  # noqa: ARG002
         jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Post-process the job to divide the results of multiple circuits.
 
         This method divides the job's result counts into multiple results
@@ -247,13 +257,16 @@ class MultiManualStep(Step):
             jctx: The job context.
             job: The job object.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
         if job.job_type != "multi_manual":
             logger.debug(
                 "job_type is not 'multi_manual', skipping post_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         try:
             job.result.sampling.divided_counts = divide_result(  # type: ignore[union-attr]
@@ -266,3 +279,4 @@ class MultiManualStep(Step):
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
             job.result.sampling.divided_counts = {}  # type: ignore[union-attr]
+        return StepResult()

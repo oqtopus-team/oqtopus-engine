@@ -9,9 +9,14 @@ import logging
 
 import numpy as np
 
-from oqtopus_engine_core.framework import GlobalContext, JobContext
+from oqtopus_engine_core.framework import (
+    GlobalContext,
+    JobContext,
+    PipelineDirective,
+    StepResult,
+)
 from oqtopus_engine_core.framework.model import Job, JobResult, SamplingResult
-from oqtopus_engine_core.framework.step import SplitOnPostprocess, Step
+from oqtopus_engine_core.framework.step import Step
 from oqtopus_engine_core.steps.multi_manual_step import (
     divide_result,
 )
@@ -19,19 +24,19 @@ from oqtopus_engine_core.steps.multi_manual_step import (
 logger = logging.getLogger(__name__)
 
 
-class MpAutoCombiningStep(Step, SplitOnPostprocess):
+class MpAutoCombiningStep(Step):
     """Multi-programming auto combining worker.
 
     This step divides the results of auto-combined job back to original jobs.
     The automatic combining process is done in `MpAutoCombiningBuffer` class.
     """
 
-    async def pre_process(
+    async def pre_process(  # noqa: PLR6301
         self,
-        gctx: GlobalContext,
-        jctx: JobContext,
-        job: Job,
-    ) -> None:
+        gctx: GlobalContext,  # noqa: ARG002
+        jctx: JobContext,  # noqa: ARG002
+        job: Job,  # noqa: ARG002
+    ) -> StepResult:
         """Pre-process the job.
 
         Do nothing.
@@ -42,17 +47,23 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
             jctx: The job context.
             job: The job object.
 
-        """
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
 
-    async def post_process(
+        """
+        return StepResult()
+
+    async def post_process(  # noqa: PLR6301
         self,
         gctx: GlobalContext,  # noqa: ARG002
         jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Post-process the job by dividing results back to original jobs.
 
-            This method divides the counts of the combined job back to the original jobs
+        This method divides the counts of the combined job back to the original
+        jobs and returns SPLIT_WITHOUT_JOIN so each child continues through the
+        remaining post-process steps independently.
 
         Args:
             gctx: The global context.
@@ -61,6 +72,9 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
 
         Raises:
             RuntimeError: If failed to divide the results back to original jobs.
+
+        Returns:
+            StepResult: SPLIT_WITHOUT_JOIN directive when auto-combined; NONE otherwise.
 
         """
         if "mp_auto_combining" not in jctx:
@@ -71,11 +85,7 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
                     "job_type": job.job_type,
                 },
             )
-            # skip splitting in pipeline executor if the job is not auto-combined job
-            if "split_skip_steps" not in jctx:
-                jctx.split_skip_steps = set()
-            jctx.split_skip_steps.add(self.__class__.__name__)
-            return
+            return StepResult()
 
         # get used qubits info
         combined_qubits_list = jctx.mp_auto_combining["combined_qubits_list"]
@@ -121,6 +131,12 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
             )
             msg = "failed to extract result from auto-combined job result"
             raise RuntimeError(msg) from e
+
+        return StepResult(
+            directive=PipelineDirective.SPLIT_WITHOUT_JOIN,
+            child_jobs=list(job.children),
+            child_contexts=list(jctx.children),
+        )
 
 
 def resample_counts(
