@@ -1,26 +1,29 @@
 # Implementing Pipeline
 
 This document explains how to implement custom steps for the OQTOPUS Engine pipeline.
-It covers the lifecycle of steps, split/join mixins, JobContext usage, and best practices for writing reliable pipeline logic.
+It covers the lifecycle of steps, how to express split/join/detach control flow through
+`StepResult`, JobContext usage, and best practices for writing reliable pipeline logic.
 
 ## 1. Overview
 
 A pipeline is an ordered sequence of **steps** and **buffers**.
-Steps transform jobs, interact with external services, and may control job flow through split or join semantics.
+Steps transform jobs, interact with external services, and may control job flow through
+split, join, or detach semantics.
 
 Each step may optionally define:
 
-- `pre_process(job, jctx, gctx)`
-- `post_process(job, jctx, gctx)`
+- `pre_process(gctx, jctx, job) -> StepResult`
+- `post_process(gctx, jctx, job) -> StepResult`
 
-The PipelineExecutor calls these methods depending on the current execution phase.
+The PipelineExecutor calls these methods depending on the current execution phase,
+and inspects the returned `StepResult` to determine whether to split, join, detach, or
+continue normally.
 
 This guide explains:
 
 - how to implement a standard step,
 - how to implement split steps,
 - how to implement join steps,
-- what constraints apply when combining mixins,
 - how `JobContext` is used across steps,
 - how to use `PipelineDirective` to communicate execution intent to the engine,
 - practical examples and best practices.
@@ -30,7 +33,7 @@ This guide explains:
 A standard step simply performs logic during pre-process and/or post-process phases.
 
 ```python
-from oqtopus_engine_core.framework import Step
+from oqtopus_engine_core.framework import Step, StepResult
 
 class MyStep(Step):
     async def pre_process(
@@ -38,116 +41,153 @@ class MyStep(Step):
         gctx: GlobalContext,
         jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         # pre-process phase logic
+        return StepResult()
 
     async def post_process(
         self,
         gctx: GlobalContext,
         jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         # post-process phase logic
+        return StepResult()
 ```
 
 Notes:
 
 - You may implement only one of the two methods if needed.
+- A plain `StepResult()` (no arguments) means "continue normally" — no split, join, or detach.
 - Avoid heavy I/O or unbounded background tasks inside a step.
 - Steps should be stateless whenever possible.
 
 ## 3. Writing a Split Step
 
-A split step expands a single parent job into one or more child jobs.
+A split step expands a single parent job into one or more child jobs by returning a
+`StepResult` with a split directive.
 
-### 3.1 Split Mixins
+### 3.1 Split with Join (`SPLIT_FOR_JOIN`)
 
-- **SplitOnPreprocess**  
-  Splitting occurs immediately after the step’s `pre_process()` execution.
-
-- **SplitOnPostprocess**  
-  Splitting occurs immediately after the step’s `post_process()` execution.
-
-Across the entire pipeline execution, every `job_id` must be unique.  
-During a split, the `PipelineExecutor` uses the parent’s `job_id` as the key for tracking whether all child jobs have reached the join point.  
-Once **all** child jobs have passed through the join step, the `join_jobs()` method is invoked.
-
-### 3.2 Implementing a Split Step
+Use this directive when child jobs are expected to be collected at a downstream join step.
 
 ```python
-from oqtopus_engine_core.framework import Step, SplitOnPreprocess
-from oqtopus_engine_core.framework.context import link_parent_and_children
+from oqtopus_engine_core.framework import Step, StepResult
+from oqtopus_engine_core.framework.step import PipelineDirective
 
-class MySplitStep(Step, SplitOnPreprocess):
+class MySplitStep(Step):
     async def pre_process(
         self,
         gctx: GlobalContext,
         jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         child_jobs = []
         child_ctxs = []
         for index in range(2):
-            # In a real implementation, you must specify all required fields for Job.
-            c_job = Job(job_id=f"{job.job_id}-child{index}", job_type="sampling")
+            # In a real implementation, specify all required fields for Job.
+            c_job = Job(job_id=f"{job.job_id}-child{index}", ...)
             c_jctx = JobContext(initial={})
             child_jobs.append(c_job)
             child_ctxs.append(c_jctx)
 
-        # Use the utility to establish bidirectional links between parent and children.
-        # This replaces manual assignments to job.children and jctx.children.
-        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+        return StepResult(
+            directive=PipelineDirective.SPLIT_FOR_JOIN,
+            child_jobs=child_jobs,
+            child_contexts=child_ctxs,
+        )
 
     async def post_process(
         self,
         gctx: GlobalContext,
         jctx: JobContext,
         job: Job,
-    ) -> None:
-        # post-process phase logic
+    ) -> StepResult:
+        return StepResult()
 ```
-
-### 3.3 Framework Guarantees
 
 The executor automatically:
 
+- establishes parent/child links between jobs and contexts,
 - pauses parent execution at the split point,
 - schedules child pipelines independently,
-- resumes the parent only after join.
+- resumes the parent only after all children have reached the join step.
+
+### 3.2 Split without Join (`SPLIT_WITHOUT_JOIN`)
+
+Use this directive when child jobs are expected to complete their own pipelines
+independently, with no corresponding join.
+
+```python
+from oqtopus_engine_core.framework import Step, StepResult
+from oqtopus_engine_core.framework.step import PipelineDirective
+
+class MySplitWithoutJoinStep(Step):
+    async def post_process(
+        self,
+        gctx: GlobalContext,
+        jctx: JobContext,
+        job: Job,
+    ) -> StepResult:
+        child_jobs = []
+        child_ctxs = []
+        for i in range(len(some_list)):
+            c_job = ...
+            c_jctx = JobContext(initial={})
+            child_jobs.append(c_job)
+            child_ctxs.append(c_jctx)
+
+        return StepResult(
+            directive=PipelineDirective.SPLIT_WITHOUT_JOIN,
+            child_jobs=child_jobs,
+            child_contexts=child_ctxs,
+        )
+```
+
+With `SPLIT_WITHOUT_JOIN`, the executor still starts all child pipelines, but the parent
+job does **not** wait for them. No `_pending_children` counter is registered, so the
+parent proceeds (or finishes) immediately.
+
+### 3.3 Framework Guarantees
+
+Regardless of which split directive is used, the executor:
+
+- calls `link_parent_and_children` internally — the step must **not** call it directly,
+- dispatches each child job into the pipeline from the beginning,
+- manages the `_pending_children` counter for `SPLIT_FOR_JOIN` only.
 
 ## 4. Writing a Join Step
 
-A join step aggregates results from all child jobs and resumes the parent job.
+A join step aggregates results from all child jobs and signals to the executor that
+the current child has completed its contribution.
 
-### 4.1 Join Mixins
+### 4.1 Signaling Join Intent
 
-- **JoinOnPreprocess**  
-  Joining occurs immediately after the step’s `pre_process()` execution.
-
-- **JoinOnPostprocess**  
-  Joining occurs immediately after the step’s `post_process()` execution.
-
-### 4.2 Implementing a Join Step
+A step signals join intent by returning `StepResult(directive=PipelineDirective.JOIN)`
+from its `pre_process()` or `post_process()` method **when the job has a parent**.
 
 ```python
-from oqtopus_engine_core.framework import Step, JoinOnPostprocess
+from oqtopus_engine_core.framework import Step, StepResult
+from oqtopus_engine_core.framework.step import PipelineDirective
 
-class MyJoinStep(Step, JoinOnPostprocess):
+class MyJoinStep(Step):
     async def pre_process(
         self,
         gctx: GlobalContext,
         jctx: JobContext,
         job: Job,
-    ) -> None:
-        # pre-process phase logic
+    ) -> StepResult:
+        return StepResult()
 
     async def post_process(
         self,
         gctx: GlobalContext,
         jctx: JobContext,
         job: Job,
-    ) -> None:
-        # post-process phase logic
+    ) -> StepResult:
+        if job.parent is not None:
+            return StepResult(directive=PipelineDirective.JOIN)
+        return StepResult()
 
     async def join_jobs(
         self,
@@ -156,124 +196,34 @@ class MyJoinStep(Step, JoinOnPostprocess):
         parent_job: Job,
         last_child: Job,
     ) -> None:
-        # Perform any processing required for the join.
-        # Example: update the parent job based on data collected from child jobs.
+        # Aggregate child results into the parent job.
+        # This is called exactly once, by the last child to arrive.
+        pass
 ```
 
-### 4.3 Framework Guarantees
+The `JOIN` directive instructs the executor to:
 
-- `join_jobs()` is called **exactly once**.
-- It is executed **only by the last child** that reaches the join step.
+1. Decrement the parent's pending-children counter.
+2. If the counter reaches zero, call `join_jobs()` and resume the parent job.
+3. If the counter is still nonzero, simply finish this child's traversal.
+
+### 4.2 Framework Guarantees
+
+- `join_jobs()` is called **exactly once**, by the last child to reach the join step.
 - After join:
   - child jobs are released,
-  - the parent job resumes traversal (forward or backward depending on join type).
+  - the parent job resumes traversal from the join step onward (forward or backward,
+    depending on whether `JOIN` was signaled from `pre_process` or `post_process`).
 
-## 5. Combining Split and Join Mixins
+## 5. JobContext Usage
 
-### 5.1 Valid and Invalid Combinations
+### 5.1 How JobContext Participates in Split/Join
 
-For each phase (pre-process / post-process), a step may have **at most one**
-control-flow mixin.
-
-Invalid (TypeError):
-
-- Multiple *pre-process* mixins:
-  - `SplitOnPreprocess`
-  - `JoinOnPreprocess`
-  - `DetachOnPreprocess`
-
-- Multiple *post-process* mixins:
-  - `SplitOnPostprocess`
-  - `JoinOnPostprocess`
-  - `DetachOnPostprocess`
-
-Valid:
-
-- Any combination where mixins belong to **different phases**  
-  (e.g., `JoinOnPreprocess` + `DetachOnPostprocess`)
-- Steps without any control-flow mixin
-
-If a step violates these constraints, the engine will raise a `TypeError` during class construction.
-
-## 5.2 Dynamic Enabling/Disabling via JobContext
-
-The executor reads four optional keys from `jctx` to gate split and join
-execution at runtime.  For each operation the skip key is checked **before**
-the enabled key.
-
-| Key | Type | Effect when absent | Effect when present |
-|---|---|---|---|
-| `split_skip_steps` | `set[str]` | No steps skipped | Steps whose `__class__.__name__` is in the set are **never** split |
-| `split_enabled_steps` | `set[str]` | All splits are executed (default) | Only steps whose `__class__.__name__` is in the set are split |
-| `join_skip_steps` | `set[str]` | No steps skipped | Steps whose `__class__.__name__` is in the set are **never** joined |
-| `join_enabled_steps` | `set[str]` | All joins are executed (default) | Only steps whose `__class__.__name__` is in the set are joined |
-
-### Precedence rules
-
-When both the skip key and the enabled key are present, the skip key takes
-priority:
-
-1. If the step's class name is in `split_skip_steps` → split is **disabled**
-   (regardless of `split_enabled_steps`).
-2. Otherwise, if `split_enabled_steps` is absent → split is **enabled**.
-3. Otherwise → split is enabled only if the class name is in
-   `split_enabled_steps`.
-
-The same three-step rule applies to `join_skip_steps` / `join_enabled_steps`.
-
-### Usage example
-
-```python
-# Disable all splits and joins for this job.
-jctx = JobContext(initial={
-    "split_enabled_steps": set(),
-    "join_enabled_steps": set(),
-})
-
-# Enable split only for MySplitStep.
-jctx = JobContext(initial={
-    "split_enabled_steps": {"MySplitStep"},
-})
-
-# Skip split for a specific step while keeping all others enabled.
-jctx = JobContext(initial={
-    "split_skip_steps": {"MySplitStep"},
-})
-
-# Skip join for a specific step while keeping all others enabled.
-jctx = JobContext(initial={
-    "join_skip_steps": {"MyJoinStep"},
-})
-
-# skip takes priority: MySplitStep is skipped even though it appears
-# in split_enabled_steps.
-jctx = JobContext(initial={
-    "split_skip_steps": {"MySplitStep"},
-    "split_enabled_steps": {"MySplitStep", "OtherSplitStep"},
-})
-```
-
-### Caveats
-
-- **Split disabled, children created**: If a step's `pre_process` or
-  `post_process` populates `job.children` / `jctx.children` but the split
-  is disabled, those children are silently ignored.  Cleaning them up is
-  the responsibility of the step implementation.
-
-- **Join enabled without a preceding split**: If `join_enabled_steps`
-  contains a step name but no split has occurred (so the root job reaches
-  the join step directly), the executor will raise a `RuntimeError` because
-  `job.parent` is `None`.  This is expected behavior and must be avoided by
-  ensuring that split and join configuration are always consistent.
-
-## 6. JobContext Usage
-
-### 6.1 How JobContext Participates in Split/Join
-
-- Both `job` and `jctx` form **parent/children trees** during split.
+- Both `job` and `jctx` form **parent/child trees** during split (established by the
+  executor, not by the step).
 - Step implementations should treat each child JobContext independently.
 
-### 6.2 Step History Recording
+### 5.2 Step History Recording
 
 The executor writes execution history to:
 
@@ -323,110 +273,79 @@ Final accumulated histories:
 - **Children**:  
   `[("pre-process", 2), ("post-process", 2), ("post-process", 1)]`
 
-## 7. PipelineDirective
+## 6. PipelineDirective
 
-### 7.1 Overview
+### 6.1 Overview
 
-`PipelineDirective` is an enum that a step can set on `jctx` to change the pipeline executor's default behaviour **after** the current step completes.
-It provides a lightweight, one-shot channel from a step implementation to the pipeline executor.
+`PipelineDirective` is a `StrEnum` returned inside `StepResult` to communicate
+execution intent from a step to the pipeline executor.
 
 ```python
-from oqtopus_engine_core.framework import PipelineDirective
+from oqtopus_engine_core.framework.step import PipelineDirective
 ```
 
 Available values:
 
 | Value | Effect |
 | ----- | ------ |
-| `PipelineDirective.NONE` | Default — no change to executor behaviour |
-| `PipelineDirective.IGNORE_SPLIT_TRACKING` | After splitting, skip registration of the pending-children counter for the parent job |
+| `PipelineDirective.NONE` | Default — continue normally with no change to executor behaviour |
+| `PipelineDirective.SPLIT_FOR_JOIN` | Split parent into child jobs; register a pending-children counter; resume parent after join |
+| `PipelineDirective.SPLIT_WITHOUT_JOIN` | Split parent into child jobs; do **not** register a pending-children counter; parent does not wait |
+| `PipelineDirective.JOIN` | Decrement the parent's pending-children counter; if zero, call `join_jobs()` and resume the parent |
+| `PipelineDirective.DETACH` | Continue remaining traversal in a background coroutine; return the worker to the buffer loop immediately |
 
-The directive is **consumed once**: the executor resets it to `NONE` immediately after acting on it, so it does not affect any subsequent split.
+### 6.2 Usage Pattern
 
-### 7.2 `IGNORE_SPLIT_TRACKING`
-
-Use this directive when a step performs a split but **no corresponding join is expected**.
-Without it, the executor registers a `_pending_children` counter for the parent job and waits for a join that will never arrive, causing a memory leak and the parent job hanging indefinitely.
-
-#### When to use
-
-- The step spreads results to child jobs in its `pre_process()` or `post_process()` and then allows the children to complete their own pipelines independently.
-- No `JoinOn*` mixin is present downstream for these children.
-
-#### How to use
-
-Set the directive **inside** the step method that also creates the child jobs, before returning:
+Always return a `StepResult` from `pre_process()` and `post_process()`.
+Use a plain `StepResult()` for normal execution:
 
 ```python
-from oqtopus_engine_core.framework import PipelineDirective, Step, SplitOnPostprocess
-from oqtopus_engine_core.framework.context import link_parent_and_children
+return StepResult()                              # NONE — continue normally
 
-class MySplitWithoutJoinStep(Step, SplitOnPostprocess):
-    async def pre_process(self, gctx, jctx, job):
-        pass
+return StepResult(                               # split with join
+    directive=PipelineDirective.SPLIT_FOR_JOIN,
+    child_jobs=child_jobs,
+    child_contexts=child_ctxs,
+)
 
-    async def post_process(self, gctx, jctx, job):
-        # Signal to the executor: do not register a pending-children counter.
-        jctx.pipeline_directive = PipelineDirective.IGNORE_SPLIT_TRACKING
+return StepResult(                               # split without join
+    directive=PipelineDirective.SPLIT_WITHOUT_JOIN,
+    child_jobs=child_jobs,
+    child_contexts=child_ctxs,
+)
 
-        child_jobs = []
-        child_ctxs = []
-        for i in range(len(job.children)):
-            c_job = ...  # populate child Job fields
-            c_jctx = JobContext(initial={})
-            child_jobs.append(c_job)
-            child_ctxs.append(c_jctx)
-
-        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+return StepResult(directive=PipelineDirective.JOIN)      # signal join
+return StepResult(directive=PipelineDirective.DETACH)    # detach traversal
 ```
 
-#### Guarantees
-
-- When `IGNORE_SPLIT_TRACKING` is active the executor **still** performs the split and starts all child pipelines.
-- The only thing skipped is the `_pending_children` counter update — the parent job will not wait for a join.
-- The directive is reset to `NONE` after the split regardless of whether it was acted on or not.
-
-### 7.3 `pipeline_directive` as a Reserved Attribute
-
-`pipeline_directive` is stored as a **Python attribute** on `JobContext`, not inside the underlying data dictionary.
-This means it is never serialised with the rest of the context and is always re-initialised to `NONE` for each new `JobContext`.
-
-```python
-jctx = JobContext()
-print(jctx.pipeline_directive)          # PipelineDirective.NONE
-print("pipeline_directive" in jctx)     # False  (not in the data dict)
-```
-
-Like `parent` and `children`, it **cannot** be deleted:
-
-```python
-del jctx.pipeline_directive  # raises AttributeError
-```
-
-## 8. Best Practices
+## 7. Best Practices
 
 ### Do
 
 - Keep child jobs independent and self-contained.
 - Use JobContext to store per-child metadata.
-- Clearly indicate split or join behavior in class names.
+- Clearly indicate split or join behaviour in class names.
 - Keep `join_jobs()` idempotent and aggregation-only.
-- Use `PipelineDirective.IGNORE_SPLIT_TRACKING` when performing a split that has no corresponding join.
+- Use `SPLIT_WITHOUT_JOIN` when performing a split that has no corresponding join.
+- Return `StepResult(directive=PipelineDirective.JOIN)` only when `job.parent is not None`.
 
 ### Do Not
 
+- Call `link_parent_and_children()` inside a step — the executor calls it automatically.
 - Spawn unmanaged background tasks.
 - Perform blocking I/O inside a step.
-- Leave `pipeline_directive` set to a non-`NONE` value after the step — the executor resets it automatically, but relying on that for control flow is an anti-pattern.
+- Set `child_jobs` or `child_contexts` on `StepResult` when the directive is not a split
+  directive — those fields are ignored and may cause confusion.
 
-## 9. Summary
+## 8. Summary
 
 To implement steps correctly in the OQTOPUS Engine:
 
-- choose the appropriate mixins (split/join, pre/post),
-- implement only the necessary lifecycle methods,
-- let the executor handle concurrency and synchronization,
-- use `PipelineDirective` when a step needs to alter the executor's default split-tracking behaviour,
+- return `StepResult` from every `pre_process()` and `post_process()`,
+- use `PipelineDirective` inside `StepResult` to signal split, join, or detach intent,
+- implement `join_jobs()` on any step that signals `SPLIT_FOR_JOIN` in the pipeline,
+- let the executor handle parent/child linking, concurrency, and synchronization,
 - keep logic simple, deterministic, and phase-appropriate.
 
-This structured model ensures predictable behavior across parallel execution paths and allows complex quantum job workflows to be expressed cleanly.
+This structured model ensures predictable behaviour across parallel execution paths and
+allows complex quantum job workflows to be expressed cleanly.
