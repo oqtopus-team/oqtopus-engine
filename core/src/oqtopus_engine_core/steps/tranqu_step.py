@@ -11,6 +11,7 @@ from oqtopus_engine_core.framework import (
     Job,
     JobContext,
     Step,
+    StepResult,
     TranspileResult,
 )
 from oqtopus_engine_core.interfaces.tranqu_server.proto.v1 import (
@@ -52,7 +53,7 @@ class TranquStep(Step):
         gctx: GlobalContext,
         jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Pre-process the job by sending a transpile request to the Tranqu Server.
 
         This method prepares the job's transpiler information, sends a gRPC request
@@ -67,6 +68,9 @@ class TranquStep(Step):
         Raises:
             ValueError: If gctx.device or gctx.device.device_info is None.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
         # Skip SSE job
         if job.job_type == "sse":
@@ -74,14 +78,14 @@ class TranquStep(Step):
                 "job_type is sse, skipping",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
         # Skip if the transpiler is disabled
         if job.transpiler_info.get("transpiler_lib", {}) is None:
             logger.debug(
                 "transpiler_lib is None, skipping",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         # Check device_info
         if gctx.device is None or gctx.device.device_info is None:
@@ -160,13 +164,14 @@ class TranquStep(Step):
             data=job.transpile_result.model_dump(),
             arcname_ext=".json",
         )
+        return StepResult()
 
-    async def post_process(
+    async def post_process(  # noqa: PLR6301
         self,
-        gctx: GlobalContext,
-        jctx: JobContext,
-        job: Job,
-    ) -> None:
+        gctx: GlobalContext,  # noqa: ARG002
+        jctx: JobContext,  # noqa: ARG002
+        job: Job,  # noqa: ARG002
+    ) -> StepResult:
         """Post-process the job after transpilation.
 
         Do nothing.
@@ -176,4 +181,8 @@ class TranquStep(Step):
             jctx: The job context.
             job: The job object.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
+        return StepResult()

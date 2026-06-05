@@ -11,6 +11,7 @@ from oqtopus_engine_core.framework import (
     Job,
     JobContext,
     Step,
+    StepResult,
 )
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
     mitigator_pb2,
@@ -62,12 +63,12 @@ class ReadoutErrorMitigationStep(Step):
             },
         )
 
-    async def pre_process(
+    async def pre_process(  # noqa: PLR6301
         self,
-        gctx: GlobalContext,
-        jctx: JobContext,
-        job: Job,
-    ) -> None:
+        gctx: GlobalContext,  # noqa: ARG002
+        jctx: JobContext,  # noqa: ARG002
+        job: Job,  # noqa: ARG002
+    ) -> StepResult:
         """Pre-process the job before error mitigation.
 
         Do nothing.
@@ -77,14 +78,18 @@ class ReadoutErrorMitigationStep(Step):
             jctx: The job context.
             job: The job object.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
+        return StepResult()
 
     async def post_process(
         self,
         gctx: GlobalContext,
         jctx: JobContext,  # noqa: ARG002
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Post-process the job by sending a request to mitigator service via gRPC.
 
         This method handles post-processing for mitigation jobs by sending
@@ -100,6 +105,9 @@ class ReadoutErrorMitigationStep(Step):
             ValueError: If gctx.device is None, gctx.device.device_info is None,
                 or required job result fields are None.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
         if (
             job.mitigation_info == {}
@@ -109,7 +117,7 @@ class ReadoutErrorMitigationStep(Step):
                 "ro_error_mitigation is not set, skipping post_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         if job.mitigation_info["ro_error_mitigation"] == "pseudo_inverse":
             # Extract necessary information from the job
@@ -143,7 +151,7 @@ class ReadoutErrorMitigationStep(Step):
                     "job_type is not 'sampling', skipping mitigation",
                     extra={"job_id": job.job_id, "job_type": job.job_type},
                 )
-                return
+                return StepResult()
 
             if job.result is None:  # pragma: no cover
                 message = "job.result is None. Cannot perform readout error mitigation."
@@ -197,4 +205,5 @@ class ReadoutErrorMitigationStep(Step):
                 orig_counts,
             )
 
-            return
+            return StepResult()
+        return StepResult()

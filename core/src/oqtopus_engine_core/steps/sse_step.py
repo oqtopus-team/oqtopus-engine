@@ -15,6 +15,7 @@ from oqtopus_engine_core.framework import (
     Job,
     JobContext,
     Step,
+    StepResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ class SseStep(Step):
         gctx: GlobalContext,
         jctx: JobContext,  # noqa: ARG002
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Pre-process the job by downloading the user program and run SSE.
 
         This method downloads the user's program from Oqtopus Cloud,
@@ -54,13 +55,16 @@ class SseStep(Step):
             RuntimeError: If the SSE run fails.
             ValueError: If the SSE program is missing from the job.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
         if job.job_type != "sse":
             logger.debug(
                 "job_type is not sse, skipping",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         # Update job status
         job.status = "running"
@@ -102,14 +106,14 @@ class SseStep(Step):
             # Clean up temporary directory
             if config["delete_host_temp_dirs"]:
                 self._delete_tmpdir(temp_dirs["base"])
-        return
+        return StepResult()
 
-    async def post_process(
+    async def post_process(  # noqa: PLR6301
         self,
-        gctx: GlobalContext,
-        jctx: JobContext,
-        job: Job,
-    ) -> None:
+        gctx: GlobalContext,  # noqa: ARG002
+        jctx: JobContext,  # noqa: ARG002
+        job: Job,  # noqa: ARG002
+    ) -> StepResult:
         """Post-process the job.
 
         Do nothing.
@@ -119,7 +123,11 @@ class SseStep(Step):
             jctx: The job context.
             job: The job object.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
+        return StepResult()
 
     async def _run_sse(
         self,

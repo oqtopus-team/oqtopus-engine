@@ -13,12 +13,11 @@ from oqtopus_engine_core.framework import (
     Job,
     JobContext,
     JobResult,
-    JoinOnPostprocess,
+    PipelineDirective,
     SamplingResult,
-    SplitOnPreprocess,
     Step,
+    StepResult,
 )
-from oqtopus_engine_core.framework.context import link_parent_and_children
 from oqtopus_engine_core.framework.model import TranspileResult
 from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
     estimator_pb2,
@@ -49,15 +48,6 @@ def _is_split_child_context(jctx: JobContext) -> bool:
 
     """
     return jctx.get("has_actual_parent", False)
-
-
-def _add_skip_step(jctx: JobContext, key: str, step_name: str) -> None:
-    """Mark a step as skipped for split/join gating in the pipeline executor."""
-    skip_steps = jctx.get(key)
-    if skip_steps is None:
-        skip_steps = set()
-        jctx[key] = skip_steps
-    skip_steps.add(step_name)
 
 
 def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
@@ -122,7 +112,7 @@ def _build_child_job(
     )
 
 
-class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
+class EstimatorStep(Step):
     """Split estimation jobs in pre-process and join them in post-process."""
 
     def __init__(
@@ -151,28 +141,30 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         gctx: GlobalContext,  # noqa: ARG002
         jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Split an estimation job into sampling child jobs during pre-process.
 
         Raises:
             ValueError: If the estimation operator is not specified.
 
+        Returns:
+            StepResult: SPLIT_FOR_JOIN with child jobs for estimation parents;
+                NONE for all other cases.
+
         """
         if job.job_type != "estimation":
-            _add_skip_step(jctx, "split_skip_steps", ESTIMATOR_STEP_NAME)
             logger.debug(
                 "job_type is not 'estimation', skipping pre_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         if _is_split_child_context(jctx):
-            _add_skip_step(jctx, "split_skip_steps", ESTIMATOR_STEP_NAME)
             logger.debug(
                 "estimation child skips pre_process body",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         if job.operator is None:
             message = "the operator is not specified in the job."
@@ -233,31 +225,35 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
 
         join_info.child_order = child_order
         jctx[ESTIMATION_JOIN_INFO_KEY] = join_info
-        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+        return StepResult(
+            directive=PipelineDirective.SPLIT_FOR_JOIN,
+            child_jobs=child_jobs,
+            child_contexts=child_ctxs,
+        )
 
     async def post_process(  # noqa: PLR6301
         self,
         gctx: GlobalContext,  # noqa: ARG002
         jctx: JobContext,
         job: Job,
-    ) -> None:
-        """Gate post-process so only split child jobs reach the join point."""
-        if job.job_type != "estimation":
-            if not _is_split_child_context(jctx):
-                _add_skip_step(jctx, "join_skip_steps", ESTIMATOR_STEP_NAME)
-            logger.debug(
-                "job_type is not 'estimation', skipping post_process",
-                extra={"job_id": job.job_id, "job_type": job.job_type},
-            )
-            return
+    ) -> StepResult:
+        """Signal JOIN for estimation split children; NONE for all other jobs.
 
-        if not _is_split_child_context(jctx):
-            _add_skip_step(jctx, "join_skip_steps", ESTIMATOR_STEP_NAME)
+        Returns:
+            StepResult: JOIN directive for split children; NONE otherwise.
+
+        """
+        if _is_split_child_context(jctx):
             logger.debug(
-                "parent estimation job skips join gate post_process",
+                "estimation split child reaching join point",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult(directive=PipelineDirective.JOIN)
+        logger.debug(
+            "non-child job, skipping join gate post_process",
+            extra={"job_id": job.job_id, "job_type": job.job_type},
+        )
+        return StepResult()
 
     async def join_jobs(
         self,
