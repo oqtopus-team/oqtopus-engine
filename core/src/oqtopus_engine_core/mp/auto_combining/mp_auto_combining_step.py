@@ -4,6 +4,7 @@ This task consumes incoming jobs from `source_buffer`, performs combination logi
 (reduction of job count by merging circuits), and enqueues the processed jobs
 into `processed_buffer` for the pipeline's after-buffer steps.
 """
+
 import logging
 
 import numpy as np
@@ -44,10 +45,10 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
         """
 
     async def post_process(
-            self,
-            gctx: GlobalContext,  # noqa: ARG002
-            jctx: JobContext,
-            job: Job,
+        self,
+        gctx: GlobalContext,  # noqa: ARG002
+        jctx: JobContext,
+        job: Job,
     ) -> None:
         """Post-process the job by dividing results back to original jobs.
 
@@ -78,12 +79,14 @@ class MpAutoCombiningStep(Step, SplitOnPostprocess):
 
         # get used qubits info
         combined_qubits_list = jctx.mp_auto_combining["combined_qubits_list"]
-        n_total_qubits = len(next(iter(job.result.sampling.counts.keys())))
+        n_total_qubits = len(next(iter(job.result.sampling.counts.keys())))  # type: ignore[union-attr]
         if n_total_qubits > sum(combined_qubits_list):
             # add the number of unused qubits to combined_qubits_list
             # for the convenience of division
-            combined_qubits_list = \
-                [*combined_qubits_list, n_total_qubits - sum(combined_qubits_list)]
+            combined_qubits_list = [
+                *combined_qubits_list,
+                n_total_qubits - sum(combined_qubits_list),
+            ]
 
         try:
             # divide the result

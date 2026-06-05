@@ -248,7 +248,7 @@ class PipelineExecutor:
             if token is not None:
                 otel_context.detach(token)
 
-    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912
+    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912, PLR0915
         self,
         step_phase: StepPhase,
         index: int,

@@ -4,7 +4,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -88,9 +88,9 @@ class SseEngineGatewayServicer:
 
     async def SseEngine(  # noqa: N802
         self,
-        request: sse_pb2.SseEngineRequest,
+        request: sse_pb2.SseEngineRequest,  # type: ignore[name-defined]
         context: grpc.RpcContext,  # noqa: ARG002
-    ) -> sse_pb2.SseEngineResponse:
+    ) -> sse_pb2.SseEngineResponse:  # type: ignore[name-defined]
         """Handle gRPC requests for executing pipeline.
 
         Args:
@@ -107,7 +107,7 @@ class SseEngineGatewayServicer:
         start = time.perf_counter()
 
         # Placeholder response structure
-        res = sse_pb2.SseEngineResponse(
+        res = sse_pb2.SseEngineResponse(  # type: ignore[attr-defined]
             status="failed",
             message="",
             job_json="",
@@ -168,7 +168,7 @@ class SseEngineGatewayServicer:
         return res
 
     @staticmethod
-    def _get_job_from_request(request: sse_pb2.SseEngineRequest) -> Job:
+    def _get_job_from_request(request: sse_pb2.SseEngineRequest) -> Job:  # type: ignore[name-defined]
         """Convert gRPC request to Job object.
 
         Args:

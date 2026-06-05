@@ -88,7 +88,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         call: Callable[[], T],
         label: str,
         extra: dict[str, Any],
-    ) -> T | None:
+    ) -> T:
         """Call an API in a worker thread with logging and error handling.
 
         Args:
@@ -98,7 +98,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
             extra: Extra fields to log on error.
 
         Returns:
-            The data returned by the call, or None if an error occurred.
+            The data returned by the call.
 
         Raises:
             ApiException: If an API error occurs.
@@ -158,11 +158,12 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "PATCH /devices/{device_id}",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -201,11 +202,12 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "PATCH /devices/{device_id}/status",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -245,11 +247,12 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "PATCH /devices/{device_id}/device_info",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(

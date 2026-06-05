@@ -57,7 +57,7 @@ class JobResult(BaseModel):
 
 
 class JobInput(BaseModel):
-    """Job input model."""
+    """Input payload for a job submitted to the pipeline."""
 
     program: list[str] | None = None
     operator: list[OperatorItem] | None = None
