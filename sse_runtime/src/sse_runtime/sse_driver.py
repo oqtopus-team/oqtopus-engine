@@ -20,8 +20,8 @@ class SseRuntimeError(RuntimeError):
 
 
 def submit_job(
-        input_job: JobsSubmitJobRequest,
-        upload_info: JobsS3SubmitJobInfo,
+    input_job: JobsSubmitJobRequest,
+    upload_info: JobsS3SubmitJobInfo,
 ) -> JobsJob:
     """Submit a job from SSE Runtime.
 
@@ -74,14 +74,15 @@ def submit_job(
         if job.status != "succeeded":
             msg = f"To execute sampling on OQTOPUS server is failed. reason: {_job_message(job)}"  # noqa: E501
             raise SseRuntimeError(msg)
-
         return job
 
 
 def _make_client_job(
     result_dict: dict[str, Any],
 ) -> JobsJob:
+    # convert the result dict to a Job object for oqtopus-client
     job = JobsJob.from_dict(result_dict)
+    # extract job_info from the result dict
     job.job_info = JobsJobInfo.from_dict(result_dict)
     if job is None:
         msg = "Could not parse job data"
@@ -90,16 +91,15 @@ def _make_client_job(
 
 
 def _make_request(
-        job_json: str,
-        input_job: JobsSubmitJobRequest,
-        upload_info: JobsS3SubmitJobInfo,
+    job_json: str,
+    input_job: JobsSubmitJobRequest,
+    upload_info: JobsS3SubmitJobInfo,
 ) -> dict[str, Any]:
-    job_dict = _load_json_dict(job_json)
 
+    job_dict = _load_json_dict(job_json)
     request = input_job.to_dict()
     request["job_id"] = job_dict["job_id"]  # set job_id of parent SSE job
     request["status"] = "ready"
-
     request["input"] = ""
 
     return {"submit_job_request": request, "upload_info": upload_info.to_dict()}
@@ -114,10 +114,6 @@ def _load_json_dict(raw_json: str | None) -> dict[str, Any]:
         msg = "Expected job data to be a JSON object"
         raise SseRuntimeError(msg)
     return loaded
-
-
-def _enum_value(value: object) -> object:
-    return getattr(value, "value", value)
 
 
 def _job_message(job: JobsJob) -> str | None:
