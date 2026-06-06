@@ -4,7 +4,7 @@ SHELL := bash
 SSE_IMAGE := sse-v2/python3.13:latest
 
 .PHONY: build-sse lint test
-build-sse:
+build-sse: ## Run docker build
 	docker build -t $(SSE_IMAGE) .
 
 lint: ## Run linting
