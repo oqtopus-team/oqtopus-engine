@@ -5,14 +5,13 @@ from pathlib import Path
 from typing import Any
 
 import grpc
-from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
-
 from oqtopus_client.rest.models import (
     JobsJob,
     JobsJobInfo,
     JobsS3SubmitJobInfo,
     JobsSubmitJobRequest,
 )
+from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
 
 
 class SseRuntimeError(RuntimeError):
@@ -23,7 +22,7 @@ def submit_job(
     input_job: JobsSubmitJobRequest,
     upload_info: JobsS3SubmitJobInfo,
 ) -> JobsJob:
-    """Submit a job from SSE Runtime.
+    """Submit a job to the SSE engine.
 
     Args:
         input_job: The job data for the request.
@@ -31,7 +30,7 @@ def submit_job(
 
     Returns:
         JobsJob | None: If a timeout occurs, it returns None. Otherwise, it
-            returns the Job.
+            returns the OQTOPUS Client Job.
 
     Raises:
         OSError: If the job data is not set.
@@ -50,15 +49,15 @@ def submit_job(
     with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
         created = datetime.datetime.now(tz=datetime.UTC)
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
-        req_json = _make_request(job_json, input_job, upload_info)
+        request_dict = _make_request(job_json, input_job, upload_info)
         # gRPC request
-        request = sse_pb2.SseEngineRequest(job_json=json.dumps(req_json))
+        request = sse_pb2.SseEngineRequest(job_json=json.dumps(request_dict))
         response = stub.SseEngine(request)
 
         # make content of output file to pass the result to sserunner
         result_dict = _load_json_dict(response.job_json)
         ended = datetime.datetime.now(tz=datetime.UTC)
-        job = _make_client_job(result_dict)
+        job = _convert_to_oqtopus_client_job(result_dict)
         job.submitted_at = created
         job.ready_at = created
         job.running_at = created
@@ -77,16 +76,16 @@ def submit_job(
         return job
 
 
-def _make_client_job(
+def _convert_to_oqtopus_client_job(
     result_dict: dict[str, Any],
 ) -> JobsJob:
     # convert the result dict to a Job object for oqtopus-client
     job = JobsJob.from_dict(result_dict)
-    # extract job_info from the result dict
-    job.job_info = JobsJobInfo.from_dict(result_dict)
     if job is None:
         msg = "Could not parse job data"
         raise SseRuntimeError(msg)
+    # extract job_info from the result dict
+    job.job_info = JobsJobInfo.from_dict(result_dict)
     return job
 
 
@@ -95,7 +94,6 @@ def _make_request(
     input_job: JobsSubmitJobRequest,
     upload_info: JobsS3SubmitJobInfo,
 ) -> dict[str, Any]:
-
     job_dict = _load_json_dict(job_json)
     request = input_job.to_dict()
     request["job_id"] = job_dict["job_id"]  # set job_id of parent SSE job
