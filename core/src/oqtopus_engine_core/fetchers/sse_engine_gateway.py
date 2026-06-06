@@ -194,6 +194,7 @@ class SseEngineGatewayServicer:
         try:
             job_dict = json.loads(job_json)
             job = Job(**job_dict.get("submit_job_request", {}))
+            job.name = job.name or ""
             job.program = job_dict.get("upload_info", {}).get("program", [])
             operator = job_dict.get("upload_info", {}).get("operator", [])
             job.operator = [OperatorItem.parse_obj(op) for op in operator]

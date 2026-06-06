@@ -333,7 +333,7 @@ class SseRunner:
             userprogram_container_path = (
                 self._container_work_path["in"] / self._config["userprogram_name"]
             )
-            cmd = f"uv run --project /app python {userprogram_container_path} 1> /proc/1/fd/1 2> /proc/1/fd/2"  # noqa: E501
+            cmd = f"uv run --project /app --no-dev python {userprogram_container_path} 1> /proc/1/fd/1 2> /proc/1/fd/2"  # noqa: E501
             await self._exec_in_container(
                 user="appuser",
                 privileged=True,
