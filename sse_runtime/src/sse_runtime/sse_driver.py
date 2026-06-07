@@ -12,6 +12,7 @@ from oqtopus_client.rest.models import (
     JobsSubmitJobRequest,
 )
 from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
+from pydantic import ValidationError
 
 
 class SseRuntimeError(RuntimeError):
@@ -47,24 +48,19 @@ def submit_job(
         raise OSError(msg)
 
     with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
-        created = datetime.datetime.now(tz=datetime.UTC)
+        created = _now_utc()
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
         request_dict = _make_request(job_json, input_job, upload_info)
         # gRPC request
         request = sse_pb2.SseEngineRequest(job_json=json.dumps(request_dict))
         response = stub.SseEngine(request)
 
-        # make content of output file to pass the result to sserunner
-        result_dict = _load_json_dict(response.job_json)
-        ended = datetime.datetime.now(tz=datetime.UTC)
-        job = _convert_to_oqtopus_client_job(result_dict)
-        job.submitted_at = created
-        job.ready_at = created
-        job.running_at = created
-        job.ended_at = ended
+        # make an OQTOPUS Client Job object from the response to return to the caller
+        job = _convert_to_oqtopus_client_job_model(response.job_json)
+        _set_execution_timestamps(job, created=created, ended=_now_utc())
 
-        # write the content into result.json
-        _log_result(result_dict, "result.json")
+        # write the result to a file for sserunner to read
+        _log_result(response.job_json, "result.json")
 
         # raise error if the job execution is failed
         if response.status != "succeeded":
@@ -76,31 +72,44 @@ def submit_job(
         return job
 
 
-def _convert_to_oqtopus_client_job(
-    result_dict: dict[str, Any],
-) -> JobsJob:
-    # convert the result dict to a Job object for oqtopus-client
-    job = JobsJob.from_dict(result_dict)
-    if job is None:
-        msg = "Could not parse job data"
-        raise SseRuntimeError(msg)
-    # extract job_info from the result dict
-    job.job_info = JobsJobInfo.from_dict(result_dict)
-    return job
-
-
 def _make_request(
     job_json: str,
     input_job: JobsSubmitJobRequest,
     upload_info: JobsS3SubmitJobInfo,
 ) -> dict[str, Any]:
-    job_dict = _load_json_dict(job_json)
-    request = input_job.to_dict()
-    request["job_id"] = job_dict["job_id"]  # set job_id of parent SSE job
+    request = _convert_to_engine_job_model(input_job, upload_info)
+    # set job_id of parent SSE job and status
+    request["job_id"] = _load_json_dict(job_json)["job_id"]
     request["status"] = "ready"
-    request["input"] = ""
+    return request
 
-    return {"submit_job_request": request, "upload_info": upload_info.to_dict()}
+
+def _convert_to_engine_job_model(
+    input_job: JobsSubmitJobRequest,
+    upload_info: JobsS3SubmitJobInfo,
+) -> dict[str, Any]:
+    engine_job_dict = input_job.model_dump()
+    upload_info_dict = upload_info.model_dump()
+
+    engine_job_dict["name"] = engine_job_dict["name"] or ""
+    engine_job_dict["program"] = upload_info_dict.get("program", [])
+    engine_job_dict["operator"] = upload_info_dict.get("operator", [])
+    engine_job_dict["input"] = ""
+    return engine_job_dict
+
+
+def _convert_to_oqtopus_client_job_model(
+    response_json: str,
+) -> JobsJob:
+    try:
+        # convert the response to a Job object for OQTOPUS Client
+        job = JobsJob.model_validate_json(response_json, extra="ignore")
+        # extract job_info from the response
+        job.job_info = JobsJobInfo.model_validate_json(response_json, extra="ignore")
+    except ValidationError as e:
+        msg = f"Could not parse job data: {e}"
+        raise SseRuntimeError(msg) from e
+    return job
 
 
 def _load_json_dict(raw_json: str | None) -> dict[str, Any]:
@@ -120,7 +129,23 @@ def _job_message(job: JobsJob) -> str | None:
     return job.job_info.message
 
 
-def _log_result(contents_dict: dict[str, Any], filename: str) -> None:
+def _now_utc() -> datetime.datetime:
+    return datetime.datetime.now(tz=datetime.UTC)
+
+
+def _set_execution_timestamps(
+    job: JobsJob,
+    *,
+    created: datetime.datetime,
+    ended: datetime.datetime,
+) -> None:
+    job.submitted_at = created
+    job.ready_at = created
+    job.running_at = created
+    job.ended_at = ended
+
+
+def _log_result(contents_json: str, filename: str) -> None:
     # write the result to a file
     dir_path = os.environ.get("OUT_PATH", "")
     p = Path(dir_path)
@@ -130,11 +155,4 @@ def _log_result(contents_dict: dict[str, Any], filename: str) -> None:
 
     file_path = Path(dir_path, filename)
     with Path.open(file_path, "w") as f:
-        json.dump(contents_dict, f, indent=2, default=_json_default)
-
-
-def _json_default(value: object) -> str:
-    if isinstance(value, datetime.datetime):
-        return value.isoformat()
-    msg = f"Object of type {type(value).__name__} is not JSON serializable"
-    raise TypeError(msg)
+        f.write(contents_json)

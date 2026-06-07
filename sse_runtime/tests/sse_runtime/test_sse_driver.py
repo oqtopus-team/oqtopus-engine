@@ -91,7 +91,7 @@ def _build_upload_info_with_operator() -> JobsS3SubmitJobInfo:
     )
 
 
-def _to_gateway_response_dict(job: Any) -> dict[str, Any]:
+def _to_gateway_response_json(job: Any) -> str:
     """Build the exact response payload shape used by SseEngineGateway.
 
     core/src/oqtopus_engine_core/fetchers/sse_engine_gateway.py sets:
@@ -99,46 +99,21 @@ def _to_gateway_response_dict(job: Any) -> dict[str, Any]:
     This helper intentionally mirrors that serialization path.
 
     Returns:
-        dict[str, Any]: Gateway-equivalent JSON payload as a dictionary.
+        str: Gateway-equivalent JSON payload as a string.
     """
-    return json.loads(job.model_dump_json(exclude={"parent", "children"}))
+    return job.model_dump_json(exclude={"parent", "children"})
 
 
-def _build_response_job(*, status: str, message: str | None = None) -> Any:
-    return _Job(
-        job_id="parent-1",
-        name="sse-result",
-        job_type="sse",
-        status=status,
-        device_id="device-a",
-        shots=1024,
-        input="s3://bucket/input.json",
-        program=["OPENQASM 3;"],
-        operator=[],
-        sse_program="print('hello')",
-        transpiler_info={},
-        simulator_info={},
-        mitigation_info={},
-        message=message,
-    )
-
-
-def _build_response_job_json(*, status: str, message: str) -> str:
-    return json.dumps(
-        _to_gateway_response_dict(_build_response_job(status=status, message=message))
-    )
-
-
-def _build_minimal_response_job_dict(
+def _build_minimal_response_job_json(
     *,
-    job_id: str,
+    job_id: str = "parent-1",
     status: str,
-    shots: int,
+    shots: int = 1024,
     message: str,
-    input_path: str,
+    input_path: str = "s3://bucket/input.json",
     include_operator: bool = False,
-) -> dict[str, Any]:
-    return _to_gateway_response_dict(
+) -> str:
+    return _to_gateway_response_json(
         _Job(
             job_id=job_id,
             name="sse-result",
@@ -148,7 +123,9 @@ def _build_minimal_response_job_dict(
             shots=shots,
             input=input_path,
             program=["OPENQASM 3;"],
-            operator=[_OperatorItem(pauli="Z0", coeff=1.0)] if include_operator else [],
+            operator=[_OperatorItem(pauli="Z0", coeff=1.0)]
+            if include_operator
+            else None,
             sse_program="print('hello')",
             transpiler_info={},
             simulator_info={},
@@ -202,7 +179,7 @@ def _build_response_job_full(*, status: str, message: str | None = None) -> Any:
 
 def _build_response_job_json_full(*, status: str, message: str) -> str:
     job = _build_response_job_full(status=status, message=message)
-    return json.dumps(_to_gateway_response_dict(job))
+    return _to_gateway_response_json(job)
 
 
 def _assert_common_job_fields(
@@ -299,11 +276,26 @@ def _assert_full_job_info_fields(job: JobsJob, *, message: str) -> None:
 def _assert_make_request_payload(
     request: dict[str, Any],
     *,
-    expected_submit_job_request: dict[str, Any],
-    expected_upload_info: dict[str, Any],
+    expected_request: dict[str, Any],
 ) -> None:
-    assert request["submit_job_request"] == expected_submit_job_request
-    assert request["upload_info"] == expected_upload_info
+    assert request == expected_request
+
+
+def _build_expected_request(
+    input_job: JobsSubmitJobRequest,
+    upload_info: JobsS3SubmitJobInfo,
+    *,
+    parent_job_id: str,
+) -> dict[str, Any]:
+    expected_request = input_job.model_dump()
+    expected_upload_info = upload_info.model_dump()
+    expected_request["job_id"] = parent_job_id
+    expected_request["status"] = "ready"
+    expected_request["name"] = expected_request["name"] or ""
+    expected_request["program"] = expected_upload_info.get("program", [])
+    expected_request["operator"] = expected_upload_info.get("operator", [])
+    expected_request["input"] = ""
+    return expected_request
 
 
 # -----------------------------
@@ -348,15 +340,13 @@ def test_make_request_merges_submit_job_request_and_upload_info(
 
     request = sse_driver._make_request(job_json, input_job, upload_info)
 
-    expected_submit_job_request = input_job.to_dict()
-    expected_submit_job_request["job_id"] = "parent-id"
-    expected_submit_job_request["status"] = "ready"
-    expected_submit_job_request["input"] = ""
-
     _assert_make_request_payload(
         request,
-        expected_submit_job_request=expected_submit_job_request,
-        expected_upload_info=upload_info.to_dict(),
+        expected_request=_build_expected_request(
+            input_job,
+            upload_info,
+            parent_job_id="parent-id",
+        ),
     )
 
 
@@ -367,17 +357,7 @@ def test_make_request_serializes_operator_items() -> None:
         _build_upload_info_with_operator(),
     )
 
-    assert request["upload_info"]["operator"] == [{"pauli": "Z0", "coeff": 1.0}]
-
-
-def test_json_default_returns_isoformat_for_datetime() -> None:
-    value = datetime.datetime(2026, 1, 2, 3, 4, 5, tzinfo=datetime.UTC)
-    assert sse_driver._json_default(value) == value.isoformat()
-
-
-def test_json_default_raises_for_unsupported_type() -> None:
-    with pytest.raises(TypeError, match="not JSON serializable"):
-        sse_driver._json_default(object())
+    assert request["operator"] == [{"pauli": "Z0", "coeff": 1.0}]
 
 
 # -----------------
@@ -390,7 +370,7 @@ def test_log_result_writes_json_file(
     monkeypatch.setenv("OUT_PATH", str(tmp_path))
 
     payload = {"status": "succeeded", "count": 3}
-    sse_driver._log_result(payload, "result.json")
+    sse_driver._log_result(json.dumps(payload), "result.json")
 
     output_file = tmp_path / "result.json"
     assert output_file.exists()
@@ -403,7 +383,7 @@ def test_log_result_raises_when_out_path_does_not_exist(
     monkeypatch.setenv("OUT_PATH", "/path/does/not/exist")
 
     with pytest.raises(sse_driver.SseRuntimeError, match="does not exist"):
-        sse_driver._log_result({"status": "failed"}, "result.json")
+        sse_driver._log_result(json.dumps({"status": "failed"}), "result.json")
 
 
 def test_submit_job_raises_when_job_json_missing(
@@ -428,14 +408,14 @@ def test_submit_job_raises_when_job_json_missing(
         ("job-2", "failed", 1, "backend failed", "JobsJobStatus.FAILED"),
     ],
 )
-def test_convert_to_oqtopus_client_job_maps_minimal_payload(
+def test_convert_to_oqtopus_client_job_model_maps_minimal_payload(
     job_id: str,
     status: str,
     shots: int,
     message: str,
     expected_status: str,
 ) -> None:
-    result_dict = _build_minimal_response_job_dict(
+    result_json = _build_minimal_response_job_json(
         job_id=job_id,
         status=status,
         shots=shots,
@@ -444,7 +424,7 @@ def test_convert_to_oqtopus_client_job_maps_minimal_payload(
         include_operator=status == "failed",
     )
 
-    converted = sse_driver._convert_to_oqtopus_client_job(result_dict)
+    converted = sse_driver._convert_to_oqtopus_client_job_model(result_json)
 
     _assert_common_job_fields(
         converted,
@@ -454,15 +434,6 @@ def test_convert_to_oqtopus_client_job_maps_minimal_payload(
         shots=shots,
         status=expected_status,
     )
-    assert str(converted.job_type) == "JobsJobType.SSE"
-    assert converted.transpiler_info == {}
-    assert converted.simulator_info == {}
-    assert converted.mitigation_info == {}
-    assert converted.execution_time is None
-    assert converted.submitted_at is None
-    assert converted.ready_at is None
-    assert converted.running_at is None
-    assert converted.ended_at is None
     _assert_job_info_message_and_input(
         converted,
         message=message,
@@ -471,17 +442,13 @@ def test_convert_to_oqtopus_client_job_maps_minimal_payload(
     _assert_minimal_job_defaults(converted)
 
 
-def test_convert_to_oqtopus_client_job_raises_when_job_parse_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(sse_driver.JobsJob, "from_dict", lambda _payload: None)
-
+def test_convert_to_oqtopus_client_job_model_raises_when_job_parse_fails() -> None:
     with pytest.raises(sse_driver.SseRuntimeError, match="Could not parse job data"):
-        sse_driver._convert_to_oqtopus_client_job({"job_id": "job-1"})
+        sse_driver._convert_to_oqtopus_client_job_model(json.dumps({"job_id": "job-1"}))
 
 
-def test_convert_to_oqtopus_client_job_uses_flat_gateway_payload_fields() -> None:
-    result_dict = _build_minimal_response_job_dict(
+def test_convert_to_oqtopus_client_job_model_uses_flat_gateway_payload_fields() -> None:
+    result_json = _build_minimal_response_job_json(
         job_id="job-3",
         status="failed",
         shots=1,
@@ -490,7 +457,7 @@ def test_convert_to_oqtopus_client_job_uses_flat_gateway_payload_fields() -> Non
         include_operator=True,
     )
 
-    converted = sse_driver._convert_to_oqtopus_client_job(result_dict)
+    converted = sse_driver._convert_to_oqtopus_client_job_model(result_json)
 
     _assert_job_info_message_and_input(
         converted,
@@ -499,31 +466,31 @@ def test_convert_to_oqtopus_client_job_uses_flat_gateway_payload_fields() -> Non
     )
 
 
-def test_convert_to_oqtopus_client_job_maps_all_job_fields_from_model_payload() -> None:
-    result_dict = json.loads(
-        _build_response_job_json_full(status="succeeded", message="all fields present")
+def test_convert_to_oqtopus_client_job_model_all_fields_from_model_payload() -> None:
+    result_json = _build_response_job_json_full(
+        status="succeeded", message="all fields present"
     )
 
-    converted = sse_driver._convert_to_oqtopus_client_job(result_dict)
+    converted = sse_driver._convert_to_oqtopus_client_job_model(result_json)
 
     _assert_full_job_fields(converted)
 
 
-def test_convert_to_oqtopus_client_job_maps_all_job_info_fields() -> None:
-    result_dict = json.loads(
-        _build_response_job_json_full(status="failed", message="full info fields")
+def test_convert_to_oqtopus_client_job_model_all_job_info_fields() -> None:
+    result_json = _build_response_job_json_full(
+        status="failed", message="full info fields"
     )
 
-    converted = sse_driver._convert_to_oqtopus_client_job(result_dict)
+    converted = sse_driver._convert_to_oqtopus_client_job_model(result_json)
 
     _assert_full_job_info_fields(converted, message="full info fields")
 
 
-def test_convert_to_oqtopus_client_job_ignores_nested_job_info_key() -> None:
-    # _convert_to_oqtopus_client_job always builds job_info from the flat
+def test_convert_to_oqtopus_client_job_model_ignores_nested_job_info_key() -> None:
+    # _convert_to_oqtopus_client_job_model always builds job_info from the flat
     # result_dict (i.e. Job.model_dump_json output).  A "job_info" sub-key is
     # not used; flat fields take precedence regardless.
-    result_dict = _to_gateway_response_dict(
+    result_json = _to_gateway_response_json(
         _Job(
             job_id="job-4",
             name="flat-wins",
@@ -539,12 +506,13 @@ def test_convert_to_oqtopus_client_job_ignores_nested_job_info_key() -> None:
         )
     )
     # Inject an extraneous nested job_info key (should be ignored).
+    result_dict = json.loads(result_json)
     result_dict["job_info"] = {
         "input": "s3://bucket/nested-input.json",
         "message": "nested message",
     }
 
-    converted = sse_driver._convert_to_oqtopus_client_job(result_dict)
+    converted = sse_driver._convert_to_oqtopus_client_job_model(json.dumps(result_dict))
 
     # Flat fields from the model are used; the nested job_info key is ignored.
     _assert_common_job_fields(
@@ -583,7 +551,7 @@ def test_submit_job_grpc_success_path(
     fake_response = SimpleNamespace(
         status="succeeded",
         message="",
-        job_json=_build_response_job_json(status="succeeded", message="ok"),
+        job_json=_build_minimal_response_job_json(status="succeeded", message="ok"),
     )
 
     class _FakeStub:
@@ -647,7 +615,9 @@ def test_submit_job_raises_when_status_failed(
     fake_response = SimpleNamespace(
         status=grpc_status,
         message=grpc_message,
-        job_json=_build_response_job_json(status=job_status, message=job_message),
+        job_json=_build_minimal_response_job_json(
+            status=job_status, message=job_message
+        ),
     )
 
     class _FakeStub:
