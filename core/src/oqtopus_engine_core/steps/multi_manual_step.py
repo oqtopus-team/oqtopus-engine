@@ -2,7 +2,7 @@ import json
 import logging
 import time
 
-import grpc
+from oqtopus_util.grpc import create_aio_insecure_channel
 
 from oqtopus_engine_core.framework import GlobalContext, Job, JobContext, Step
 from oqtopus_engine_core.interfaces.combiner_interface.v1 import (
@@ -117,8 +117,12 @@ def divide_result(
 class MultiManualStep(Step):
     """Step that sends a command to the Combiner via gRPC during pre_process."""
 
-    def __init__(self, combiner_address: str = "localhost:5002") -> None:
-        self._channel = grpc.aio.insecure_channel(combiner_address)
+    def __init__(
+        self,
+        combiner_address: str = "localhost:5002",
+        grpc_options: dict | None = None,
+    ) -> None:
+        self._channel = create_aio_insecure_channel(combiner_address, grpc_options)
         self._stub = combiner_pb2_grpc.CombinerServiceStub(self._channel)
         logger.info(
             "MultiManualStep was initialized",

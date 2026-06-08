@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 
-import grpc
+from oqtopus_util.grpc import create_aio_insecure_channel
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -136,8 +136,12 @@ def _select_program(job: Job) -> str:
 class DeviceGatewayStep(Step, DetachOnPostprocess):
     """Step that sends a job to the device gateway via gRPC during pre_process."""
 
-    def __init__(self, gateway_address: str = "localhost:50051") -> None:
-        self._channel = grpc.aio.insecure_channel(gateway_address)
+    def __init__(
+        self,
+        gateway_address: str = "localhost:50051",
+        grpc_options: dict | None = None,
+    ) -> None:
+        self._channel = create_aio_insecure_channel(gateway_address, grpc_options)
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
         # Engine owns device access orchestration, so all jobs, including
         # internal estimation children, must serialize gateway execution here.

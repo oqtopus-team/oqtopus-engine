@@ -13,6 +13,7 @@ import numpy as np
 import qiskit.qasm3  # type: ignore[import-untyped]
 from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
 from oqtopus_util.config import load_config, setup_logging
+from oqtopus_util.grpc import create_server
 from qiskit import QuantumCircuit
 
 from oqtopus_engine_combiner.mp_auto import OptimalCircuitCombiner
@@ -434,7 +435,10 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     idle_qubits_insertion_enabled = str_idle_qubits_insertion_enabled.lower() == "true"
 
     # create the gRPC server
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers))
+    server = create_server(
+        futures.ThreadPoolExecutor(max_workers),
+        config_yaml.get("grpc") or config_yaml["proto"],
+    )
     add_CombinerServiceServicer_to_server(
         CircuitCombiner(idle_qubits_insertion_enabled=idle_qubits_insertion_enabled),
         server,

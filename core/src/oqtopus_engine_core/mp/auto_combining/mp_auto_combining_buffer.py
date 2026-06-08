@@ -5,8 +5,8 @@ import json
 import logging
 import time
 
-import grpc  # type: ignore[import-untyped]
 import qiskit.qasm3  # type: ignore[import-untyped]
+from oqtopus_util.grpc import create_aio_insecure_channel
 from qiskit.circuit import (  # type: ignore[import-untyped]
     ClassicalRegister,
     QuantumCircuit,
@@ -62,7 +62,8 @@ class MpAutoCombiningBuffer(Buffer):
         combiner_address: str = "localhost:52013",
         monitor_interval_seconds: float = 1,
         max_batch_size: int = 60,
-        max_qsize_to_proceed: int = 5
+        max_qsize_to_proceed: int = 5,
+        grpc_options: dict | None = None,
     ) -> None:
         self._input_queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
         self._output_queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
@@ -72,7 +73,7 @@ class MpAutoCombiningBuffer(Buffer):
         self._max_qsize_to_proceed = max_qsize_to_proceed
         self._stopped = asyncio.Event()
 
-        self._channel = grpc.aio.insecure_channel(combiner_address)
+        self._channel = create_aio_insecure_channel(combiner_address, grpc_options)
         self._stub = combiner_pb2_grpc.CombinerServiceStub(self._channel)
 
         task = asyncio.create_task(self.start())

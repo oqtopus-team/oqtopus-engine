@@ -2,7 +2,7 @@ import json
 import logging
 import time
 
-import grpc
+from oqtopus_util.grpc import create_aio_insecure_channel
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -26,10 +26,11 @@ class TranquStep(Step):
         self,
         tranqu_address: str = "localhost:52020",
         default_transpiler_info: dict | None = None,
+        grpc_options: dict | None = None,
     ) -> None:
         if default_transpiler_info is None:
             default_transpiler_info = {}
-        self._channel = grpc.aio.insecure_channel(tranqu_address)
+        self._channel = create_aio_insecure_channel(tranqu_address, grpc_options)
         self._stub = tranqu_pb2_grpc.TranspilerServiceStub(self._channel)
         self._default_transpiler_info = default_transpiler_info
         logger.info(

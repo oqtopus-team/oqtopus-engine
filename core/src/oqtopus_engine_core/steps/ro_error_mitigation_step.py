@@ -2,7 +2,7 @@ import json
 import logging
 import time
 
-import grpc
+from oqtopus_util.grpc import create_aio_insecure_channel
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -34,15 +34,20 @@ class ReadoutErrorMitigationStep(Step):
 
     """
 
-    def __init__(self, mitigator_address: str) -> None:
+    def __init__(
+        self,
+        mitigator_address: str,
+        grpc_options: dict | None = None,
+    ) -> None:
         """Initialize the ReadoutErrorMitigationStep with mitigator service address.
 
         Args:
             mitigator_address: Address of the gRPC mitigator service
                 (e.g., "localhost:52011").
+            grpc_options: gRPC channel options.
 
         """
-        self._channel = grpc.aio.insecure_channel(mitigator_address)
+        self._channel = create_aio_insecure_channel(mitigator_address, grpc_options)
         self._stub = mitigator_pb2_grpc.MitigatorServiceStub(self._channel)
         logger.info(
             "ReadoutErrorMitigationStep was initialized",

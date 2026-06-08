@@ -1,3 +1,4 @@
 proto: # Settings for gRPC server
   max_workers: ${MITIGATOR_WORKERS, 10} # Maximum number of workers
   address: ${MITIGATOR_ADDRESS, "localhost:51011"} # Address and port for RPCs
+  max_message_length: ${GRPC_MAX_MESSAGE_LENGTH, null}

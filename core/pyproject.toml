@@ -36,7 +36,11 @@ dependencies = [
   "opentelemetry-sdk>=1.27.0",
   "opentelemetry-instrumentation-grpc>=0.48b0",
   "opentelemetry-instrumentation-urllib3>=0.48b0",
+  "oqtopus-util>=1.0.2",
 ]
+
+[tool.uv.sources]
+oqtopus-util = { git = "https://github.com/oqtopus-team/oqtopus-util.git", branch = "feature/grpc-message-size-config" }
 
 [project.urls]
 documentation = "https://oqtopus-engine.readthedocs.io/"

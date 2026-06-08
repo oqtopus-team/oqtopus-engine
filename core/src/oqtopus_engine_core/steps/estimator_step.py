@@ -3,7 +3,7 @@ import logging
 import time
 from copy import deepcopy
 
-import grpc
+from oqtopus_util.grpc import create_aio_insecure_channel
 
 from oqtopus_engine_core.framework import (
     EstimationResult,
@@ -127,8 +127,9 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         self,
         estimator_address: str = "localhost:52012",
         basis_gates: list[str] | None = None,
+        grpc_options: dict | None = None,
     ) -> None:
-        self._channel = grpc.aio.insecure_channel(estimator_address)
+        self._channel = create_aio_insecure_channel(estimator_address, grpc_options)
         self._stub = estimator_pb2_grpc.EstimatorServiceStub(self._channel)
         self._basis_gates = basis_gates
         logger.info(

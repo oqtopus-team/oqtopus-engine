@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-import grpc
+from oqtopus_util.grpc import create_aio_insecure_channel
 
 from oqtopus_engine_core.framework import Device, DeviceFetcher
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2, qpu_pb2_grpc
@@ -39,6 +39,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
         loop_interval_seconds: float = 60.0,
         loop_backoff_max_seconds: float = 300.0,
         enable_device_info_update: bool = True,  # noqa: FBT001, FBT002
+        grpc_options: dict | None = None,
     ) -> None:
         """Initialize the DeviceGatewayFetcher.
 
@@ -50,12 +51,13 @@ class DeviceGatewayFetcher(DeviceFetcher):
             loop_interval_seconds: Fetch interval in seconds after initialization.
             loop_backoff_max_seconds: Maximum backoff time for loop fetch in seconds.
             enable_device_info_update: Whether to update device info from gateway.
+            grpc_options: gRPC channel options.
 
         """
         super().__init__()
 
         # Construct gRPC channel and stub
-        self._channel = grpc.aio.insecure_channel(gateway_address)
+        self._channel = create_aio_insecure_channel(gateway_address, grpc_options)
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
         self._initial_interval_seconds = initial_interval_seconds
         self._initial_backoff_max_seconds = initial_backoff_max_seconds

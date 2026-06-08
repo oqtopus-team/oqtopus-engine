@@ -1,3 +1,6 @@
+grpc:
+  max_message_length: ${GRPC_MAX_MESSAGE_LENGTH, null}
+
 # Pipeline Executor Configuration (get instances from DI container)
 pipeline_executor:
   pipeline:

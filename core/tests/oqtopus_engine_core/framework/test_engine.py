@@ -119,3 +119,32 @@ async def test_run_components_runs_all():
 
     assert a.started
     assert b.started
+
+
+def test_inject_common_grpc_options_adds_options_to_grpc_components():
+    config = {
+        "grpc": {"max_message_length": 1234},
+        "di_container": {
+            "registry": {
+                "tranqu_step": {
+                    "_target_": "oqtopus_engine_core.steps.TranquStep",
+                    "tranqu_address": "localhost:52020",
+                },
+                "job_repository": {
+                    "_target_": "oqtopus_engine_core.repositories.NullJobRepository",
+                },
+                "custom_override": {
+                    "_target_": "oqtopus_engine_core.steps.EstimatorStep",
+                    "grpc_options": {"max_message_length": 5678},
+                },
+            },
+        },
+    }
+
+    updated = Engine._inject_common_grpc_options(config)
+    registry = updated["di_container"]["registry"]
+
+    assert registry["tranqu_step"]["grpc_options"] == {"max_message_length": 1234}
+    assert "grpc_options" not in registry["job_repository"]
+    assert registry["custom_override"]["grpc_options"] == {"max_message_length": 5678}
+    assert "grpc_options" not in config["di_container"]["registry"]["tranqu_step"]

@@ -4,6 +4,7 @@ import logging
 import time
 
 import grpc
+from oqtopus_util.grpc import create_aio_server
 
 from oqtopus_engine_core.framework import GlobalContext, Job, JobContext, JobFetcher
 from oqtopus_engine_core.framework.pipeline import PipelineExecutor
@@ -23,15 +24,18 @@ class SseEngineGateway(JobFetcher):
     def __init__(
         self,
         sse_engine_address: str = "[::]:5005",
+        grpc_options: dict | None = None,
     ) -> None:
         """Initialize the job gateway with the address:port to listen.
 
         Args:
             sse_engine_address: The address:port to listen on.
+            grpc_options: gRPC server options.
 
         """
         super().__init__()
         self._sse_engine_address = sse_engine_address
+        self._grpc_options = grpc_options
 
         logger.info(
             "SseEngineGateway was initialized",
@@ -49,7 +53,7 @@ class SseEngineGateway(JobFetcher):
             msg = "PipelineExecutor and GlobalContext must not be None"
             raise ValueError(msg)
 
-        server = grpc.aio.server()
+        server = create_aio_server(self._grpc_options)
         sse_servicer = SseEngineGatewayServicer(self.pipeline, self.gctx)
         sse_pb2_grpc.add_SseEngineServiceServicer_to_server(
             sse_servicer,

@@ -1,6 +1,7 @@
 
 import asyncio
 import logging
+from copy import deepcopy
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -16,6 +17,17 @@ from .observability import instrument_clients, register_span_processor
 from .pipeline_builder import PipelineBuilder
 
 logger = logging.getLogger(__name__)
+
+GRPC_OPTION_TARGETS = {
+    "oqtopus_engine_core.fetchers.DeviceGatewayFetcher",
+    "oqtopus_engine_core.fetchers.SseEngineGateway",
+    "oqtopus_engine_core.mp.auto_combining.MpAutoCombiningBuffer",
+    "oqtopus_engine_core.steps.DeviceGatewayStep",
+    "oqtopus_engine_core.steps.EstimatorStep",
+    "oqtopus_engine_core.steps.MultiManualStep",
+    "oqtopus_engine_core.steps.ReadoutErrorMitigationStep",
+    "oqtopus_engine_core.steps.TranquStep",
+}
 
 
 class Engine:
@@ -36,6 +48,8 @@ class Engine:
                 pipeline executor, and other components.
 
         """
+        config = self._inject_common_grpc_options(config)
+
         # Initialize the global context
         self._gctx = GlobalContext(config=config)
         logger.info("gctx.config=%s", mask_sensitive_info(self._gctx.config))
@@ -89,3 +103,24 @@ class Engine:
     async def _run_components(components: list) -> None:
         tasks = [asyncio.create_task(c.start()) for c in components]
         await asyncio.gather(*tasks)
+
+    @staticmethod
+    def _inject_common_grpc_options(config: dict) -> dict:
+        """Inject top-level gRPC options into gRPC DI components.
+
+        Returns:
+            The config with common gRPC options added to relevant DI entries.
+
+        """
+        grpc_options = config.get("grpc")
+        if not isinstance(grpc_options, dict) or not grpc_options:
+            return config
+
+        config_with_grpc = deepcopy(config)
+        registry = config_with_grpc.get("di_container", {}).get("registry", {})
+        for component in registry.values():
+            if not isinstance(component, dict):
+                continue
+            if component.get("_target_") in GRPC_OPTION_TARGETS:
+                component.setdefault("grpc_options", grpc_options)
+        return config_with_grpc
