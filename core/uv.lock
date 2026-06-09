@@ -480,6 +480,7 @@ dependencies = [
     { name = "opentelemetry-instrumentation-grpc" },
     { name = "opentelemetry-instrumentation-urllib3" },
     { name = "opentelemetry-sdk" },
+    { name = "oqtopus-util" },
     { name = "protobuf" },
     { name = "pydantic" },
     { name = "python-json-logger" },
@@ -511,6 +512,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-grpc", specifier = ">=0.48b0" },
     { name = "opentelemetry-instrumentation-urllib3", specifier = ">=0.48b0" },
     { name = "opentelemetry-sdk", specifier = ">=1.27.0" },
+    { name = "oqtopus-util", specifier = ">=1.0.1" },
     { name = "protobuf", specifier = ">=6.33.2" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "python-json-logger", specifier = ">=4.0.0" },
@@ -531,6 +533,18 @@ dev = [
     { name = "pytest-mock", specifier = ">=3.15.1" },
     { name = "qiskit-aer", specifier = ">=0.17.2" },
     { name = "ruff", specifier = ">=0.14.8" },
+]
+
+[[package]]
+name = "oqtopus-util"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a2/00/fdff8bcbb51d3e9e061df44e730ae97eeb31dbb47638d8639ac29b87ca3f/oqtopus_util-1.0.1.tar.gz", hash = "sha256:a8e8b2df41905938458c0781817a72d42064d2dc31d18bc4d6eff54fe10daa5c", size = 224529, upload-time = "2026-05-26T06:06:51.016Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/53/5b/d094603c64100de1d63c0cbef67f689ad131acfed5290021790173f32fce/oqtopus_util-1.0.1-py3-none-any.whl", hash = "sha256:2c9efce619cca3e7e86dc33809eeac10029489ebd92e292e3af33db809f0bdce", size = 12105, upload-time = "2026-05-26T06:06:49.573Z" },
 ]
 
 [[package]]
