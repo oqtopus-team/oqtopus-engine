@@ -16,7 +16,6 @@ lint: ## Run linting
 
 test: ## Run tests
 	@uv run pytest
-.PHONY: build-sse help
 
 help: ## Show help message
 	@echo "Usage: make [target]"
