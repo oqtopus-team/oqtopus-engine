@@ -4,6 +4,11 @@ import asyncio
 import json
 import logging
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import Any
 
 import qiskit.qasm3  # type: ignore[import-untyped]
 from oqtopus_util.grpc import create_aio_insecure_channel
@@ -63,7 +68,7 @@ class MpAutoCombiningBuffer(Buffer):
         monitor_interval_seconds: float = 1,
         max_batch_size: int = 60,
         max_qsize_to_proceed: int = 5,
-        grpc_options: list | None = None,
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
         self._input_queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
         self._output_queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)

@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Sequence
+from typing import Any
 
 import grpc
 from oqtopus_util.grpc import create_aio_server
@@ -24,7 +26,7 @@ class SseEngineGateway(JobFetcher):
     def __init__(
         self,
         sse_engine_address: str = "[::]:5005",
-        grpc_options: list | None = None,
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
         """Initialize the job gateway with the address:port to listen.
 

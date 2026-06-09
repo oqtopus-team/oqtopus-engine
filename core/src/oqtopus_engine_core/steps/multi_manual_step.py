@@ -1,6 +1,8 @@
 import json
 import logging
 import time
+from collections.abc import Sequence
+from typing import Any
 
 from oqtopus_util.grpc import create_aio_insecure_channel
 
@@ -120,7 +122,7 @@ class MultiManualStep(Step):
     def __init__(
         self,
         combiner_address: str = "localhost:5002",
-        grpc_options: list | None = None,
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
         self._channel = create_aio_insecure_channel(combiner_address, grpc_options)
         self._stub = combiner_pb2_grpc.CombinerServiceStub(self._channel)

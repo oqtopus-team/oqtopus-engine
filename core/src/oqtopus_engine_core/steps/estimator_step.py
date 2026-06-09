@@ -1,7 +1,9 @@
 import json
 import logging
 import time
+from collections.abc import Sequence
 from copy import deepcopy
+from typing import Any
 
 from oqtopus_util.grpc import create_aio_insecure_channel
 
@@ -127,7 +129,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         self,
         estimator_address: str = "localhost:52012",
         basis_gates: list[str] | None = None,
-        grpc_options: list | None = None,
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
         self._channel = create_aio_insecure_channel(estimator_address, grpc_options)
         self._stub = estimator_pb2_grpc.EstimatorServiceStub(self._channel)
