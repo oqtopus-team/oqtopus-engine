@@ -1,8 +1,9 @@
 monitoring:
   enabled: ${MONITORING_ENABLED, false}
 
-grpc:
-  max_message_length: ${GRPC_MAX_MESSAGE_LENGTH, null}
+proto:
+  grpc.max_receive_message_length: ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}
+  grpc.max_send_message_length: ${GRPC_MAX_SEND_MESSAGE_LENGTH, -1}
 
 # Pipeline Executor Configuration (get instances from DI container)
 pipeline_executor:

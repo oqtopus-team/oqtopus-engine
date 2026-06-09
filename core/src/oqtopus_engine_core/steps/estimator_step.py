@@ -127,7 +127,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         self,
         estimator_address: str = "localhost:52012",
         basis_gates: list[str] | None = None,
-        grpc_options: dict | None = None,
+        grpc_options: list | None = None,
     ) -> None:
         self._channel = create_aio_insecure_channel(estimator_address, grpc_options)
         self._stub = estimator_pb2_grpc.EstimatorServiceStub(self._channel)

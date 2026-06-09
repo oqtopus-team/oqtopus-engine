@@ -139,7 +139,7 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
     def __init__(
         self,
         gateway_address: str = "localhost:50051",
-        grpc_options: dict | None = None,
+        grpc_options: list | None = None,
     ) -> None:
         self._channel = create_aio_insecure_channel(gateway_address, grpc_options)
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)

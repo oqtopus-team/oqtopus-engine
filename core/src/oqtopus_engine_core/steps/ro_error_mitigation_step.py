@@ -37,7 +37,7 @@ class ReadoutErrorMitigationStep(Step):
     def __init__(
         self,
         mitigator_address: str,
-        grpc_options: dict | None = None,
+        grpc_options: list | None = None,
     ) -> None:
         """Initialize the ReadoutErrorMitigationStep with mitigator service address.
 

@@ -26,7 +26,7 @@ class TranquStep(Step):
         self,
         tranqu_address: str = "localhost:52020",
         default_transpiler_info: dict | None = None,
-        grpc_options: dict | None = None,
+        grpc_options: list | None = None,
     ) -> None:
         if default_transpiler_info is None:
             default_transpiler_info = {}

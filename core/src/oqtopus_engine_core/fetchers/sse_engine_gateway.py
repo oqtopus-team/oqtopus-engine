@@ -24,7 +24,7 @@ class SseEngineGateway(JobFetcher):
     def __init__(
         self,
         sse_engine_address: str = "[::]:5005",
-        grpc_options: dict | None = None,
+        grpc_options: list | None = None,
     ) -> None:
         """Initialize the job gateway with the address:port to listen.
 

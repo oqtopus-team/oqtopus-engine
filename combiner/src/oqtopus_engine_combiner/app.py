@@ -437,7 +437,11 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     # create the gRPC server
     server = create_server(
         futures.ThreadPoolExecutor(max_workers),
-        config_yaml.get("grpc") or config_yaml["proto"],
+        [
+            (key, value)
+            for key, value in config_yaml["proto"].items()
+            if key.startswith("grpc.")
+        ],
     )
     add_CombinerServiceServicer_to_server(
         CircuitCombiner(idle_qubits_insertion_enabled=idle_qubits_insertion_enabled),

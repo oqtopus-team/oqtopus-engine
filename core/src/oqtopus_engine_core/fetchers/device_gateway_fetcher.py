@@ -39,7 +39,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
         loop_interval_seconds: float = 60.0,
         loop_backoff_max_seconds: float = 300.0,
         enable_device_info_update: bool = True,  # noqa: FBT001, FBT002
-        grpc_options: dict | None = None,
+        grpc_options: list | None = None,
     ) -> None:
         """Initialize the DeviceGatewayFetcher.
 

@@ -1,6 +1,7 @@
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
@@ -106,14 +107,27 @@ class Engine:
 
     @staticmethod
     def _inject_common_grpc_options(config: dict) -> dict:
-        """Inject top-level gRPC options into gRPC DI components.
+        """Inject proto options into gRPC DI components.
 
         Returns:
             The config with common gRPC options added to relevant DI entries.
 
         """
-        grpc_options = config.get("grpc")
-        if not isinstance(grpc_options, dict) or not grpc_options:
+        proto_config = config.get("proto")
+        grpc_options = (
+            [
+                (key, value)
+                for key, value in proto_config.items()
+                if key.startswith("grpc.")
+            ]
+            if isinstance(proto_config, dict)
+            else None
+        )
+        if (
+            not isinstance(grpc_options, Sequence)
+            or isinstance(grpc_options, str | bytes)
+            or not grpc_options
+        ):
             return config
 
         config_with_grpc = deepcopy(config)

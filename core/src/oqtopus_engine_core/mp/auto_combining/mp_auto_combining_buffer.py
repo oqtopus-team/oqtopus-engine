@@ -63,7 +63,7 @@ class MpAutoCombiningBuffer(Buffer):
         monitor_interval_seconds: float = 1,
         max_batch_size: int = 60,
         max_qsize_to_proceed: int = 5,
-        grpc_options: dict | None = None,
+        grpc_options: list | None = None,
     ) -> None:
         self._input_queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
         self._output_queue: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
