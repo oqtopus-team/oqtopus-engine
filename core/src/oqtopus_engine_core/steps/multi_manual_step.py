@@ -126,7 +126,10 @@ class MultiManualStep(Step):
         self._stub = combiner_pb2_grpc.CombinerServiceStub(self._channel)
         logger.info(
             "MultiManualStep was initialized",
-            extra={"combiner_address": combiner_address},
+            extra={
+                "combiner_address": combiner_address,
+                "grpc_options": grpc_options,
+            },
         )
 
     async def pre_process(

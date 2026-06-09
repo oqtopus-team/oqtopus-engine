@@ -137,6 +137,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             extra={
                 "estimator_address": estimator_address,
                 "basis_gates": self._basis_gates,
+                "grpc_options": grpc_options,
             },
         )
 

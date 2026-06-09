@@ -39,7 +39,10 @@ class SseEngineGateway(JobFetcher):
 
         logger.info(
             "SseEngineGateway was initialized",
-            extra={"sse_engine_address": sse_engine_address},
+            extra={
+                "sse_engine_address": sse_engine_address,
+                "grpc_options": grpc_options,
+            },
         )
 
     async def start_server(self) -> None:

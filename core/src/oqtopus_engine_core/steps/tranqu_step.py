@@ -38,6 +38,7 @@ class TranquStep(Step):
             extra={
                 "tranqu_address": tranqu_address,
                 "default_transpiler_info": default_transpiler_info,
+                "grpc_options": grpc_options,
             },
         )
 

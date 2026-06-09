@@ -51,7 +51,10 @@ class ReadoutErrorMitigationStep(Step):
         self._stub = mitigator_pb2_grpc.MitigatorServiceStub(self._channel)
         logger.info(
             "ReadoutErrorMitigationStep was initialized",
-            extra={"mitigator_address": mitigator_address},
+            extra={
+                "mitigator_address": mitigator_address,
+                "grpc_options": grpc_options,
+            },
         )
 
     async def pre_process(
