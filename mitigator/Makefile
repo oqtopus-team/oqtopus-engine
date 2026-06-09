@@ -1,39 +1,45 @@
 SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
-.PHONY: help
 
-run:
-	@WORKERS=10 ADDRESS="localhost:52011" uv run python src/oqtopus_engine_mitigator/app.py -c config/config.yaml -l config/logging.yaml
+.PHONY: run, format, lint, test, verify, grpcurl-list, build, up, down, help
 
-test:
+run: ## Run application
+	@MITIGATOR_WORKERS=10 MITIGATOR_ADDRESS="localhost:51011" uv run python -m oqtopus_engine_mitigator.app -c config/config.yaml -l config/logging.yaml
+
+format: ## Run code formatting
+	@uv run ruff check --fix
+	@uv run ruff format
+
+lint: ## Run linting
+	@uv lock --check
+	@uv run ruff check
+	@uv run ruff format --check
+	@uv run mypy
+
+test: ## Run tests
 	@uv run pytest
 
-build :
+verify: format lint test ## Run all verification steps (formatting, linting, testing)
+
+grpcurl-list: ## List gRPC services via grpcurl
+	@grpcurl -plaintext localhost:51011 list
+
+build : ## Build Docker image
 	docker compose --env-file .env build
 
-up :
+up : ## Start Docker container
 	@if [ ! -d $(SHARE_DIR)/$(LOG_DIR) ]; then \
 		echo ";; mkdir -p $(SHARE_DIR)/$(LOG_DIR)"; mkdir -p $(SHARE_DIR)/$(LOG_DIR); \
 	fi
 	docker compose --env-file .env up -d mitigator
 
-down :
+down : ## Stop Docker container
 	docker compose --env-file .env down mitigator
 
-ruff :
-	@echo "...checking lint check"
-	@uv run ruff check src/mitigator.py
-	@echo "...checking format check"
-	@uv run ruff format src/mitigator.py --diff --check
-
-mypy:
-	@echo "...checking type check"
-	@uv run mypy src/mitigator.py
-
-clean :
-	@rm .venv -rf
-	@rm .ruff_cache -rf
-	@rm .pytest_cache -rf
-
-help :
+help: ## Show help message
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Available targets:"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(filter-out .env,$(MAKEFILE_LIST)) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'

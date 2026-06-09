@@ -18,7 +18,6 @@ from oqtopus_engine_combiner.app import (  # type: ignore[attr-defined]
     CustomTimedRotatingFileHandler,
     InvalidQubitsError,
     _parse_args,
-    assign_environ,
     serve,
 )
 from oqtopus_engine_core.interfaces.combiner_interface.v1 import combiner_pb2
@@ -511,40 +510,6 @@ def test_optimal_combine_negative_invalid_qasm_in_job():
 
     assert response.combined_status == 1  # STATUS_FAILURE
     assert response.combine_result == ""
-
-
-# ===================================================================
-# Tests for assign_environ
-# ===================================================================
-
-
-def test_assign_environ_expands_env_variable(monkeypatch):
-    monkeypatch.setenv("TEST_VAR", "/expanded/path")
-    config = {"key": "$TEST_VAR"}
-    result = assign_environ(config)
-    assert result["key"] == "/expanded/path"
-
-
-def test_assign_environ_expands_tilde():
-    config = {"key": "~/some/path"}
-    result = assign_environ(config)
-    assert "~" not in result["key"]
-    assert result["key"].endswith("/some/path")
-
-
-def test_assign_environ_nested_dict(monkeypatch):
-    monkeypatch.setenv("NESTED_VAR", "hello")
-    config = {"outer": {"inner": "$NESTED_VAR"}}
-    result = assign_environ(config)
-    assert result["outer"]["inner"] == "hello"
-
-
-def test_assign_environ_non_string_values():
-    config = {"number": 42, "boolean": True, "none_val": None}
-    result = assign_environ(config)
-    assert result["number"] == 42
-    assert result["boolean"] is True
-    assert result["none_val"] is None
 
 
 # ===================================================================
