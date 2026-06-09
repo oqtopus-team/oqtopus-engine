@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import time
+from collections.abc import Sequence
+from typing import Any
 
 from oqtopus_util.grpc import create_aio_insecure_channel
 
@@ -139,15 +141,19 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
     def __init__(
         self,
         gateway_address: str = "localhost:50051",
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
-        self._channel = create_aio_insecure_channel(gateway_address)
+        self._channel = create_aio_insecure_channel(gateway_address, grpc_options)
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
         # Engine owns device access orchestration, so all jobs, including
         # internal estimation children, must serialize gateway execution here.
         self._execution_lock = asyncio.Lock()
         logger.info(
-            "DeviceGatewayStep was initialized with gateway_address=%s",
-            gateway_address,
+            "DeviceGatewayStep was initialized",
+            extra={
+                "gateway_address": gateway_address,
+                "grpc_options": grpc_options,
+            },
         )
 
     async def pre_process(
