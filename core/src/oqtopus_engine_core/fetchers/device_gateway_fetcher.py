@@ -39,7 +39,6 @@ class DeviceGatewayFetcher(DeviceFetcher):
         loop_interval_seconds: float = 60.0,
         loop_backoff_max_seconds: float = 300.0,
         enable_device_info_update: bool = True,  # noqa: FBT001, FBT002
-        grpc_options: list | None = None,
     ) -> None:
         """Initialize the DeviceGatewayFetcher.
 
@@ -51,13 +50,12 @@ class DeviceGatewayFetcher(DeviceFetcher):
             loop_interval_seconds: Fetch interval in seconds after initialization.
             loop_backoff_max_seconds: Maximum backoff time for loop fetch in seconds.
             enable_device_info_update: Whether to update device info from gateway.
-            grpc_options: gRPC channel options.
 
         """
         super().__init__()
 
         # Construct gRPC channel and stub
-        self._channel = create_aio_insecure_channel(gateway_address, grpc_options)
+        self._channel = create_aio_insecure_channel(gateway_address)
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
         self._initial_interval_seconds = initial_interval_seconds
         self._initial_backoff_max_seconds = initial_backoff_max_seconds
