@@ -3,4 +3,4 @@ proto: # Settings for gRPC server
   address: ${MITIGATOR_ADDRESS, "localhost:51011"} # Address and port for RPCs
   grpc_options:
     - ["max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
-    - ["max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, -1}]
+    - ["max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]

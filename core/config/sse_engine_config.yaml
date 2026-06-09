@@ -13,7 +13,7 @@ di_container:
   registry:
     grpc_options: &grpc_options
       - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
-      - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, -1}]
+      - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
 
     # fetcher configurations
     _job_fetcher:
