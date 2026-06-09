@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Any
 
-from oqtopus_engine_core.utils.di_container import DiContainer
+from oqtopus_util.di import DiContainer
 
 from .pipeline import PipelineExecutor
 

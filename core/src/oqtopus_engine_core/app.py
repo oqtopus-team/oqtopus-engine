@@ -1,11 +1,9 @@
 import asyncio
 
+from oqtopus_util.config import load_config, setup_logging
+
 from oqtopus_engine_core.framework.engine import Engine
-from oqtopus_engine_core.utils import (
-    load_config,
-    parse_args,
-    setup_logging,
-)
+from oqtopus_engine_core.utils import parse_args
 
 
 async def main() -> None:
