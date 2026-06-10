@@ -49,7 +49,10 @@ class ReadoutErrorMitigationStep(Step):
             grpc_options: gRPC channel options.
 
         """
-        self._channel = create_aio_insecure_channel(mitigator_address, grpc_options)
+        self._channel = create_aio_insecure_channel(
+            mitigator_address,
+            options=grpc_options,
+        )
         self._stub = mitigator_pb2_grpc.MitigatorServiceStub(self._channel)
         logger.info(
             "ReadoutErrorMitigationStep was initialized",

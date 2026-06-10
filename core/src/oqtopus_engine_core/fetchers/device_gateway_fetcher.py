@@ -59,7 +59,10 @@ class DeviceGatewayFetcher(DeviceFetcher):
         super().__init__()
 
         # Construct gRPC channel and stub
-        self._channel = create_aio_insecure_channel(gateway_address, grpc_options)
+        self._channel = create_aio_insecure_channel(
+            gateway_address,
+            options=grpc_options,
+        )
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
         self._initial_interval_seconds = initial_interval_seconds
         self._initial_backoff_max_seconds = initial_backoff_max_seconds

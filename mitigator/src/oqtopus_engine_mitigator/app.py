@@ -6,7 +6,7 @@ from concurrent import futures
 import numpy as np
 from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
 from oqtopus_util.config import load_config, setup_logging
-from oqtopus_util.grpc import create_server, load_grpc_options
+from oqtopus_util.grpc import create_server
 from qiskit import qasm3
 from qiskit.circuit.quantumcircuitdata import CircuitInstruction
 from qiskit.result import Counts, LocalReadoutMitigator, ProbDistribution
@@ -210,7 +210,7 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     # create the gRPC server
     server = create_server(
         futures.ThreadPoolExecutor(max_workers=max_workers),
-        options=load_grpc_options(config_yaml["proto"]),
+        options=config_yaml["proto"]["grpc_options"],
     )
     mitigator_pb2_grpc.add_MitigatorServiceServicer_to_server(ErrorMitigator(), server)
 

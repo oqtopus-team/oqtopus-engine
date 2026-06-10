@@ -131,7 +131,10 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         basis_gates: list[str] | None = None,
         grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
-        self._channel = create_aio_insecure_channel(estimator_address, grpc_options)
+        self._channel = create_aio_insecure_channel(
+            estimator_address,
+            options=grpc_options,
+        )
         self._stub = estimator_pb2_grpc.EstimatorServiceStub(self._channel)
         self._basis_gates = basis_gates
         logger.info(

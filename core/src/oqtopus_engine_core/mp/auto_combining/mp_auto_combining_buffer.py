@@ -78,7 +78,10 @@ class MpAutoCombiningBuffer(Buffer):
         self._max_qsize_to_proceed = max_qsize_to_proceed
         self._stopped = asyncio.Event()
 
-        self._channel = create_aio_insecure_channel(combiner_address, grpc_options)
+        self._channel = create_aio_insecure_channel(
+            combiner_address,
+            options=grpc_options,
+        )
         self._stub = combiner_pb2_grpc.CombinerServiceStub(self._channel)
 
         task = asyncio.create_task(self.start())

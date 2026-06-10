@@ -58,7 +58,7 @@ class SseEngineGateway(JobFetcher):
             msg = "PipelineExecutor and GlobalContext must not be None"
             raise ValueError(msg)
 
-        server = create_aio_server(self._grpc_options)
+        server = create_aio_server(options=self._grpc_options)
         sse_servicer = SseEngineGatewayServicer(self.pipeline, self.gctx)
         sse_pb2_grpc.add_SseEngineServiceServicer_to_server(
             sse_servicer,

@@ -2,7 +2,7 @@ proto: # Settings for gRPC server
   max_workers: ${COMBINER_WORKERS, 10} # Maximum number of workers
   address: ${COMBINER_ADDRESS, "localhost:51013"} # Address and port for RPCs
   grpc_options:
-    - ["max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
-    - ["max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
+    - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
+    - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
 combiner:
   idle_qubits_insertion_enabled: ${IDLE_QUBITS_INSERTION_ENABLED, false} # Enable or disable insertion of idle qubits (true/false)

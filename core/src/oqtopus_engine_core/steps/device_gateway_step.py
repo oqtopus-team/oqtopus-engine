@@ -143,7 +143,10 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
         gateway_address: str = "localhost:50051",
         grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
-        self._channel = create_aio_insecure_channel(gateway_address, grpc_options)
+        self._channel = create_aio_insecure_channel(
+            gateway_address,
+            options=grpc_options,
+        )
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
         # Engine owns device access orchestration, so all jobs, including
         # internal estimation children, must serialize gateway execution here.

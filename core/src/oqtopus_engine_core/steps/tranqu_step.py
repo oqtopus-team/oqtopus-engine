@@ -32,7 +32,10 @@ class TranquStep(Step):
     ) -> None:
         if default_transpiler_info is None:
             default_transpiler_info = {}
-        self._channel = create_aio_insecure_channel(tranqu_address, grpc_options)
+        self._channel = create_aio_insecure_channel(
+            tranqu_address,
+            options=grpc_options,
+        )
         self._stub = tranqu_pb2_grpc.TranspilerServiceStub(self._channel)
         self._default_transpiler_info = default_transpiler_info
         logger.info(

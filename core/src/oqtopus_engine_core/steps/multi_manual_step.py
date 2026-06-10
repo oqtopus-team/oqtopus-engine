@@ -124,7 +124,10 @@ class MultiManualStep(Step):
         combiner_address: str = "localhost:5002",
         grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
-        self._channel = create_aio_insecure_channel(combiner_address, grpc_options)
+        self._channel = create_aio_insecure_channel(
+            combiner_address,
+            options=grpc_options,
+        )
         self._stub = combiner_pb2_grpc.CombinerServiceStub(self._channel)
         logger.info(
             "MultiManualStep was initialized",
