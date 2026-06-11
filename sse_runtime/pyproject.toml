@@ -32,7 +32,7 @@ dependencies = [
   "scipy>=1.15.3",
   "scikit-learn==1.7.0",
   "oqtopus-client>=1.1.0",
-  "oqtopus-util>=1.0.2",
+  "oqtopus-util>=1.0.1",
   "qiskit==1.4.3",
   "qulacs==0.6.12",
   "skqulacs==0.5.3",
@@ -48,9 +48,6 @@ dependencies = [
 
 [tool.uv]
 package = false
-
-[tool.uv.sources]
-oqtopus-util = { git = "https://github.com/oqtopus-team/oqtopus-util.git", branch = "feature/grpc-message-size-config" }
 
 [build-system]
 requires = ["hatchling"]

@@ -560,7 +560,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "networkx", specifier = ">=3.6.1" },
     { name = "numpy", specifier = ">=2.3.5" },
-    { name = "oqtopus-util", git = "https://github.com/oqtopus-team/oqtopus-util.git?branch=feature%2Fgrpc-message-size-config" },
+    { name = "oqtopus-util", specifier = ">=1.0.1" },
     { name = "ortools", specifier = ">=9.15.6755" },
     { name = "protobuf", specifier = ">=6.33.2" },
     { name = "python-json-logger", specifier = ">=4.0.0" },
@@ -580,11 +580,14 @@ dev = [
 
 [[package]]
 name = "oqtopus-util"
-version = "1.0.2"
-source = { git = "https://github.com/oqtopus-team/oqtopus-util.git?branch=feature%2Fgrpc-message-size-config#b201d53e5d40f45941d6fa35f72ce875aadd2033" }
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "grpcio" },
     { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a2/00/fdff8bcbb51d3e9e061df44e730ae97eeb31dbb47638d8639ac29b87ca3f/oqtopus_util-1.0.1.tar.gz", hash = "sha256:a8e8b2df41905938458c0781817a72d42064d2dc31d18bc4d6eff54fe10daa5c", size = 224529, upload-time = "2026-05-26T06:06:51.016Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/53/5b/d094603c64100de1d63c0cbef67f689ad131acfed5290021790173f32fce/oqtopus_util-1.0.1-py3-none-any.whl", hash = "sha256:2c9efce619cca3e7e86dc33809eeac10029489ebd92e292e3af33db809f0bdce", size = 12105, upload-time = "2026-05-26T06:06:49.573Z" },
 ]
 
 [[package]]

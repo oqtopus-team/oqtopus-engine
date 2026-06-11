@@ -22,7 +22,7 @@ dependencies = [
   "grpcio-reflection>=1.76.0",
   "numpy>=2.3.5",
   "protobuf>=6.33.2",
-  "oqtopus-util>=1.0.2",
+  "oqtopus-util>=1.0.1",
   "python-json-logger>=4.0.0",
   "pyyaml>=6.0.3",
   "qiskit==1.2",
@@ -32,9 +32,6 @@ dependencies = [
 [project.urls]
 documentation = "https://oqtopus-engine.readthedocs.io/"
 repository = "https://github.com/oqtopus-team/oqtopus-engine"
-
-[tool.uv.sources]
-oqtopus-util = { git = "https://github.com/oqtopus-team/oqtopus-util.git", branch = "feature/grpc-message-size-config" }
 
 [dependency-groups]
 dev = [
