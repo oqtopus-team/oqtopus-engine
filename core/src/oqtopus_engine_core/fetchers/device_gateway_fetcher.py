@@ -3,7 +3,7 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-from oqtopus_util.grpc import create_aio_insecure_channel
+import grpc
 
 from oqtopus_engine_core.framework import Device, DeviceFetcher
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2, qpu_pb2_grpc
@@ -59,7 +59,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
         super().__init__()
 
         # Construct gRPC channel and stub
-        self._channel = create_aio_insecure_channel(
+        self._channel = grpc.aio.insecure_channel(
             gateway_address,
             options=grpc_options,
         )

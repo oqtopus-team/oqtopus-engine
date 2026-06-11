@@ -3,10 +3,10 @@ import logging
 import typing
 from concurrent import futures
 
+import grpc
 import numpy as np
 from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
 from oqtopus_util.config import load_config, setup_logging
-from oqtopus_util.grpc import create_server
 from qiskit import qasm3
 from qiskit.circuit.quantumcircuitdata import CircuitInstruction
 from qiskit.result import Counts, LocalReadoutMitigator, ProbDistribution
@@ -208,7 +208,7 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     address = str(config_yaml["proto"].get("address") or "[::]:51011")
 
     # create the gRPC server
-    server = create_server(
+    server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=max_workers),
         options=config_yaml["proto"]["grpc_options"],
     )

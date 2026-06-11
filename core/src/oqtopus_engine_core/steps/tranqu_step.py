@@ -4,7 +4,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from oqtopus_util.grpc import create_aio_insecure_channel
+import grpc
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -32,7 +32,7 @@ class TranquStep(Step):
     ) -> None:
         if default_transpiler_info is None:
             default_transpiler_info = {}
-        self._channel = create_aio_insecure_channel(
+        self._channel = grpc.aio.insecure_channel(
             tranqu_address,
             options=grpc_options,
         )

@@ -4,7 +4,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from oqtopus_util.grpc import create_aio_insecure_channel
+import grpc
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -143,7 +143,7 @@ class DeviceGatewayStep(Step, DetachOnPostprocess):
         gateway_address: str = "localhost:50051",
         grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
-        self._channel = create_aio_insecure_channel(
+        self._channel = grpc.aio.insecure_channel(
             gateway_address,
             options=grpc_options,
         )

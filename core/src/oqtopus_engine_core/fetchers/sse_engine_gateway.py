@@ -6,7 +6,6 @@ from collections.abc import Sequence
 from typing import Any
 
 import grpc
-from oqtopus_util.grpc import create_aio_server
 
 from oqtopus_engine_core.framework import GlobalContext, Job, JobContext, JobFetcher
 from oqtopus_engine_core.framework.pipeline import PipelineExecutor
@@ -58,7 +57,7 @@ class SseEngineGateway(JobFetcher):
             msg = "PipelineExecutor and GlobalContext must not be None"
             raise ValueError(msg)
 
-        server = create_aio_server(options=self._grpc_options)
+        server = grpc.aio.server(options=self._grpc_options)
         sse_servicer = SseEngineGatewayServicer(self.pipeline, self.gctx)
         sse_pb2_grpc.add_SseEngineServiceServicer_to_server(
             sse_servicer,

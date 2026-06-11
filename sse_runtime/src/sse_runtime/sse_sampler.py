@@ -4,9 +4,9 @@ import os
 from pathlib import Path
 from typing import Any
 
+import grpc
 from oqtopus_client.rest.models.jobs_job_def import JobsJobDef
 from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
-from oqtopus_util.grpc import create_insecure_channel
 
 
 class SseRuntimeError(RuntimeError):
@@ -43,7 +43,7 @@ def req_transpile_and_exec(
         msg = "Could not get job data"
         raise OSError(msg)
 
-    with create_insecure_channel(f"{grpc_sse_engine_address}") as channel:
+    with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
         created = datetime.datetime.now(tz=datetime.UTC)
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
         # insert parameter of qasm, shots and transpiler into the job data

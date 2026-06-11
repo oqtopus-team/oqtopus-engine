@@ -9,7 +9,6 @@ import grpc
 import numpy as np
 from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
 from oqtopus_util.config import load_config, setup_logging
-from oqtopus_util.grpc import create_server
 from qiskit import QuantumCircuit, qasm3
 from qiskit.exceptions import QiskitError
 from qiskit.primitives import BackendEstimatorV2 as BackendEstimator
@@ -313,7 +312,7 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     address = str(config_yaml["proto"].get("address") or "[::]:51012")
 
     # create the gRPC server
-    server = create_server(
+    server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=max_workers),
         options=config_yaml["proto"]["grpc_options"],
     )

@@ -10,8 +10,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Any
 
+import grpc  # type: ignore[import-untyped]
 import qiskit.qasm3  # type: ignore[import-untyped]
-from oqtopus_util.grpc import create_aio_insecure_channel
 from qiskit.circuit import (  # type: ignore[import-untyped]
     ClassicalRegister,
     QuantumCircuit,
@@ -78,7 +78,7 @@ class MpAutoCombiningBuffer(Buffer):
         self._max_qsize_to_proceed = max_qsize_to_proceed
         self._stopped = asyncio.Event()
 
-        self._channel = create_aio_insecure_channel(
+        self._channel = grpc.aio.insecure_channel(
             combiner_address,
             options=grpc_options,
         )

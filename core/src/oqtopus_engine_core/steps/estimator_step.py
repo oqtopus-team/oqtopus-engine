@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
-from oqtopus_util.grpc import create_aio_insecure_channel
+import grpc
 
 from oqtopus_engine_core.framework import (
     EstimationResult,
@@ -131,7 +131,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         basis_gates: list[str] | None = None,
         grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
-        self._channel = create_aio_insecure_channel(
+        self._channel = grpc.aio.insecure_channel(
             estimator_address,
             options=grpc_options,
         )

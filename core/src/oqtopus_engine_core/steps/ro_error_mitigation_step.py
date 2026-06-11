@@ -4,7 +4,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-from oqtopus_util.grpc import create_aio_insecure_channel
+import grpc
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -49,7 +49,7 @@ class ReadoutErrorMitigationStep(Step):
             grpc_options: gRPC channel options.
 
         """
-        self._channel = create_aio_insecure_channel(
+        self._channel = grpc.aio.insecure_channel(
             mitigator_address,
             options=grpc_options,
         )
