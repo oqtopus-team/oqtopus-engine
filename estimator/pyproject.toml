@@ -18,14 +18,14 @@ classifiers = [
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
-  "grpcio>=1.76.0",
-  "grpcio-reflection>=1.76.0",
-  "numpy>=2.3.5",
+  "grpcio>=1.81.0",
+  "grpcio-reflection>=1.81.0",
+  "numpy>=2.4.6",
   "protobuf>=6.33.2",
   "oqtopus-util>=1.0.1",
-  "python-json-logger>=4.0.0",
+  "python-json-logger>=4.1.0",
   "pyyaml>=6.0.3",
-  "qiskit==1.2",
+  "qiskit==2.4.1",
   "qiskit-qasm3-import>=0.6.0",
 ]
 
@@ -35,11 +35,11 @@ repository = "https://github.com/oqtopus-team/oqtopus-engine"
 
 [dependency-groups]
 dev = [
-  "mypy>=1.19.0",
-  "pytest-cov>=7.0.0",
+  "mypy>=2.1.0",
+  "pytest-cov>=7.1.0",
   "pytest-mock>=3.15.1",
-  "pytest>=9.0.2",
-  "ruff>=0.14.8",
+  "pytest>=9.0.3",
+  "ruff>=0.15.15",
 ]
 
 [build-system]
