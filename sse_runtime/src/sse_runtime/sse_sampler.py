@@ -36,6 +36,18 @@ def req_transpile_and_exec(
     """
     # get gRPC server address from environment variables
     grpc_sse_engine_address = os.environ.get("SSE_ENGINE_ADDRESS", "localhost:52014")
+    grpc_max_receive = int(
+        os.environ.get(
+            "GRPC_MAX_RECEIVE_MESSAGE_LENGTH",
+            os.environ.get("GRPC_MAX_MESSAGE_BYTES", str(4 * 1024 * 1024)),
+        )
+    )
+    grpc_max_send = int(
+        os.environ.get(
+            "GRPC_MAX_SEND_MESSAGE_LENGTH",
+            os.environ.get("GRPC_MAX_MESSAGE_BYTES", str(4 * 1024 * 1024)),
+        )
+    )
 
     # get job data from environment variable
     job_json = os.environ.get("JOB_JSON")
@@ -43,7 +55,14 @@ def req_transpile_and_exec(
         msg = "Could not get job data"
         raise OSError(msg)
 
-    with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
+    grpc_options = [
+        ("grpc.max_receive_message_length", grpc_max_receive),
+        ("grpc.max_send_message_length", grpc_max_send),
+    ]
+    with grpc.insecure_channel(
+        grpc_sse_engine_address,
+        options=grpc_options,
+    ) as channel:
         created = datetime.datetime.now(tz=datetime.UTC)
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
         # insert parameter of qasm, shots and transpiler into the job data

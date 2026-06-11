@@ -131,6 +131,7 @@ di_container:
       _target_: oqtopus_engine_core.steps.sse_step.SseStep
       runner_settings:
         sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:52014"}
+        grpc_options: *grpc_options
         host_work_path: ${SSE_HOST_WORK_PATH, "/sse_work"}
         delete_host_temp_dirs: ${SSE_DELETE_HOST_TEMP_DIRS, true}
         container_work_path: ${SSE_CONTAINER_PATH, "/sse"}
