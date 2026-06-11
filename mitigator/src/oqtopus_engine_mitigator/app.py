@@ -208,7 +208,10 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     address = str(config_yaml["proto"].get("address") or "[::]:51011")
 
     # create the gRPC server
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=max_workers),
+        options=config_yaml["proto"]["grpc_options"],
+    )
     mitigator_pb2_grpc.add_MitigatorServiceServicer_to_server(ErrorMitigator(), server)
 
     service_names = (

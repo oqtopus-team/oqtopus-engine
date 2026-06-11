@@ -1,6 +1,8 @@
 import json
 import logging
 import time
+from collections.abc import Sequence
+from typing import Any
 
 import grpc
 
@@ -26,10 +28,14 @@ class TranquStep(Step):
         self,
         tranqu_address: str = "localhost:52020",
         default_transpiler_info: dict | None = None,
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
         if default_transpiler_info is None:
             default_transpiler_info = {}
-        self._channel = grpc.aio.insecure_channel(tranqu_address)
+        self._channel = grpc.aio.insecure_channel(
+            tranqu_address,
+            options=grpc_options,
+        )
         self._stub = tranqu_pb2_grpc.TranspilerServiceStub(self._channel)
         self._default_transpiler_info = default_transpiler_info
         logger.info(
@@ -37,6 +43,7 @@ class TranquStep(Step):
             extra={
                 "tranqu_address": tranqu_address,
                 "default_transpiler_info": default_transpiler_info,
+                "grpc_options": grpc_options,
             },
         )
 

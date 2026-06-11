@@ -2,6 +2,8 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Sequence
+from typing import Any
 
 import grpc
 
@@ -23,19 +25,25 @@ class SseEngineGateway(JobFetcher):
     def __init__(
         self,
         sse_engine_address: str = "[::]:5005",
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
         """Initialize the job gateway with the address:port to listen.
 
         Args:
             sse_engine_address: The address:port to listen on.
+            grpc_options: gRPC server options.
 
         """
         super().__init__()
         self._sse_engine_address = sse_engine_address
+        self._grpc_options = grpc_options
 
         logger.info(
             "SseEngineGateway was initialized",
-            extra={"sse_engine_address": sse_engine_address},
+            extra={
+                "sse_engine_address": sse_engine_address,
+                "grpc_options": grpc_options,
+            },
         )
 
     async def start_server(self) -> None:
@@ -49,7 +57,7 @@ class SseEngineGateway(JobFetcher):
             msg = "PipelineExecutor and GlobalContext must not be None"
             raise ValueError(msg)
 
-        server = grpc.aio.server()
+        server = grpc.aio.server(options=self._grpc_options)
         sse_servicer = SseEngineGatewayServicer(self.pipeline, self.gctx)
         sse_pb2_grpc.add_SseEngineServiceServicer_to_server(
             sse_servicer,
