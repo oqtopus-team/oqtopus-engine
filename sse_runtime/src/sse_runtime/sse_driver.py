@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import grpc
 from oqtopus_client.rest.models import (
     JobsJob,
     JobsJobInfo,
@@ -11,7 +12,6 @@ from oqtopus_client.rest.models import (
     JobsSubmitJobRequest,
 )
 from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
-from oqtopus_util.grpc import create_insecure_channel
 from pydantic import ValidationError
 
 

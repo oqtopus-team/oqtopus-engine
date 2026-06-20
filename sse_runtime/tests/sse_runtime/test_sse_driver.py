@@ -544,8 +544,12 @@ def test_submit_job_grpc_success_path(
     observed: dict[str, object] = {}
     channel_value = object()
 
-    def _fake_insecure_channel(address: str) -> _DummyChannel:
+    def _fake_insecure_channel(
+        address: str,
+        options: list[tuple[str, int]] | None = None,
+    ) -> _DummyChannel:
         observed["address"] = address
+        observed["options"] = options
         return _DummyChannel(channel_value)
 
     fake_response = SimpleNamespace(
@@ -585,6 +589,10 @@ def test_submit_job_grpc_success_path(
         input_path="s3://bucket/input.json",
     )
     assert observed["address"] == "test-host:1234"
+    assert observed["options"] == [
+        ("grpc.max_receive_message_length", 4 * 1024 * 1024),
+        ("grpc.max_send_message_length", 4 * 1024 * 1024),
+    ]
     assert '"job_id": "parent-1"' in str(observed["request_job_json"])
     assert '"status": "ready"' in str(observed["request_job_json"])
     assert job.submitted_at is not None
@@ -627,7 +635,7 @@ def test_submit_job_raises_when_status_failed(
     monkeypatch.setattr(
         sse_driver.grpc,
         "insecure_channel",
-        lambda _address: _DummyChannel(object()),
+        lambda _address, options=None: _DummyChannel(object()),
     )
     monkeypatch.setattr(
         sse_driver.sse_pb2_grpc,
