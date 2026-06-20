@@ -4,7 +4,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-import grpc
 from oqtopus_client.rest.models import (
     JobsJob,
     JobsJobInfo,
@@ -12,6 +11,7 @@ from oqtopus_client.rest.models import (
     JobsSubmitJobRequest,
 )
 from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
+from oqtopus_util.grpc import create_insecure_channel
 from pydantic import ValidationError
 
 
@@ -40,6 +40,18 @@ def submit_job(
     """
     # get gRPC server address from environment variables
     grpc_sse_engine_address = os.environ.get("SSE_ENGINE_ADDRESS", "localhost:52014")
+    grpc_max_receive = int(
+        os.environ.get(
+            "GRPC_MAX_RECEIVE_MESSAGE_LENGTH",
+            os.environ.get("GRPC_MAX_MESSAGE_BYTES", str(4 * 1024 * 1024)),
+        )
+    )
+    grpc_max_send = int(
+        os.environ.get(
+            "GRPC_MAX_SEND_MESSAGE_LENGTH",
+            os.environ.get("GRPC_MAX_MESSAGE_BYTES", str(4 * 1024 * 1024)),
+        )
+    )
 
     # get job data from environment variable
     job_json = os.environ.get("JOB_JSON")
@@ -47,7 +59,14 @@ def submit_job(
         msg = "Could not get job data"
         raise OSError(msg)
 
-    with grpc.insecure_channel(f"{grpc_sse_engine_address}") as channel:
+    grpc_options = [
+        ("grpc.max_receive_message_length", grpc_max_receive),
+        ("grpc.max_send_message_length", grpc_max_send),
+    ]
+    with grpc.insecure_channel(
+        grpc_sse_engine_address,
+        options=grpc_options,
+    ) as channel:
         created = _now_utc()
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
         request_dict = _make_request(job_json, input_job, upload_info)

@@ -434,7 +434,10 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     idle_qubits_insertion_enabled = str_idle_qubits_insertion_enabled.lower() == "true"
 
     # create the gRPC server
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers))
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers),
+        options=config_yaml["proto"]["grpc_options"],
+    )
     add_CombinerServiceServicer_to_server(
         CircuitCombiner(idle_qubits_insertion_enabled=idle_qubits_insertion_enabled),
         server,

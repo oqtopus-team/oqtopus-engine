@@ -1,6 +1,8 @@
 import json
 import logging
 import time
+from collections.abc import Sequence
+from typing import Any
 
 import grpc
 
@@ -34,19 +36,30 @@ class ReadoutErrorMitigationStep(Step):
 
     """
 
-    def __init__(self, mitigator_address: str) -> None:
+    def __init__(
+        self,
+        mitigator_address: str,
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
+    ) -> None:
         """Initialize the ReadoutErrorMitigationStep with mitigator service address.
 
         Args:
             mitigator_address: Address of the gRPC mitigator service
                 (e.g., "localhost:52011").
+            grpc_options: gRPC channel options.
 
         """
-        self._channel = grpc.aio.insecure_channel(mitigator_address)
+        self._channel = grpc.aio.insecure_channel(
+            mitigator_address,
+            options=grpc_options,
+        )
         self._stub = mitigator_pb2_grpc.MitigatorServiceStub(self._channel)
         logger.info(
             "ReadoutErrorMitigationStep was initialized",
-            extra={"mitigator_address": mitigator_address},
+            extra={
+                "mitigator_address": mitigator_address,
+                "grpc_options": grpc_options,
+            },
         )
 
     async def pre_process(

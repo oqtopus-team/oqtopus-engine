@@ -1,5 +1,7 @@
 import asyncio
 import logging
+from collections.abc import Sequence
+from typing import Any
 
 import grpc
 
@@ -34,6 +36,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
     def __init__(  # noqa: PLR0913, PLR0917
         self,
         gateway_address: str,
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
         initial_interval_seconds: float = 10.0,
         initial_backoff_max_seconds: float = 60.0,
         loop_interval_seconds: float = 60.0,
@@ -45,6 +48,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
         Args:
             gateway_address: The address of the device gateway
                 (e.g., "localhost:50051").
+            grpc_options: gRPC channel options.
             initial_interval_seconds: Initial fetch interval in seconds.
             initial_backoff_max_seconds: Maximum backoff time for initial fetch.
             loop_interval_seconds: Fetch interval in seconds after initialization.
@@ -55,7 +59,10 @@ class DeviceGatewayFetcher(DeviceFetcher):
         super().__init__()
 
         # Construct gRPC channel and stub
-        self._channel = grpc.aio.insecure_channel(gateway_address)
+        self._channel = grpc.aio.insecure_channel(
+            gateway_address,
+            options=grpc_options,
+        )
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
         self._initial_interval_seconds = initial_interval_seconds
         self._initial_backoff_max_seconds = initial_backoff_max_seconds
@@ -67,6 +74,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
             "DeviceGatewayFetcher was initialized",
             extra={
                 "gateway_address": gateway_address,
+                "grpc_options": grpc_options,
                 "initial_interval_seconds": initial_interval_seconds,
                 "initial_backoff_max_seconds": initial_backoff_max_seconds,
                 "loop_interval_seconds": loop_interval_seconds,

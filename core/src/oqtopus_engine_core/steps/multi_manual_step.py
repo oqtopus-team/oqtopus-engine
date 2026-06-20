@@ -1,6 +1,8 @@
 import json
 import logging
 import time
+from collections.abc import Sequence
+from typing import Any
 
 import grpc
 
@@ -117,12 +119,22 @@ def divide_result(
 class MultiManualStep(Step):
     """Step that sends a command to the Combiner via gRPC during pre_process."""
 
-    def __init__(self, combiner_address: str = "localhost:5002") -> None:
-        self._channel = grpc.aio.insecure_channel(combiner_address)
+    def __init__(
+        self,
+        combiner_address: str = "localhost:5002",
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
+    ) -> None:
+        self._channel = grpc.aio.insecure_channel(
+            combiner_address,
+            options=grpc_options,
+        )
         self._stub = combiner_pb2_grpc.CombinerServiceStub(self._channel)
         logger.info(
             "MultiManualStep was initialized",
-            extra={"combiner_address": combiner_address},
+            extra={
+                "combiner_address": combiner_address,
+                "grpc_options": grpc_options,
+            },
         )
 
     async def pre_process(

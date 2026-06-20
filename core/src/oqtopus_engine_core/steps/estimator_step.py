@@ -1,7 +1,9 @@
 import json
 import logging
 import time
+from collections.abc import Sequence
 from copy import deepcopy
+from typing import Any
 
 import grpc
 
@@ -127,8 +129,12 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         self,
         estimator_address: str = "localhost:52012",
         basis_gates: list[str] | None = None,
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
     ) -> None:
-        self._channel = grpc.aio.insecure_channel(estimator_address)
+        self._channel = grpc.aio.insecure_channel(
+            estimator_address,
+            options=grpc_options,
+        )
         self._stub = estimator_pb2_grpc.EstimatorServiceStub(self._channel)
         self._basis_gates = basis_gates
         logger.info(
@@ -136,6 +142,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
             extra={
                 "estimator_address": estimator_address,
                 "basis_gates": self._basis_gates,
+                "grpc_options": grpc_options,
             },
         )
 
