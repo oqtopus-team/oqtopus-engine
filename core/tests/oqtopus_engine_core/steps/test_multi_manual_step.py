@@ -253,18 +253,18 @@ class TestDivideResult:
 
 
 class TestMultiManualStepInit:
-    @patch("oqtopus_engine_core.steps.multi_manual_step.create_aio_insecure_channel")
+    @patch("oqtopus_engine_core.steps.multi_manual_step.grpc.aio.insecure_channel")
     @patch("oqtopus_engine_core.steps.multi_manual_step.combiner_pb2_grpc.CombinerServiceStub")
     def test_init_creates_channel_and_stub(
         self, mock_stub_cls: MagicMock, mock_channel: MagicMock,
     ) -> None:
         mock_channel.return_value = MagicMock()
         step = MultiManualStep(combiner_address="host:1234")
-        mock_channel.assert_called_once_with("host:1234", None)
+        mock_channel.assert_called_once_with("host:1234", options=None)
         mock_stub_cls.assert_called_once_with(mock_channel.return_value)
         assert step._channel is mock_channel.return_value  # noqa: SLF001
 
-    @patch("oqtopus_engine_core.steps.multi_manual_step.create_aio_insecure_channel")
+    @patch("oqtopus_engine_core.steps.multi_manual_step.grpc.aio.insecure_channel")
     @patch("oqtopus_engine_core.steps.multi_manual_step.combiner_pb2_grpc.CombinerServiceStub")
     def test_init_default_address(
         self,
@@ -272,7 +272,7 @@ class TestMultiManualStepInit:
         mock_channel: MagicMock,
     ) -> None:
         MultiManualStep()
-        mock_channel.assert_called_once_with("localhost:5002", None)
+        mock_channel.assert_called_once_with("localhost:5002", options=None)
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +285,7 @@ class TestMultiManualStepPreProcess:
     def step_and_stub(self) -> tuple[MultiManualStep, AsyncMock]:
         patch_channel = patch(
             "oqtopus_engine_core.steps.multi_manual_step"
-            ".create_aio_insecure_channel",
+            ".grpc.aio.insecure_channel",
         )
         patch_stub = patch(
             "oqtopus_engine_core.steps.multi_manual_step"
@@ -404,7 +404,7 @@ class TestMultiManualStepPostProcess:
     def step(self) -> MultiManualStep:
         patch_channel = patch(
             "oqtopus_engine_core.steps.multi_manual_step"
-            ".create_aio_insecure_channel",
+            ".grpc.aio.insecure_channel",
         )
         patch_stub = patch(
             "oqtopus_engine_core.steps.multi_manual_step"
