@@ -80,17 +80,23 @@ def runner_settings(tmp_path: Path) -> dict:
         "host_work_path": str(tmp_path / "work"),
         "container_work_path": "/sse",
         "userprogram_name": "main.py",
+        "base_job_file_name": "base_job.json",
         "result_file_name": "result.json",
         "log_file_name": "log.txt",
         "delete_host_temp_dirs": True,
         "container_image": "sse-runtime:latest",
         "sse_engine_address": "localhost:50051",
+        "grpc_options": [
+            ("grpc.max_receive_message_length", 10_000_000),
+            ("grpc.max_send_message_length", 10_000_000)
+        ],
         "timeout": 600,
         "max_file_size": 10_000_000,
         "container_disk_quota": 67_108_864,
         "container_memory": 268_435_456,
         "container_cpu_set": "0",
         "container_network": "sse_net",
+        "container_extra_hosts": ["sse_engine:host-gateway"],
     }
 
 
@@ -122,7 +128,7 @@ def non_sse_job() -> Job:
 class TestSseStepInit:
     def test_init_stores_settings(self, runner_settings: dict) -> None:
         step = SseStep(runner_settings=runner_settings)
-        assert step._settings is runner_settings
+        assert step._settings == runner_settings
 
 
 class TestSseStepPreProcess:
@@ -845,7 +851,7 @@ class TestExecInContainer:
 
 
 # ---------------------------------------------------------------------------
-# SseRunner._copy_user_program_into_container
+# SseRunner._copy_file_into_container
 # ---------------------------------------------------------------------------
 
 class TestCopyUserProgramIntoContainer:
@@ -856,10 +862,10 @@ class TestCopyUserProgramIntoContainer:
         runner._container.put_archive.return_value = True
         runner._exec_in_container = AsyncMock()
 
-        await runner._copy_user_program_into_container(
+        await runner._copy_file_into_container(
             user="appuser",
-            user_program_name="main.py",
-            user_program_content=b"print('hi')",
+            file_name="main.py",
+            file_content=b"print('hi')",
         )
 
         runner._container.put_archive.assert_called_once()
@@ -872,10 +878,10 @@ class TestCopyUserProgramIntoContainer:
         runner._container.put_archive.return_value = False
 
         with pytest.raises(RuntimeError, match="failed to put archive"):
-            await runner._copy_user_program_into_container(
+            await runner._copy_file_into_container(
                 user="appuser",
-                user_program_name="main.py",
-                user_program_content=b"data",
+                file_name="main.py",
+                file_content=b"data",
             )
 
 
@@ -1061,7 +1067,7 @@ class TestPreprocessContainer:
         mock_container.put_archive.return_value = True
         runner._start_container = MagicMock(return_value=mock_container)
         runner._exec_in_container = AsyncMock()
-        runner._copy_user_program_into_container = AsyncMock()
+        runner._copy_file_into_container = AsyncMock()
 
         await runner._preprocess_container()
 
@@ -1069,7 +1075,7 @@ class TestPreprocessContainer:
         assert runner._container is mock_container
         # init call + (copy handled by mocked method)
         runner._exec_in_container.assert_awaited_once()
-        runner._copy_user_program_into_container.assert_awaited_once()
+        assert runner._copy_file_into_container.await_count == 2
 
     @pytest.mark.asyncio
     async def test_start_container_failure(self, make_runner: _MakeRunner) -> None:
@@ -1115,8 +1121,8 @@ class TestPreprocessContainer:
         mock_container = MagicMock()
         runner._start_container = MagicMock(return_value=mock_container)
         runner._exec_in_container = AsyncMock()  # init succeeds
-        runner._copy_user_program_into_container = AsyncMock(
-            side_effect=RuntimeError("copy fail")
+        runner._copy_file_into_container = AsyncMock(
+            side_effect=[None, RuntimeError("copy fail")]
         )
         runner._stop_and_remove = MagicMock()
 

@@ -298,6 +298,12 @@ def _build_expected_request(
     return expected_request
 
 
+def _write_base_job_file(
+    tmp_path: Path, payload: str = '{"job_id":"parent-1"}'
+) -> None:
+    (tmp_path / "base_job.json").write_text(payload, encoding="utf-8")
+
+
 # -----------------------------
 # JSON/serialization utilities
 # -----------------------------
@@ -386,12 +392,33 @@ def test_log_result_raises_when_out_path_does_not_exist(
         sse_driver._log_result(json.dumps({"status": "failed"}), "result.json")
 
 
-def test_submit_job_raises_when_job_json_missing(
+def test_submit_job_raises_when_base_job_json_missing(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    monkeypatch.delenv("JOB_JSON", raising=False)
+    monkeypatch.setenv("IN_PATH", str(tmp_path))
 
-    with pytest.raises(OSError, match="Could not get job data"):
+    with pytest.raises(
+        sse_driver.SseRuntimeError,
+        match=f"Could not get base job data: file not found at "
+        f"{tmp_path / 'base_job.json'}",
+    ):
+        sse_driver.submit_job(
+            _build_submit_job_request(),
+            _build_upload_info(),
+        )
+
+
+def test_submit_job_raises_when_base_job_json_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("IN_PATH", str(tmp_path))
+    _write_base_job_file(tmp_path, payload="")
+
+    with pytest.raises(
+        sse_driver.SseRuntimeError, match="Could not get base job data: empty content"
+    ):
         sse_driver.submit_job(
             _build_submit_job_request(),
             _build_upload_info(),
@@ -537,7 +564,8 @@ def test_submit_job_grpc_success_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("JOB_JSON", '{"job_id":"parent-1"}')
+    _write_base_job_file(tmp_path)
+    monkeypatch.setenv("IN_PATH", str(tmp_path))
     monkeypatch.setenv("SSE_ENGINE_ADDRESS", "test-host:1234")
     monkeypatch.setenv("OUT_PATH", str(tmp_path))
 
@@ -617,7 +645,8 @@ def test_submit_job_raises_when_status_failed(
     job_message: str,
     expected_error: str,
 ) -> None:
-    monkeypatch.setenv("JOB_JSON", '{"job_id":"parent-1"}')
+    _write_base_job_file(tmp_path)
+    monkeypatch.setenv("IN_PATH", str(tmp_path))
     monkeypatch.setenv("OUT_PATH", str(tmp_path))
 
     fake_response = SimpleNamespace(
@@ -635,7 +664,7 @@ def test_submit_job_raises_when_status_failed(
     monkeypatch.setattr(
         sse_driver.grpc,
         "insecure_channel",
-        lambda _address, options=None: _DummyChannel(object()),
+        lambda _address, options=None: _DummyChannel(object()),  # noqa: ARG005
     )
     monkeypatch.setattr(
         sse_driver.sse_pb2_grpc,

@@ -34,7 +34,6 @@ def submit_job(
             returns the OQTOPUS Client Job.
 
     Raises:
-        OSError: If the job data is not set.
         SseRuntimeError: If the job execution fails.
 
     """
@@ -53,11 +52,19 @@ def submit_job(
         )
     )
 
-    # get job data from environment variable
-    job_json = os.environ.get("JOB_JSON")
-    if not job_json:
-        msg = "Could not get job data"
-        raise OSError(msg)
+    # get job data from a file
+    base_job_path = Path(
+        os.environ.get("IN_PATH", "in"),
+        os.environ.get("BASE_JOB_FILE_NAME", "base_job.json"),
+    )
+    try:
+        job_json = Path(base_job_path).read_text(encoding="utf-8")
+        if not job_json:
+            msg = "Could not get base job data: empty content"
+            raise SseRuntimeError(msg)
+    except FileNotFoundError as e:
+        msg = f"Could not get base job data: file not found at {base_job_path}"
+        raise SseRuntimeError(msg) from e
 
     grpc_options = [
         ("grpc.max_receive_message_length", grpc_max_receive),

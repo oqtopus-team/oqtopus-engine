@@ -19,6 +19,25 @@ from oqtopus_engine_core.framework import (
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_RUNNER_SETTINGS: dict[str, Any] = {
+    "sse_engine_address": "sse_engine:51014",
+    "grpc_options": [],
+    "host_work_path": "/sse_work",
+    "delete_host_temp_dirs": True,
+    "container_work_path": "/sse",
+    "userprogram_name": "userprogram.py",
+    "base_job_file_name": "base_job.json",
+    "result_file_name": "result.json",
+    "log_file_name": "sse_runtime.log",
+    "container_image": "sse-runtime:latest",
+    "container_disk_quota": 64 * 1024 * 1024,
+    "container_memory": 256 * 1024 * 1024,
+    "container_cpu_set": "0",
+    "container_network": None,
+    "container_extra_hosts": {"sse_engine": "host-gateway"},
+    "timeout": 600,
+}
+
 
 class SseStep(Step):
     """Step to run SSE."""
@@ -28,7 +47,7 @@ class SseStep(Step):
         runner_settings: dict[str, Any],
     ) -> None:
 
-        self._settings = runner_settings
+        self._settings = {**_DEFAULT_RUNNER_SETTINGS, **runner_settings}
         logger.info(
             "SseStep was initialized",
             extra={"runner_settings": runner_settings},
@@ -429,6 +448,26 @@ class SseRunner:
                 extra={"job_id": self._job_id},
             )
 
+        # ====== copy base job file into container ========
+        base_job_file_name = self._config["base_job_file_name"]
+        try:
+            await self._copy_file_into_container(
+                user="appuser",
+                file_name=base_job_file_name,
+                file_content=self._job.model_dump_json().encode("utf-8"),
+            )
+        except Exception as e:
+            self._stop_and_remove()
+            msg = f"failed to copy base job file into container. Job({self._job_id})"
+            raise RuntimeError(msg) from e
+        else:
+            logger.debug(
+                "base job file copied into SSE container successfully",
+                extra={"job_id": self._job_id,
+                       "base_job_file_name": base_job_file_name
+                       },
+            )
+
         # ======== copy user program into container ========
         try:
             logger.debug(
@@ -440,10 +479,10 @@ class SseRunner:
             )
             with userprogram_host_path.open("rb") as f:
                 content = f.read()
-            await self._copy_user_program_into_container(
+            await self._copy_file_into_container(
                 user="appuser",
-                user_program_name=self._config["userprogram_name"],
-                user_program_content=content,
+                file_name=self._config["userprogram_name"],
+                file_content=content,
             )
         except Exception as e:
             self._stop_and_remove()
@@ -557,7 +596,7 @@ class SseRunner:
 
         # Set environment variables in container
         env_vars = [
-            f"JOB_JSON={self._job.model_dump_json()}",
+            f"BASE_JOB_FILE_NAME={self._config['base_job_file_name']}",
             f"IN_PATH={self._container_work_path['in']}",
             f"OUT_PATH={self._container_work_path['out']}",
             f"SSE_ENGINE_ADDRESS={self._config['sse_engine_address']}",
@@ -634,21 +673,24 @@ class SseRunner:
             msg = "timeout when executing command in container"
             raise TimeoutError(msg) from e
 
-    async def _copy_user_program_into_container(
-        self, user: str, user_program_name: str, user_program_content: bytes
+    async def _copy_file_into_container(
+        self, user: str, file_name: str, file_content: bytes
     ) -> None:
         logger.debug(
-            "copying user program into container",
-            extra={"job_id": self._job_id},
+            "copying a file into container",
+            extra={"job_id": self._job_id,
+                   "file_name": file_name,
+                   "file_size_in_bytes": len(file_content),
+                   },
         )
 
         # Create tar archive in memory
         data = io.BytesIO()
         with tarfile.open(fileobj=data, mode="w") as tar:
-            info = tarfile.TarInfo(name=user_program_name)
+            info = tarfile.TarInfo(name=file_name)
             info.mode = 0o755
-            info.size = len(user_program_content)
-            tar.addfile(tarinfo=info, fileobj=io.BytesIO(user_program_content))
+            info.size = len(file_content)
+            tar.addfile(tarinfo=info, fileobj=io.BytesIO(file_content))
         data.seek(0)
 
         # Copy the tar archive into container tmpfs
@@ -664,11 +706,13 @@ class SseRunner:
         await self._exec_in_container(
             user=user,
             privileged=False,
-            cmd=f"mv {tmp_dir / user_program_name} {self._container_work_path['in']}",
+            cmd=f"mv {tmp_dir / file_name} {self._container_work_path['in']}",
         )
         logger.debug(
-            "user program copied to tmpfs successfully",
-            extra={"job_id": self._job_id},
+            "file copied to tmpfs successfully",
+            extra={"job_id": self._job_id,
+                   "file_name": file_name,
+                   },
         )
 
     def _get_result_from_container(
