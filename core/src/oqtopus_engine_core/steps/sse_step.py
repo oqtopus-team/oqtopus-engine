@@ -537,12 +537,36 @@ class SseRunner:
             type="tmpfs",
             tmpfs_size=self._config.get("container_disk_quota", 64 * 1024 * 1024),
         )
+        grpc_options = dict(self._config.get("grpc_options") or [])
+        default_max_message_size = 4 * 1024 * 1024
+        try:
+            grpc_max_receive = int(
+                grpc_options.get(
+                    "grpc.max_receive_message_length",
+                    default_max_message_size,
+                )
+            )
+        except (TypeError, ValueError):
+            grpc_max_receive = default_max_message_size
+
+        try:
+            grpc_max_send = int(
+                grpc_options.get(
+                    "grpc.max_send_message_length",
+                    default_max_message_size,
+                )
+            )
+        except (TypeError, ValueError):
+            grpc_max_send = default_max_message_size
+
         # Set environment variables in container
         env_vars = [
             f"JOB_JSON={self._job.model_dump_json()}",
             f"IN_PATH={self._container_work_path['in']}",
             f"OUT_PATH={self._container_work_path['out']}",
             f"SSE_ENGINE_ADDRESS={self._config['sse_engine_address']}",
+            f"GRPC_MAX_RECEIVE_MESSAGE_LENGTH={grpc_max_receive}",
+            f"GRPC_MAX_SEND_MESSAGE_LENGTH={grpc_max_send}",
             "TERM=dumb",  # to drop ANSI escape codes in logs
         ]
         env_vars.extend(self._otel_env_vars())

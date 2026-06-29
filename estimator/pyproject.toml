@@ -27,6 +27,7 @@ dependencies = [
   "opentelemetry-exporter-otlp>=1.27.0",
   "opentelemetry-instrumentation-system-metrics>=0.48b0",
   "protobuf>=6.33.2",
+  "oqtopus-util>=1.0.1",
   "python-json-logger>=4.0.0",
   "pyyaml>=6.0.3",
   "qiskit==1.2",
