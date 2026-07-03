@@ -2,16 +2,13 @@ import argparse
 import ast
 import json
 import logging
-import logging.config
-import os
 import re
 from concurrent import futures
-from pathlib import Path
 
 import grpc
 import numpy as np
-import yaml
 from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
+from oqtopus_util.config import load_config, setup_logging
 from qiskit import QuantumCircuit, qasm3
 from qiskit.exceptions import QiskitError
 from qiskit.primitives import BackendEstimatorV2 as BackendEstimator
@@ -50,26 +47,6 @@ def _parse_args() -> argparse.Namespace:
         help="Path to the logging configuration file (YAML format).",
     )
     return parser.parse_args()
-
-
-def assign_environ(config: dict) -> dict:
-    """Expand environment variables and the user directory "~" in the values of `dict`.
-
-    Args:
-        config (dict): `dict` that expands environment variables
-            and the user directory "~" in its values.
-
-    Returns:
-        dict: expanded `dict`.
-
-    """
-    for key, value in config.items():
-        if type(value) is dict:
-            config[key] = assign_environ(value)
-        elif type(value) is str:
-            tmp_value = str(os.path.expandvars(value))
-            config[key] = os.path.expanduser(tmp_value)  # noqa: PTH111
-    return config
 
 
 class ParameterValueError(ValueError):
@@ -327,18 +304,20 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
 
     """
     # load config
-    with Path(config_yaml_path).open("r", encoding="utf-8") as file:
-        config_yaml = assign_environ(yaml.safe_load(file))
-    with Path(logging_yaml_path).open("r", encoding="utf-8") as file:
-        logging_yaml = assign_environ(yaml.safe_load(file))
-        logging.config.dictConfig(logging_yaml)
+    config_yaml = load_config(config_yaml_path)
+    logging_yaml = load_config(logging_yaml_path)
+    setup_logging(logging_yaml)
 
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
-    address = str(config_yaml["proto"].get("address") or "[::]:52012")
+    address = str(config_yaml["proto"].get("address") or "[::]:51012")
 
     # create the gRPC server
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
+    server = grpc.server(
+        futures.ThreadPoolExecutor(max_workers=max_workers),
+        options=config_yaml["proto"]["grpc_options"],
+    )
     estimator_pb2_grpc.add_EstimatorServiceServicer_to_server(Estimator(), server)
+
     service_names = (
         estimator_pb2.DESCRIPTOR.services_by_name["EstimatorService"].full_name,
         reflection.SERVICE_NAME,

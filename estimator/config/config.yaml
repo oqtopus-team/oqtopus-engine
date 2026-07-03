@@ -1,3 +1,6 @@
 proto: # Settings for gRPC server
-  max_workers: ${WORKERS} # Maximum number of workers
-  address: "${ADDRESS}" # Address and port for RPCs
+  max_workers: ${ESTIMATOR_WORKERS, 10} # Maximum number of workers
+  address: ${ESTIMATOR_ADDRESS, "localhost:51012"} # Address and port for RPCs
+  grpc_options:
+    - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
+    - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]

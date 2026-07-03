@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import time
+from collections.abc import Sequence
+from typing import Any
 
 import grpc
 
@@ -136,15 +138,25 @@ def _select_program(job: Job) -> str:
 class DeviceGatewayStep(Step, DetachOnPostprocess):
     """Step that sends a job to the device gateway via gRPC during pre_process."""
 
-    def __init__(self, gateway_address: str = "localhost:50051") -> None:
-        self._channel = grpc.aio.insecure_channel(gateway_address)
+    def __init__(
+        self,
+        gateway_address: str = "localhost:50051",
+        grpc_options: Sequence[tuple[str, Any]] | None = None,
+    ) -> None:
+        self._channel = grpc.aio.insecure_channel(
+            gateway_address,
+            options=grpc_options,
+        )
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
         # Engine owns device access orchestration, so all jobs, including
         # internal estimation children, must serialize gateway execution here.
         self._execution_lock = asyncio.Lock()
         logger.info(
-            "DeviceGatewayStep was initialized with gateway_address=%s",
-            gateway_address,
+            "DeviceGatewayStep was initialized",
+            extra={
+                "gateway_address": gateway_address,
+                "grpc_options": grpc_options,
+            },
         )
 
     async def pre_process(

@@ -8,8 +8,8 @@ if TYPE_CHECKING:
     from .job_fetcher import JobFetcher
     from .job_repository import JobRepository
 
-from oqtopus_engine_core.utils.config_util import mask_sensitive_info
-from oqtopus_engine_core.utils.di_container import DiContainer
+from oqtopus_util.config import mask_sensitive_info
+from oqtopus_util.di import DiContainer
 
 from .context import GlobalContext
 from .observability import instrument_clients, register_span_processor

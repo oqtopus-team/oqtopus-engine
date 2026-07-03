@@ -1,7 +1,7 @@
 import pytest
 
 from oqtopus_engine_core.framework import PipelineBuilder, PipelineExecutor
-from oqtopus_engine_core.utils.di_container import DiContainer
+from oqtopus_util.di import DiContainer
 
 # -----------------------
 # Fake classes for testing

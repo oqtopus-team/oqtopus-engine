@@ -1,6 +1,6 @@
 [project]
 name = "sse-runtime"
-version = "2.1.0"
+version = "2.1.1"
 description = "SSE Runtime: A runtime container for SSE"
 license = "Apache-2.0"
 authors = [{ name = "oqtopus-team", email = "oqtopus-team@googlegroups.com" }]
@@ -22,7 +22,7 @@ requires-python = ">=3.11"
 dependencies = [
   "matplotlib==3.10.3",
   "numpy==1.26.4",
-  "pyyaml==6.0.2",
+  "pyyaml>=6.0.3",
   "grpcio==1.71.0",
   "grpcio-tools==1.71.0",
   "networkx==3.5",
@@ -32,6 +32,7 @@ dependencies = [
   "scipy>=1.15.3",
   "scikit-learn==1.7.0",
   "oqtopus-client>=1.1.0",
+  "oqtopus-util>=1.0.1",
   "qiskit==1.4.3",
   "qulacs==0.6.12",
   "skqulacs==0.5.3",

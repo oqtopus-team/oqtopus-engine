@@ -527,7 +527,7 @@ parser = [
 
 [[package]]
 name = "oqtopus-engine-combiner"
-version = "2.1.0"
+version = "2.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "grpcio" },
@@ -535,6 +535,7 @@ dependencies = [
     { name = "matplotlib" },
     { name = "networkx" },
     { name = "numpy" },
+    { name = "oqtopus-util" },
     { name = "ortools" },
     { name = "protobuf" },
     { name = "python-json-logger" },
@@ -559,6 +560,7 @@ requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.8" },
     { name = "networkx", specifier = ">=3.6.1" },
     { name = "numpy", specifier = ">=2.3.5" },
+    { name = "oqtopus-util", specifier = ">=1.0.1" },
     { name = "ortools", specifier = ">=9.15.6755" },
     { name = "protobuf", specifier = ">=6.33.2" },
     { name = "python-json-logger", specifier = ">=4.0.0" },
@@ -574,6 +576,18 @@ dev = [
     { name = "pytest-cov", specifier = ">=7.0.0" },
     { name = "pytest-mock", specifier = ">=3.15.1" },
     { name = "ruff", specifier = ">=0.14.8" },
+]
+
+[[package]]
+name = "oqtopus-util"
+version = "1.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a2/00/fdff8bcbb51d3e9e061df44e730ae97eeb31dbb47638d8639ac29b87ca3f/oqtopus_util-1.0.1.tar.gz", hash = "sha256:a8e8b2df41905938458c0781817a72d42064d2dc31d18bc4d6eff54fe10daa5c", size = 224529, upload-time = "2026-05-26T06:06:51.016Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/53/5b/d094603c64100de1d63c0cbef67f689ad131acfed5290021790173f32fce/oqtopus_util-1.0.1-py3-none-any.whl", hash = "sha256:2c9efce619cca3e7e86dc33809eeac10029489ebd92e292e3af33db809f0bdce", size = 12105, upload-time = "2026-05-26T06:06:49.573Z" },
 ]
 
 [[package]]
