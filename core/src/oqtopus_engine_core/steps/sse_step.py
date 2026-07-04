@@ -1,6 +1,5 @@
 import asyncio
 import io
-import json
 import logging
 import shutil
 import tarfile
@@ -62,6 +61,10 @@ class SseStep(Step):
             )
             return
 
+        if job.sse_program is None:
+            message = "the sse_program is not specified in the job."
+            raise ValueError(message)
+
         # Update job status
         job.status = "running"
         await gctx.job_repository.update_job_status(job)
@@ -69,10 +72,6 @@ class SseStep(Step):
         config = self._settings
         # Make tmp dir
         temp_dirs = self._make_tmpdir(job.job_id, config["host_work_path"])
-
-        if job.sse_program is None:
-            message = "the sse_program is not specified in the job."
-            raise ValueError(message)
 
         try:
             # save python program to the temporary directory
@@ -182,6 +181,19 @@ class SseStep(Step):
             self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)
             await gctx.job_repository.update_job_transpiler_info(job)
 
+            if job.transpile_result is not None:
+                # Upload to storage
+                urls = await gctx.job_repository.get_job_upload_url(
+                    job=job,
+                    items=["transpile_result"],
+                )
+                await gctx.job_repository.upload_job_output(
+                    job=job,
+                    presigned_url=urls[0],
+                    data=job.transpile_result.model_dump(),
+                    arcname_ext=".json",
+                )
+
     @staticmethod
     async def _make_userprogram_file(
         userprogram_data: str, input_dir_path: Path, user_program_name: str
@@ -240,6 +252,7 @@ class SseStep(Step):
         job.result = result_job.result
         job.sse_log = result_job.sse_log
         job.transpiler_info = result_job.transpiler_info
+        job.transpile_result = result_job.transpile_result
         job.execution_time = execution_time_in_sec
 
 
@@ -319,7 +332,7 @@ class SseRunner:
             userprogram_container_path = (
                 self._container_work_path["in"] / self._config["userprogram_name"]
             )
-            cmd = f"uv run --project /app python {userprogram_container_path} 1> /proc/1/fd/1 2> /proc/1/fd/2"  # noqa: E501
+            cmd = f"uv run --project /app --no-dev python {userprogram_container_path} 1> /proc/1/fd/1 2> /proc/1/fd/2"  # noqa: E501
             await self._exec_in_container(
                 user="appuser",
                 privileged=True,
@@ -709,7 +722,7 @@ class SseRunner:
                 "file got successfully",
                 extra={"job_id": self._job_id},
             )
-            return Job(**json.loads(result_str))
+            return Job.model_validate_json(result_str)
 
     def _stop_and_remove(self) -> None:
         logger.debug(
