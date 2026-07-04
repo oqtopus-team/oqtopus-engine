@@ -74,6 +74,7 @@ di_container:
     estimator_step:
       _target_: oqtopus_engine_core.steps.EstimatorStep
       estimator_address: ${ESTIMATOR_ADDRESS, "localhost:52012"}
+      grpc_options: *grpc_options
       basis_gates:
         - "cx"
         - "id"
@@ -87,6 +88,7 @@ di_container:
     ro_error_mitigation_step:
       _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
       mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+      grpc_options: *grpc_options
 
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep

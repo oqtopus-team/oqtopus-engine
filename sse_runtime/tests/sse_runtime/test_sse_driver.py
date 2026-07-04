@@ -292,9 +292,12 @@ def _build_expected_request(
     expected_request["job_id"] = parent_job_id
     expected_request["status"] = "ready"
     expected_request["name"] = expected_request["name"] or ""
-    expected_request["program"] = expected_upload_info.get("program", [])
-    expected_request["operator"] = expected_upload_info.get("operator", [])
+    expected_request["program"] = expected_upload_info.get("program") or []
+    expected_request["operator"] = expected_upload_info.get("operator") or []
     expected_request["input"] = ""
+    expected_request["transpiler_info"] = expected_request.get("transpiler_info") or {}
+    expected_request["simulator_info"] = expected_request.get("simulator_info") or {}
+    expected_request["mitigation_info"] = expected_request.get("mitigation_info") or {}
     return expected_request
 
 

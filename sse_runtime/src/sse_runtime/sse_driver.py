@@ -98,7 +98,7 @@ def _make_request(
 ) -> dict[str, Any]:
     request = _convert_to_engine_job_model(input_job, upload_info)
     # set job_id of parent SSE job and status
-    request["job_id"] = _load_json_dict(job_json)["job_id"]
+    request["job_id"] = _load_json_dict(job_json).get("job_id") or ""
     request["status"] = "ready"
     return request
 
@@ -111,9 +111,12 @@ def _convert_to_engine_job_model(
     upload_info_dict = upload_info.model_dump()
 
     engine_job_dict["name"] = engine_job_dict["name"] or ""
-    engine_job_dict["program"] = upload_info_dict.get("program", [])
-    engine_job_dict["operator"] = upload_info_dict.get("operator", [])
+    engine_job_dict["program"] = upload_info_dict.get("program") or []
+    engine_job_dict["operator"] = upload_info_dict.get("operator") or []
     engine_job_dict["input"] = ""
+    engine_job_dict["transpiler_info"] = engine_job_dict.get("transpiler_info") or {}
+    engine_job_dict["simulator_info"] = engine_job_dict.get("simulator_info") or {}
+    engine_job_dict["mitigation_info"] = engine_job_dict.get("mitigation_info") or {}
     return engine_job_dict
 
 

@@ -1,6 +1,5 @@
 import asyncio
 import io
-import json
 import logging
 import shutil
 import tarfile
@@ -192,8 +191,8 @@ class SseStep(Step):
                     job=job,
                     presigned_url=urls[0],
                     data=job.transpile_result.model_dump(),
-                    arcname_ext=".json"
-        )
+                    arcname_ext=".json",
+                )
 
     @staticmethod
     async def _make_userprogram_file(
@@ -723,7 +722,7 @@ class SseRunner:
                 "file got successfully",
                 extra={"job_id": self._job_id},
             )
-            return Job(**json.loads(result_str))
+            return Job.model_validate_json(result_str)
 
     def _stop_and_remove(self) -> None:
         logger.debug(

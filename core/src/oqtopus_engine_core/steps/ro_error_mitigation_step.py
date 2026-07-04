@@ -146,10 +146,7 @@ class ReadoutErrorMitigationStep(Step):
                 return
 
             if job.result is None:  # pragma: no cover
-                message = (
-                    "job.result is None. "
-                    "Cannot perform readout error mitigation."
-                )
+                message = "job.result is None. Cannot perform readout error mitigation."
                 raise ValueError(message)
             if job.result.sampling is None:  # pragma: no cover
                 message = (
