@@ -4,10 +4,18 @@ SHELL := bash
 
 SSE_IMAGE := sse-runtime:latest
 
-.PHONY: build-sse help
-
-build-sse: ## Build Docker image for SSE engine
+.PHONY: build-sse lint test help
+build-sse: ## Run docker build
 	docker build -t $(SSE_IMAGE) .
+
+lint: ## Run linting
+	@uv lock --check
+	@uv run ruff check
+	@uv run ruff format --check
+	@uv run mypy
+
+test: ## Run tests
+	@uv run pytest
 
 help: ## Show help message
 	@echo "Usage: make [target]"

@@ -31,7 +31,7 @@ dependencies = [
   "tqdm==4.67.1",
   "scipy>=1.15.3",
   "scikit-learn==1.7.0",
-  "oqtopus-client>=1.1.0",
+  "oqtopus-client>=1.1.4",
   "oqtopus-util>=1.0.1",
   "qiskit==1.4.3",
   "qulacs==0.6.12",
@@ -41,8 +41,7 @@ dependencies = [
   "cirq==1.5.0",
   "pennylane==0.42.0",
   "openfermion==1.7.1",
-  "mypy>=1.17.0",
-  "quri-parts-oqtopus==1.0.3",
+  "quri-parts-oqtopus==1.1.4",
   "quri-parts==0.22.1",
 ]
 
@@ -53,6 +52,14 @@ package = false
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = [
+    "mypy>=1.17.0",
+    "ruff>=0.15.4",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+]
+
 [tool.ruff]
 preview = true
 include = [
@@ -60,7 +67,7 @@ include = [
   "tests/**/*.py",
 ]
 exclude = [
-  "src/**/v1/**/*.py", # Generated codes
+  "src/**/interfaces/**", # Generated codes
 ]
 lint.select = ["ALL"]
 lint.ignore = [
@@ -90,6 +97,16 @@ lint.ignore = [
 [tool.mypy]
 files = ["src"]
 exclude = [
-  "src/.*/v1/", # Generated codes
+  "src/.*/interfaces/.*", # Generated codes
 ]
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = [
+  "--cov=src",
+  "--cov-report=term-missing",
+  "--cov-report=html",
+  "--cov-report=xml",
+]
+pythonpath = ["src"]
+testpaths = ["tests"]

@@ -57,6 +57,8 @@ class JobResult(BaseModel):
 
 
 class JobInput(BaseModel):
+    """Job input model."""
+
     program: list[str] | None = None
     operator: list[OperatorItem] | None = None
     sse_program: str | None = None
