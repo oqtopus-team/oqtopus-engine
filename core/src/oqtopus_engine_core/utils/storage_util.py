@@ -2,12 +2,14 @@ import json
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 import requests
 from requests.exceptions import RequestException
 
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
+    DevicesDeviceInfoUploadPresignedURL,
     JobsJobInfoUploadPresignedURL,
 )
 
@@ -82,7 +84,9 @@ class OqtopusStorage:
 
     @staticmethod
     def upload(  # noqa: PLR0913, PLR0917
-        presigned_url: JobsJobInfoUploadPresignedURL,
+        presigned_url: (
+            JobsJobInfoUploadPresignedURL | DevicesDeviceInfoUploadPresignedURL
+        ),
         data: dict[str, Any] | str,
         arcname_ext: str = "",
         arcname: str | None = None,
@@ -106,8 +110,22 @@ class OqtopusStorage:
 
         """
         try:
+            fields = presigned_url.fields
+            if isinstance(fields, dict):
+                original_fields = fields
+                storage_key = str(fields["key"])
+            else:
+                # swagger-codegen generates JobsJobInfoUploadPresignedURLFields class
+                # and changes fields names e.g. AWSAccessKeyId -> aws_access_key_id
+                # we get the true field names
+                original_fields = {
+                    fields.attribute_map[k]: v
+                    for (k, v) in fields.to_dict().items()
+                }
+                storage_key = str(fields.key)
+
             with BytesIO() as zip_buffer:
-                zip_buffer.name = Path(presigned_url.fields.key).name
+                zip_buffer.name = Path(storage_key).name
                 with ZipFile(
                     file=zip_buffer, mode="w", compression=ZIP_DEFLATED
                 ) as zip_arch:
@@ -132,13 +150,12 @@ class OqtopusStorage:
                         )
                         raise OqtopusStorageError(msg)
 
-                # swagger-codegen generates JobsJobInfoUploadPresignedURLFields class
-                # and changes fields names e.g. AWSAccessKeyId -> aws_access_key_id
-                # we get the true field names
-                original_fields = {
-                    presigned_url.fields.attribute_map[k]: v
-                    for (k, v) in presigned_url.fields.to_dict().items()
-                }
+                parsed_url = urlparse(presigned_url.url)
+                if parsed_url.scheme == "file":
+                    output_path = Path(parsed_url.path)
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    output_path.write_bytes(zip_buffer.getvalue())
+                    return
 
                 resp = requests.post(
                     url=presigned_url.url,
