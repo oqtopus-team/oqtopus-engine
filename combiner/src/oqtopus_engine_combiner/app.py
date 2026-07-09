@@ -154,6 +154,8 @@ class CircuitCombiner(CombinerService):
             span.set_attribute(
                 "combiner.combined_status", int(response.combined_status)
             )
+            if response.combined_status == Status.STATUS_FAILURE:
+                span.set_status(trace.StatusCode.ERROR, "combine failed")
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
@@ -355,6 +357,8 @@ class CircuitCombiner(CombinerService):
             span.set_attribute(
                 "combiner.combined_status", int(response.combined_status)
             )
+            if response.combined_status == Status.STATUS_FAILURE:
+                span.set_status(trace.StatusCode.ERROR, "combine failed")
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(

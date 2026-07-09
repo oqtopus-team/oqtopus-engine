@@ -88,7 +88,7 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
             grouped_operators for estimation job.
 
         """
-        with tracer.start_as_current_span("estimator.preprocess"):
+        with tracer.start_as_current_span("estimator.preprocess") as span:
             try:
                 logger.info("start estimation preprocess")
                 logger.debug(
@@ -112,6 +112,7 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
                 )
             except Exception:
                 logger.exception("Estimation job preprocess failed. Exception occurred")
+                span.set_status(trace.StatusCode.ERROR, "preprocess failed")
             finally:
                 logger.info("finish estimation preprocess")
 
@@ -135,7 +136,7 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
             estimation job.
 
         """
-        with tracer.start_as_current_span("estimator.postprocess"):
+        with tracer.start_as_current_span("estimator.postprocess") as span:
             try:
                 logger.info("start estimation postprocess")
                 logger.debug(
@@ -158,6 +159,7 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
                 logger.exception(
                     "Estimation job postprocess failed. Exception occurred"
                 )
+                span.set_status(trace.StatusCode.ERROR, "postprocess failed")
             finally:
                 logger.info("finish estimation postprocess")
 

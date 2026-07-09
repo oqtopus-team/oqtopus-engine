@@ -62,7 +62,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
                 mitigated counts.
 
         """
-        with tracer.start_as_current_span("mitigator.ro_error_mitigation"):
+        with tracer.start_as_current_span("mitigator.ro_error_mitigation") as span:
             try:
                 logger.info("start ro_error_mitigation-error mitigation process")
                 logger.debug(
@@ -84,6 +84,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
                 return mitigator_pb2.ReqMitigationResponse(counts=mitigated_counts)
             except Exception as e:
                 logger.exception("mitigation process failed. Exception occurred:%s", e)
+                span.set_status(trace.StatusCode.ERROR, "mitigation failed")
             finally:
                 logger.info("finish ro_error_mitigation-error mitigation process")
 
