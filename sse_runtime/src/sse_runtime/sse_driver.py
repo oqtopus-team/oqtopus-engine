@@ -5,12 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import grpc
-
-# Top-level import: inside the SSE container PYTHONPATH points into this
-# directory (/app/src/sse_runtime/), so sibling modules are importable only
-# as top-level names — `from sse_runtime.observability import ...` would
-# raise ModuleNotFoundError there.
-from observability import setup_observability
 from oqtopus_client.rest.models import (
     JobsJob,
     JobsJobInfo,
@@ -19,12 +13,6 @@ from oqtopus_client.rest.models import (
 )
 from oqtopus_engine_core.interfaces.sse_interface.v1 import sse_pb2, sse_pb2_grpc
 from pydantic import ValidationError
-
-# Wire the OTel parent context / job baggage as soon as the runtime module
-# is imported by the user program, so every span (including the
-# auto-instrumented gRPC client span for SseEngine) is parented under the
-# engine's per-job root span.
-setup_observability()
 
 
 class SseRuntimeError(RuntimeError):
