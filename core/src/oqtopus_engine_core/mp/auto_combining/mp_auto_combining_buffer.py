@@ -328,39 +328,23 @@ class MpAutoCombiningBuffer(Buffer):
             # update transpile_result of original jobs according to the qubits assigned
             for assigned_job in cmb_info["assigned_group"]:
                 job_id = assigned_job["job_id"]
-                transpile_result = original_jobs[job_id][2].transpile_result
                 transpile_result = \
                     await self._update_transpile_result(
-                        transpile_result,
+                        original_jobs[job_id][2].transpile_result,
                         assigned_job["qubit_mapping"],
                     )
                 original_jobs[job_id][2].transpile_result = transpile_result
+                # upload the updated transpile_result to the cloud
+                await self._upload_transpile_result(
+                    original_jobs[job_id][0], original_jobs[job_id][2]
+                )
 
-            # use the max shots among original jobs for the combined job
-            shots = max(job[2].shots for job in original_jobs.values())
             # create new job object for the combined circuit
-            combined_job = create_combined_job(
-                combined_group["combined_program"],
-                shots=shots
+            gctx, combined_jctx, combined_job = create_combined_job(
+                combined_program=combined_group["combined_program"],
+                combine_info=cmb_info,
+                original_jobs=original_jobs
             )
-            # add context in JobContext to recover original jobs in post-process
-            mp_auto_combining_ctx = {
-                "n_total_qubits": cmb_info["n_total_qubits"],
-                "combined_qubits_list": cmb_info["combined_qubits_list"],
-            }
-
-            # create new contexts for the combined job
-            combined_jctx = JobContext()
-            combined_jctx.mp_auto_combining = mp_auto_combining_ctx
-
-            # Only link children here, not parent, to avoid overwriting the parent
-            # of the original jobs before they are combined.
-            combined_job.children = [job for _, _, job in original_jobs.values()]
-            combined_jctx.children = [jctx for _, jctx, _ in original_jobs.values()]
-            combined_jctx.has_actual_children = True
-
-            # take gctx from one of the original jobs. gctx is common among jobs.
-            gctx = next(iter(original_jobs.values()))[0]
 
             # store the combined job
             combined_jobs.append((gctx, combined_jctx, combined_job))
@@ -443,6 +427,27 @@ class MpAutoCombiningBuffer(Buffer):
         transpile_result.transpiled_program = qiskit.qasm3.dumps(new_circuit)
 
         return transpile_result
+
+    @staticmethod
+    async def _upload_transpile_result(gctx: GlobalContext, job: Job) -> None:
+        """Upload the transpile_result of the job to the storage.
+
+        Args:
+            gctx: Global execution context.
+            job: The job whose transpile_result is to be uploaded.
+
+        """
+        urls = await gctx.job_repository.get_job_upload_url(
+            job=job,
+            items=["transpile_result"],
+        )
+
+        await gctx.job_repository.upload_job_output_nowait(
+            job=job,
+            presigned_url=urls[0],
+            data=job.transpile_result.model_dump(),
+            arcname_ext=".json"
+        )
 
     async def _request_combine(
         self,
@@ -544,18 +549,27 @@ def _is_combinable(job: Job) -> bool:
     return True
 
 
-def create_combined_job(combined_program: str, shots: int) -> Job:
+def create_combined_job(
+    combined_program: str,
+    combine_info: dict[str, Any],
+    original_jobs: dict[str, tuple[GlobalContext, JobContext, Job]]
+) -> tuple[GlobalContext, JobContext, Job]:
     """Create a combined Job object from the combined QASM.
 
     Args:
         combined_program: The combined program QASM string.
-        shots: Number of shots for the combined job.
+        combine_info: Dictionary containing metadata obtained from combiner.
+        original_jobs: Dictionary of original jobs keyed by job ID.
 
     Returns:
         A Job object containing the combined program.
 
     """
-    return Job(
+    # use the max shots among original jobs for the combined job
+    shots = max(job[2].shots for job in original_jobs.values())
+
+    # create combined job object
+    combined_job = Job(
         job_id=f"mpa-comb-{uuid7(as_type='str')}",
         device_id="",
         shots=shots,
@@ -567,6 +581,25 @@ def create_combined_job(combined_program: str, shots: int) -> Job:
         mitigation_info={},
         status="ready",
     )
+
+    # create new context for the combined job
+    combined_jctx = JobContext()
+    # add context for recovering original jobs in post-process
+    combined_jctx.mp_auto_combining = {
+        "n_total_qubits": combine_info["n_total_qubits"],
+        "combined_qubits_list": combine_info["combined_qubits_list"],
+    }
+
+    # only link children here, not parent, to avoid overwriting the parent
+    # of the original jobs before they are combined.
+    combined_job.children = [job for _, _, job in original_jobs.values()]
+    combined_jctx.children = [jctx for _, jctx, _ in original_jobs.values()]
+    combined_jctx.has_actual_children = True
+
+    # take gctx from one of the original jobs. gctx is common among jobs.
+    gctx = next(iter(original_jobs.values()))[0]
+
+    return gctx, combined_jctx, combined_job
 
 
 def extract_target_program(job: Job) -> str:
