@@ -338,7 +338,7 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     logging_yaml = load_config(logging_yaml_path)
     setup_logging(logging_yaml)
 
-    setup_observability()
+    setup_observability(config_yaml)
 
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
     address = str(config_yaml["proto"].get("address") or "[::]:51012")
