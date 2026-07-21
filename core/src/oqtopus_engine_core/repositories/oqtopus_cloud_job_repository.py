@@ -32,6 +32,7 @@ class OqtopusCloudJobRepository(JobRepository):
         api_key: str = "",
         proxy: str | None = None,
         workers: int = 5,
+        api_request_timeout_seconds: int = 10,
         file_op_timeout_seconds: int = 60,
         max_file_size: int = 10485760,
     ) -> None:
@@ -42,6 +43,7 @@ class OqtopusCloudJobRepository(JobRepository):
             api_key: The API key for authentication.
             proxy: The proxy URL for the API request.
             workers: The number of concurrent workers to use for API requests.
+            api_request_timeout_seconds: Timeout for Jobs API HTTP requests.
             file_op_timeout_seconds: Timeout for file upload and download.
             max_file_size: Maximum allowed size for uploaded ZIP payloads.
 
@@ -69,6 +71,7 @@ class OqtopusCloudJobRepository(JobRepository):
         self._job_tails_lock = asyncio.Lock()
 
         self._proxy = proxy
+        self._api_request_timeout_seconds = api_request_timeout_seconds
         self._file_op_timeout_seconds = file_op_timeout_seconds
         self._max_file_size = max_file_size
 
@@ -78,6 +81,7 @@ class OqtopusCloudJobRepository(JobRepository):
                 "url": url,
                 "proxy": proxy,
                 "workers": workers,
+                "api_request_timeout_seconds": api_request_timeout_seconds,
                 "file_op_timeout_seconds": file_op_timeout_seconds,
             },
         )
@@ -305,6 +309,7 @@ class OqtopusCloudJobRepository(JobRepository):
                 device_id=device_id,
                 status=status,
                 limit=limit,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -358,7 +363,9 @@ class OqtopusCloudJobRepository(JobRepository):
 
         def _call() -> tuple[list[JobsJobInfoUploadPresignedURL], int, dict]:
             return self._jobs_api.get_upload_with_http_info(
-                job_id=job.job_id, items=",".join(items)
+                job_id=job.job_id,
+                items=",".join(items),
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -564,6 +571,7 @@ class OqtopusCloudJobRepository(JobRepository):
             return self._jobs_api.patch_job_with_http_info(
                 job_id=job.job_id,
                 body=body,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -648,6 +656,7 @@ class OqtopusCloudJobRepository(JobRepository):
             return self._jobs_api.update_job_transpiler_info_with_http_info(
                 job_id=job.job_id,
                 body=body,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
