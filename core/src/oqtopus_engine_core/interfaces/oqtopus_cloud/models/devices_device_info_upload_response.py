@@ -28,18 +28,47 @@ class DevicesDeviceInfoUploadResponse(object):
                             and the value is json key in definition.
     """
     swagger_types = {
+        'upload_id': 'str',
         'presigned_url': 'DevicesDeviceInfoUploadPresignedURL'
     }
 
     attribute_map = {
+        'upload_id': 'upload_id',
         'presigned_url': 'presigned_url'
     }
 
-    def __init__(self, presigned_url=None):  # noqa: E501
+    def __init__(self, upload_id=None, presigned_url=None):  # noqa: E501
         """DevicesDeviceInfoUploadResponse - a model defined in Swagger"""  # noqa: E501
+        self._upload_id = None
         self._presigned_url = None
         self.discriminator = None
+        self.upload_id = upload_id
         self.presigned_url = presigned_url
+
+    @property
+    def upload_id(self):
+        """Gets the upload_id of this DevicesDeviceInfoUploadResponse.  # noqa: E501
+
+        Upload identifier for confirming the specific device_info upload.  # noqa: E501
+
+        :return: The upload_id of this DevicesDeviceInfoUploadResponse.  # noqa: E501
+        :rtype: str
+        """
+        return self._upload_id
+
+    @upload_id.setter
+    def upload_id(self, upload_id):
+        """Sets the upload_id of this DevicesDeviceInfoUploadResponse.
+
+        Upload identifier for confirming the specific device_info upload.  # noqa: E501
+
+        :param upload_id: The upload_id of this DevicesDeviceInfoUploadResponse.  # noqa: E501
+        :type: str
+        """
+        if upload_id is None:
+            raise ValueError("Invalid value for `upload_id`, must not be `None`")  # noqa: E501
+
+        self._upload_id = upload_id
 
     @property
     def presigned_url(self):

@@ -44,9 +44,10 @@ async def test_update_device_info_uploads_payload_before_patch():
     device = make_device()
     devices_api = repo._devices_api  # noqa: SLF001
     upload_response = DevicesDeviceInfoUploadResponse(
+        upload_id="upload-123",
         presigned_url=DevicesDeviceInfoUploadPresignedURL(
             url="https://example.test/",
-            fields={"key": "devices/qulacs/device_info.zip"},
+            fields={"key": "devices/qulacs/uploads/upload-123/device_info.zip"},
         )
     )
     devices_api.get_device_info_upload_url_with_http_info.return_value = (
@@ -77,6 +78,7 @@ async def test_update_device_info_uploads_payload_before_patch():
     )
     devices_api.patch_device_info_with_http_info.assert_called_once()
     patch_body = devices_api.patch_device_info_with_http_info.call_args.kwargs["body"]
+    assert patch_body.upload_id == "upload-123"
     assert patch_body.calibrated_at == device.calibrated_at
 
 

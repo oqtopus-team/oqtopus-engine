@@ -324,6 +324,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         )
 
         body = DevicesDeviceInfoUpdate(
+            upload_id=upload_response.upload_id,
             calibrated_at=device.calibrated_at,
         )
 

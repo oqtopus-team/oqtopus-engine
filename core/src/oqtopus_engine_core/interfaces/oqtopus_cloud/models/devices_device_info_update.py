@@ -28,18 +28,47 @@ class DevicesDeviceInfoUpdate(object):
                             and the value is json key in definition.
     """
     swagger_types = {
+        'upload_id': 'str',
         'calibrated_at': 'datetime'
     }
 
     attribute_map = {
+        'upload_id': 'upload_id',
         'calibrated_at': 'calibrated_at'
     }
 
-    def __init__(self, calibrated_at=None):  # noqa: E501
+    def __init__(self, upload_id=None, calibrated_at=None):  # noqa: E501
         """DevicesDeviceInfoUpdate - a model defined in Swagger"""  # noqa: E501
+        self._upload_id = None
         self._calibrated_at = None
         self.discriminator = None
+        self.upload_id = upload_id
         self.calibrated_at = calibrated_at
+
+    @property
+    def upload_id(self):
+        """Gets the upload_id of this DevicesDeviceInfoUpdate.  # noqa: E501
+
+        Upload identifier returned by the device_info upload URL endpoint.  # noqa: E501
+
+        :return: The upload_id of this DevicesDeviceInfoUpdate.  # noqa: E501
+        :rtype: str
+        """
+        return self._upload_id
+
+    @upload_id.setter
+    def upload_id(self, upload_id):
+        """Sets the upload_id of this DevicesDeviceInfoUpdate.
+
+        Upload identifier returned by the device_info upload URL endpoint.  # noqa: E501
+
+        :param upload_id: The upload_id of this DevicesDeviceInfoUpdate.  # noqa: E501
+        :type: str
+        """
+        if upload_id is None:
+            raise ValueError("Invalid value for `upload_id`, must not be `None`")  # noqa: E501
+
+        self._upload_id = upload_id
 
     @property
     def calibrated_at(self):
