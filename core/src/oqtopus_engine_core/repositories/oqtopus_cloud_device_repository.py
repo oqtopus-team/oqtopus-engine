@@ -46,6 +46,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         api_key: str = "",
         proxy: str | None = None,
         workers: int = 5,
+        api_request_timeout_seconds: int = 10,
     ) -> None:
         """Initialize the device repository with the API URL and interval.
 
@@ -54,6 +55,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
             api_key: The API key for authentication.
             proxy: The proxy URL for the API request.
             workers: The number of concurrent workers to use for API requests.
+            api_request_timeout_seconds: Timeout for Devices API HTTP requests.
 
         """
         super().__init__()
@@ -69,6 +71,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         )
         self._devices_api = DevicesApi(api_client=api_client)
         self._sem = asyncio.Semaphore(workers)
+        self._api_request_timeout_seconds = api_request_timeout_seconds
 
         logger.info(
             "OqtopusCloudDeviceRepository was initialized",
@@ -76,6 +79,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
                 "url": url,
                 "proxy": proxy,
                 "workers": workers,
+                "api_request_timeout_seconds": api_request_timeout_seconds,
             },
         )
 
@@ -143,6 +147,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
             return self._devices_api.patch_device_with_http_info(
                 device_id=device.device_id,
                 body=body,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {"device_id": device.device_id}
@@ -187,6 +192,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
             return self._devices_api.patch_device_status_with_http_info(
                 device_id=device.device_id,
                 body=body,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         logger.info(
@@ -228,6 +234,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
             return self._devices_api.patch_device_info_with_http_info(
                 device_id=device.device_id,
                 body=body,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {"device_id": device.device_id}

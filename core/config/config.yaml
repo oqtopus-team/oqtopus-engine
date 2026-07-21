@@ -55,6 +55,7 @@ di_container:
       url: ${JOB_REPOSITORY_URL, "http://localhost:8888"}
       api_key: ${JOB_REPOSITORY_API_KEY, ""}
       workers: ${JOB_REPOSITORY_WORKERS, 10}
+      api_request_timeout_seconds: ${JOB_API_REQUEST_TIMEOUT_SECONDS, 10}
       file_op_timeout_seconds: ${JOB_FILE_OP_TIMEOUT_SECONDS, 60}
       max_file_size: ${MAX_FILE_SIZE, 10485760}
 
@@ -66,6 +67,7 @@ di_container:
       url: ${DEVICE_REPOSITORY_URL, "http://localhost:8888"}
       api_key: ${DEVICE_REPOSITORY_API_KEY, ""}
       workers: ${DEVICE_REPOSITORY_WORKERS, 1}
+      api_request_timeout_seconds: ${DEVICE_REPOSITORY_API_REQUEST_TIMEOUT_SECONDS, 10}
 
     # buffer configurations
     buffer:
