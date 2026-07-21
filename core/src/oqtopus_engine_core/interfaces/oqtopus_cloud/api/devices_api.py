@@ -241,7 +241,7 @@ class DevicesApi(object):
 
         :param async_req bool
         :param str device_id: Device ID (required)
-        :param DevicesDeviceInfoUpdate body: Calibration timestamp for the uploaded device_info.
+        :param DevicesDeviceInfoUpdate body: Upload identifier and calibration timestamp for the uploaded device_info.
         :return: DevicesDeviceDataUpdateResponse
                  If the method is called asynchronously,
                  returns the request thread.
@@ -264,7 +264,7 @@ class DevicesApi(object):
 
         :param async_req bool
         :param str device_id: Device ID (required)
-        :param DevicesDeviceInfoUpdate body: Calibration timestamp for the uploaded device_info.
+        :param DevicesDeviceInfoUpdate body: Upload identifier and calibration timestamp for the uploaded device_info.
         :return: DevicesDeviceDataUpdateResponse
                  If the method is called asynchronously,
                  returns the request thread.
