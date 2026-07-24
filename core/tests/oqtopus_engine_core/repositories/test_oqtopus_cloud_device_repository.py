@@ -11,6 +11,7 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
 from oqtopus_engine_core.repositories.oqtopus_cloud_device_repository import (
     OqtopusCloudDeviceRepository,
 )
+from oqtopus_engine_core.utils.storage_util import OqtopusStorageError
 
 
 def make_device() -> Device:
@@ -44,10 +45,9 @@ async def test_update_device_info_uploads_payload_before_patch():
     device = make_device()
     devices_api = repo._devices_api  # noqa: SLF001
     upload_response = DevicesDeviceInfoUploadResponse(
-        upload_id="upload-123",
         presigned_url=DevicesDeviceInfoUploadPresignedURL(
             url="https://example.test/",
-            fields={"key": "devices/qulacs/uploads/upload-123/device_info.zip"},
+            fields={"key": "devices/qulacs/device_info.zip"},
         )
     )
     devices_api.get_device_info_upload_url_with_http_info.return_value = (
@@ -78,8 +78,33 @@ async def test_update_device_info_uploads_payload_before_patch():
     )
     devices_api.patch_device_info_with_http_info.assert_called_once()
     patch_body = devices_api.patch_device_info_with_http_info.call_args.kwargs["body"]
-    assert patch_body.upload_id == "upload-123"
     assert patch_body.calibrated_at == device.calibrated_at
+
+
+@pytest.mark.asyncio
+async def test_update_device_info_does_not_patch_when_upload_fails():
+    repo = make_repo()
+    device = make_device()
+    devices_api = repo._devices_api  # noqa: SLF001
+    upload_response = DevicesDeviceInfoUploadResponse(
+        presigned_url=DevicesDeviceInfoUploadPresignedURL(
+            url="https://example.test/",
+            fields={"key": "devices/qulacs/device_info.zip"},
+        )
+    )
+    devices_api.get_device_info_upload_url_with_http_info.return_value = (
+        upload_response,
+        200,
+        {},
+    )
+
+    with patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.OqtopusStorage.upload",
+        side_effect=OqtopusStorageError("upload failed"),
+    ), pytest.raises(OqtopusStorageError, match="upload failed"):
+        await repo.update_device_info(device)
+
+    devices_api.patch_device_info_with_http_info.assert_not_called()
 
 
 @pytest.mark.asyncio

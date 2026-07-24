@@ -35,7 +35,7 @@ class DevicesApi(object):
     def get_device_info_upload_url(self, device_id, **kwargs):  # noqa: E501
         """Generate a presigned URL to upload device_info  # noqa: E501
 
-        Generate a presigned URL to upload device_info for the selected device.  # noqa: E501
+        Generate a presigned URL to upload device_info for the selected device. Upload device_info.zip to this URL, then call PATCH /devices/{device_id}/device_info only after the upload succeeds.  # noqa: E501
         This method makes a synchronous HTTP request by default. To make an
         asynchronous HTTP request, please pass async_req=True
         >>> thread = api.get_device_info_upload_url(device_id, async_req=True)
@@ -57,7 +57,7 @@ class DevicesApi(object):
     def get_device_info_upload_url_with_http_info(self, device_id, **kwargs):  # noqa: E501
         """Generate a presigned URL to upload device_info  # noqa: E501
 
-        Generate a presigned URL to upload device_info for the selected device.  # noqa: E501
+        Generate a presigned URL to upload device_info for the selected device. Upload device_info.zip to this URL, then call PATCH /devices/{device_id}/device_info only after the upload succeeds.  # noqa: E501
         This method makes a synchronous HTTP request by default. To make an
         asynchronous HTTP request, please pass async_req=True
         >>> thread = api.get_device_info_upload_url_with_http_info(device_id, async_req=True)
@@ -233,7 +233,7 @@ class DevicesApi(object):
     def patch_device_info(self, device_id, **kwargs):  # noqa: E501
         """Confirm uploaded device_info and update calibrated timestamp  # noqa: E501
 
-        Confirm the uploaded device_info for the selected device and update its calibrated timestamp.  # noqa: E501
+        Confirm the uploaded device_info for the selected device and update its calibrated timestamp. Call this endpoint only after the upload to the presigned URL has completed successfully. If the upload fails, the caller must not confirm the calibration update.  # noqa: E501
         This method makes a synchronous HTTP request by default. To make an
         asynchronous HTTP request, please pass async_req=True
         >>> thread = api.patch_device_info(device_id, async_req=True)
@@ -241,7 +241,7 @@ class DevicesApi(object):
 
         :param async_req bool
         :param str device_id: Device ID (required)
-        :param DevicesDeviceInfoUpdate body: Upload identifier and calibration timestamp for the uploaded device_info.
+        :param DevicesDeviceInfoUpdate body: Calibration timestamp for the uploaded device_info.
         :return: DevicesDeviceDataUpdateResponse
                  If the method is called asynchronously,
                  returns the request thread.
@@ -256,7 +256,7 @@ class DevicesApi(object):
     def patch_device_info_with_http_info(self, device_id, **kwargs):  # noqa: E501
         """Confirm uploaded device_info and update calibrated timestamp  # noqa: E501
 
-        Confirm the uploaded device_info for the selected device and update its calibrated timestamp.  # noqa: E501
+        Confirm the uploaded device_info for the selected device and update its calibrated timestamp. Call this endpoint only after the upload to the presigned URL has completed successfully. If the upload fails, the caller must not confirm the calibration update.  # noqa: E501
         This method makes a synchronous HTTP request by default. To make an
         asynchronous HTTP request, please pass async_req=True
         >>> thread = api.patch_device_info_with_http_info(device_id, async_req=True)
@@ -264,7 +264,7 @@ class DevicesApi(object):
 
         :param async_req bool
         :param str device_id: Device ID (required)
-        :param DevicesDeviceInfoUpdate body: Upload identifier and calibration timestamp for the uploaded device_info.
+        :param DevicesDeviceInfoUpdate body: Calibration timestamp for the uploaded device_info.
         :return: DevicesDeviceDataUpdateResponse
                  If the method is called asynchronously,
                  returns the request thread.

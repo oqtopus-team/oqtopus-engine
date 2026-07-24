@@ -323,10 +323,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
             },
         )
 
-        body = DevicesDeviceInfoUpdate(
-            upload_id=upload_response.upload_id,
-            calibrated_at=device.calibrated_at,
-        )
+        body = DevicesDeviceInfoUpdate(calibrated_at=device.calibrated_at)
 
         def _patch_call() -> tuple[object, int, dict]:
             return self._devices_api.patch_device_info_with_http_info(
