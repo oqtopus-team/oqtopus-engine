@@ -12,10 +12,12 @@ import grpc  # type: ignore[import-untyped]
 import numpy as np
 import qiskit.qasm3  # type: ignore[import-untyped]
 from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
+from opentelemetry import trace
 from oqtopus_util.config import load_config, setup_logging
 from qiskit import QuantumCircuit
 
 from oqtopus_engine_combiner.mp_auto import OptimalCircuitCombiner
+from oqtopus_engine_combiner.observability import setup_observability
 from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2 import (  # type: ignore[attr-defined]
     DESCRIPTOR,
     CombineRequest,
@@ -30,6 +32,7 @@ from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2_grpc impo
 )
 
 logger = logging.getLogger("oqtopus_engine_combiner")
+tracer = trace.get_tracer(__name__)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -99,45 +102,60 @@ class CircuitCombiner(CombinerService):
         """
         start = time.perf_counter()
 
-        try:
-            # deal with request JSON-array
-            logger.debug(
-                "start combine_circuit",
-                extra={
-                    "request": request,
-                },
-            )
+        with tracer.start_as_current_span(
+            "combiner.combine",
+            attributes={"combiner.max_qubits": request.max_qubits},
+        ) as span:
+            try:
+                # deal with request JSON-array
+                logger.debug(
+                    "start combine_circuit",
+                    extra={
+                        "request": request,
+                    },
+                )
 
-            program_list = self.deal_with_request_programs(programs=request.programs)
-            maxqubits = request.max_qubits
-            # combine circuits
-            combined_status, combined_circuit, combined_qubits_list = (
-                self.combine_circuits(program_list, maxqubits)
-            )
-            # e.g.
-            # For combined circuits such as [c1 (3-qubit), c2 (2-qubit), c3 (1-qubit)]
-            # in total 6 qubits, combined_qubits_list is [3, 2, 1].
+                program_list = self.deal_with_request_programs(
+                    programs=request.programs
+                )
+                span.set_attribute("combiner.num_input_circuits", len(program_list))
+                maxqubits = request.max_qubits
+                # combine circuits
+                combined_status, combined_circuit, combined_qubits_list = (
+                    self.combine_circuits(program_list, maxqubits)
+                )
+                # e.g.
+                # For combined circuits [c1 (3-qubit), c2 (2-qubit), c3 (1-qubit)]
+                # in total 6 qubits, combined_qubits_list is [3, 2, 1].
+                span.set_attribute(
+                    "combiner.total_qubits", sum(combined_qubits_list)
+                )
 
-            response = CombineResponse(
-                combined_status=combined_status,
-                combined_program=combined_circuit,
-                combined_qubits_list=combined_qubits_list,
-            )
+                response = CombineResponse(
+                    combined_status=combined_status,
+                    combined_program=combined_circuit,
+                    combined_qubits_list=combined_qubits_list,
+                )
 
-        except ValueError:
-            logger.exception("invalid request")
-            response = CombineResponse(
-                combined_status=Status.STATUS_FAILURE,
-                combined_program="",
-                combined_qubits_list=[],
+            except ValueError:
+                logger.exception("invalid request")
+                response = CombineResponse(
+                    combined_status=Status.STATUS_FAILURE,
+                    combined_program="",
+                    combined_qubits_list=[],
+                )
+            except Exception:
+                logger.exception("failed to combine circuits")
+                response = CombineResponse(
+                    combined_status=Status.STATUS_FAILURE,
+                    combined_program="",
+                    combined_qubits_list=[],
+                )
+            span.set_attribute(
+                "combiner.combined_status", int(response.combined_status)
             )
-        except Exception:
-            logger.exception("failed to combine circuits")
-            response = CombineResponse(
-                combined_status=Status.STATUS_FAILURE,
-                combined_program="",
-                combined_qubits_list=[],
-            )
+            if response.combined_status == Status.STATUS_FAILURE:
+                span.set_status(trace.StatusCode.ERROR, "combine failed")
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
@@ -261,73 +279,86 @@ class CircuitCombiner(CombinerService):
         """
         start = time.perf_counter()
 
-        try:
-            # deal with request JSON-array
-            logger.info(
-                "start optimal_combine_circuit",
-                extra={
-                    "request": request,
-                },
-            )
+        with tracer.start_as_current_span("combiner.optimal_combine") as span:
+            try:
+                # deal with request JSON-array
+                logger.info(
+                    "start optimal_combine_circuit",
+                    extra={
+                        "request": request,
+                    },
+                )
 
-            jobs = self.deal_with_request_programs(programs=request.programs)
-            logger.debug(
-                "received jobs",
-                extra={
-                    "jobs": jobs,
-                },
-            )
-            device_info = json.loads(request.device_info)
+                jobs = self.deal_with_request_programs(programs=request.programs)
+                span.set_attribute("combiner.num_input_circuits", len(jobs))
+                logger.debug(
+                    "received jobs",
+                    extra={
+                        "jobs": jobs,
+                    },
+                )
+                device_info = json.loads(request.device_info)
 
-            combined_groups = []
-            combiner = OptimalCircuitCombiner(
-                idle_qubits_insertion_enabled=self._idle_qubits_insertion_enabled
-            )
-            # assign qubits to each circuit and create groups to be combined
-            assigned_ids, assigned_groups = combiner.assign_circuits(jobs=jobs,
-                                                                     device_info=device_info
-                                                                     )
-            # create combined circuits for each group
-            combined_groups = combiner.combine_circuits_for_groups(assigned_groups)
+                combined_groups = []
+                combiner = OptimalCircuitCombiner(
+                    idle_qubits_insertion_enabled=self._idle_qubits_insertion_enabled
+                )
+                # assign qubits to each circuit and create groups to be combined
+                assigned_ids, assigned_groups = combiner.assign_circuits(
+                    jobs=jobs, device_info=device_info
+                )
+                # create combined circuits for each group
+                combined_groups = combiner.combine_circuits_for_groups(assigned_groups)
+                span.set_attribute(
+                    "combiner.num_combined_circuits", len(combined_groups)
+                )
+                span.set_attribute(
+                    "combiner.num_unassigned", len(jobs) - len(assigned_ids)
+                )
 
-            combine_result = {
-                "assigned_ids": assigned_ids,
-                "combined_groups": combined_groups,
-            }
-            response = OptimalCombineResponse(
-                combined_status=Status.STATUS_SUCCESS,
-                combine_result=json.dumps(combine_result),
-            )
+                combine_result = {
+                    "assigned_ids": assigned_ids,
+                    "combined_groups": combined_groups,
+                }
+                response = OptimalCombineResponse(
+                    combined_status=Status.STATUS_SUCCESS,
+                    combine_result=json.dumps(combine_result),
+                )
 
-            logger.debug(
-                "combined circuits",
-                extra={
-                    "combine_result": combine_result,
-                    "num_input_circuits": len(jobs),
-                    "num_combined_circuits": len(combined_groups),
-                    "num_unassigned_circuits": len(jobs) - len(assigned_ids),
-                },
-            )
-            # message to make log easier to read
-            achievement_msg = (
-                f"combined {len(assigned_ids)}/{len(jobs)} circuits into "
-                f"{len(combined_groups)} combined circuits."
-            )
+                logger.debug(
+                    "combined circuits",
+                    extra={
+                        "combine_result": combine_result,
+                        "num_input_circuits": len(jobs),
+                        "num_combined_circuits": len(combined_groups),
+                        "num_unassigned_circuits": len(jobs) - len(assigned_ids),
+                    },
+                )
+                # message to make log easier to read
+                achievement_msg = (
+                    f"combined {len(assigned_ids)}/{len(jobs)} circuits into "
+                    f"{len(combined_groups)} combined circuits."
+                )
 
-        except ValueError:
-            logger.exception("invalid request")
-            achievement_msg = "failed to combine circuits due to invalid request."
-            response = OptimalCombineResponse(
-                combined_status=Status.STATUS_FAILURE,
-                combine_result="",
+            except ValueError:
+                logger.exception("invalid request")
+                achievement_msg = "failed to combine circuits due to invalid request."
+                response = OptimalCombineResponse(
+                    combined_status=Status.STATUS_FAILURE,
+                    combine_result="",
+                )
+            except Exception:
+                logger.exception("failed to combine circuits")
+                achievement_msg = "failed to combine circuits due to internal error."
+                response = OptimalCombineResponse(
+                    combined_status=Status.STATUS_FAILURE,
+                    combine_result="",
+                )
+            span.set_attribute(
+                "combiner.combined_status", int(response.combined_status)
             )
-        except Exception:
-            logger.exception("failed to combine circuits")
-            achievement_msg = "failed to combine circuits due to internal error."
-            response = OptimalCombineResponse(
-                combined_status=Status.STATUS_FAILURE,
-                combine_result="",
-            )
+            if response.combined_status == Status.STATUS_FAILURE:
+                span.set_status(trace.StatusCode.ERROR, "combine failed")
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
@@ -426,6 +457,8 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     config_yaml = load_config(config_yaml_path)
     logging_yaml = load_config(logging_yaml_path)
     setup_logging(logging_yaml)
+
+    setup_observability(config_yaml)
 
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
     address = str(config_yaml["proto"].get("address") or "[::]:51013")

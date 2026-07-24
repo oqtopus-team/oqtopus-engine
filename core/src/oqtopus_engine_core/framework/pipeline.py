@@ -301,7 +301,7 @@ class PipelineExecutor:
                         "jctx": jctx,
                     },
                 )
-                self._finalize_job_observability(jctx, job, status="success")
+                self._finalize_job_observability(jctx, job, status="succeeded")
                 return
 
             # at this point cursor must be valid (0 <= cursor < len)
@@ -558,9 +558,9 @@ class PipelineExecutor:
             # Record failure on the root job's observability state.
             # _safe_call swallows the exception so `asyncio.gather` in
             # `_handle_split` returns normally; without this flag the
-            # split-path finalize would tag the root span as "success".
+            # split-path finalize would tag the root span as "succeeded".
             self._mark_root_observability_failed(jctx)
-            self._finalize_job_observability(jctx, job, status="failure")
+            self._finalize_job_observability(jctx, job, status="failed")
             return False
         else:
             return True
@@ -576,7 +576,7 @@ class PipelineExecutor:
 
         If any descendant step has marked the root jctx via
         `_mark_root_observability_failed`, the caller's status is overridden
-        to "failure" so the root span / metrics reflect the actual outcome
+        to "failed" so the root span / metrics reflect the actual outcome
         rather than a child's silently-swallowed exception.
         """
         if jctx.get("_oqtopus_obs_finalized"):
@@ -586,7 +586,7 @@ class PipelineExecutor:
         jctx["_oqtopus_obs_finalized"] = True
 
         if jctx.get("_oqtopus_obs_failed"):
-            status = "failure"
+            status = "failed"
 
         start = jctx.get("_oqtopus_obs_start")
         if start is not None:
@@ -611,8 +611,8 @@ class PipelineExecutor:
         `_oqtopus_obs_span` (i.e. the root job's jctx) and sets the
         `_oqtopus_obs_failed` flag there. This is called from step exception
         paths so that the eventual `_finalize_job_observability` on the root
-        records `oqtopus.status="failure"` even when the root finalize is
-        triggered from a "success" code path (e.g. after `_handle_split`'s
+        records `oqtopus.status="failed"` even when the root finalize is
+        triggered from a "succeeded" code path (e.g. after `_handle_split`'s
         `gather` returns normally because child failures are swallowed by
         `_safe_call`).
         """
@@ -868,7 +868,7 @@ class PipelineExecutor:
         # so it must be called here.
         # ------------------------------------------------------------
         if job.parent is None:
-            self._finalize_job_observability(jctx, job, status="success")
+            self._finalize_job_observability(jctx, job, status="succeeded")
 
     def _start_child_pipeline(
         self,
@@ -1109,7 +1109,7 @@ class PipelineExecutor:
                 )
                 if parent_job.parent is None:
                     self._finalize_job_observability(
-                        parent_jctx, parent_job, status="success"
+                        parent_jctx, parent_job, status="succeeded"
                     )
         elif step_phase == StepPhase.PRE_PROCESS:
             # JoinOnPreprocess could resume pre-process here.

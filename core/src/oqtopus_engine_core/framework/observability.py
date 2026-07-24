@@ -6,6 +6,9 @@ Provides:
   HTTP/DB spans) carries ``oqtopus.job_id`` and ``oqtopus.job_type``,
   enabling TraceQL lookups like ``{ .oqtopus.job_id = "..." }``. The baggage
   itself is attached by the pipeline when the job-level root span is opened.
+- A logging.Filter with the same job_id/job_type baggage-mirroring for log
+  records, so job-related log lines can be filtered in Loki via LogQL
+  (``| json | job_id = "..."``).
 - Meter instruments for job-level business metrics (counters + duration
   histogram) used by the pipeline to emit SLO-relevant signals.
 """
@@ -30,6 +33,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _BAGGAGE_PREFIX = "oqtopus."
+
+# Explicit baggage-key -> LogRecord-attribute mapping for JobBaggageLogFilter,
+# rather than deriving the attribute name from the baggage key at runtime
+# (e.g. via str.removeprefix). Baggage keys are just strings, so deriving a
+# setattr target from one could land on a dunder or a reserved LogRecord
+# attribute (msg, levelname, asctime, ...) and corrupt the record; this map
+# only ever writes the two names below, both known non-reserved.
+_BAGGAGE_TO_LOG_ATTR = {
+    "oqtopus.job_id": "job_id",
+    "oqtopus.job_type": "job_type",
+}
 
 _meter = metrics.get_meter(__name__)
 
@@ -85,6 +99,71 @@ def register_span_processor() -> None:
 
     add_span_processor(JobBaggageSpanProcessor())
     logger.info("JobBaggageSpanProcessor registered")
+
+
+class JobBaggageLogFilter(logging.Filter):
+    """Copy ``_BAGGAGE_TO_LOG_ATTR``'s baggage keys onto LogRecord attributes.
+
+    python-json-logger includes any non-reserved LogRecord attribute in the
+    emitted JSON automatically, so the mirrored fields (``job_id``,
+    ``job_type``) show up in log output without touching the formatter.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: PLR6301
+        """Mirror the mapped baggage entries onto the record.
+
+        Returns:
+            Always ``True`` (this filter only enriches records, never drops them).
+
+        """
+        ctx_baggage = baggage.get_all(context.get_current())
+        for baggage_key, attr_name in _BAGGAGE_TO_LOG_ATTR.items():
+            value = ctx_baggage.get(baggage_key)
+            if value is not None:
+                setattr(record, attr_name, value)
+        return True
+
+
+def register_log_filter() -> None:
+    """Attach the baggage→attribute log filter to the core logger's handlers.
+
+    A ``logging.Filter`` only runs for the logger that actually emits the
+    record, not for ancestor loggers it propagates to (see
+    ``Logger.handle``/``Logger.callHandlers``). Since most core code logs
+    through per-module child loggers (e.g. ``oqtopus_engine_core.framework.
+    pipeline``) that propagate up to ``oqtopus_engine_core``'s handlers, the
+    filter must be attached to handlers rather than to the
+    ``oqtopus_engine_core`` logger object itself.
+
+    Walks up the logger hierarchy the same way ``Logger.callHandlers`` does,
+    so this still finds the right handlers if a deployment's logging config
+    puts them on ``root`` instead of on ``oqtopus_engine_core`` directly.
+    Skips handlers that already have the filter attached, so calling this
+    more than once (e.g. across tests constructing multiple ``Engine``
+    instances) doesn't double-enrich every record.
+
+    Logs and returns silently if no handlers are found anywhere in the chain.
+    """
+    handlers: list[logging.Handler] = []
+    current: logging.Logger | None = logging.getLogger("oqtopus_engine_core")
+    while current is not None:
+        handlers.extend(current.handlers)
+        if not current.propagate:
+            break
+        current = current.parent
+
+    if not handlers:
+        logger.info(
+            "no handlers found on oqtopus_engine_core or its ancestor loggers; "
+            "job_id log enrichment will not be active"
+        )
+        return
+
+    log_filter = JobBaggageLogFilter()
+    for handler in handlers:
+        if not any(isinstance(f, JobBaggageLogFilter) for f in handler.filters):
+            handler.addFilter(log_filter)
+    logger.info("JobBaggageLogFilter registered")
 
 
 def instrument_clients() -> None:
