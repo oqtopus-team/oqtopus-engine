@@ -12,7 +12,11 @@ from oqtopus_util.config import mask_sensitive_info
 from oqtopus_util.di import DiContainer
 
 from .context import GlobalContext
-from .observability import instrument_clients, register_span_processor
+from .observability import (
+    instrument_clients,
+    register_log_filter,
+    register_span_processor,
+)
 from .pipeline_builder import PipelineBuilder
 
 logger = logging.getLogger(__name__)
@@ -42,6 +46,7 @@ class Engine:
 
         if self._gctx.config.get("monitoring", {}).get("enabled", False):
             register_span_processor()
+            register_log_filter()
             instrument_clients()
             logger.info("monitoring enabled")
 
