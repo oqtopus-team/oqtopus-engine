@@ -14,6 +14,7 @@ from oqtopus_engine_core.framework import (
     Job,
     JobContext,
     Step,
+    StepResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class SseStep(Step):
         gctx: GlobalContext,
         jctx: JobContext,  # noqa: ARG002
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Pre-process the job by downloading the user program and run SSE.
 
         This method downloads the user's program from Oqtopus Cloud,
@@ -53,13 +54,16 @@ class SseStep(Step):
             RuntimeError: If the SSE run fails.
             ValueError: If the SSE program is missing from the job.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
         if job.job_type != "sse":
             logger.debug(
                 "job_type is not sse, skipping",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         if job.sse_program is None:
             message = "the sse_program is not specified in the job."
@@ -67,7 +71,7 @@ class SseStep(Step):
 
         # Update job status
         job.status = "running"
-        await gctx.job_repository.update_job_status(job)
+        await gctx.job_repository.update_job_status(job)  # type: ignore[union-attr]
 
         config = self._settings
         # Make tmp dir
@@ -101,14 +105,14 @@ class SseStep(Step):
             # Clean up temporary directory
             if config["delete_host_temp_dirs"]:
                 self._delete_tmpdir(temp_dirs["base"])
-        return
+        return StepResult()
 
-    async def post_process(
+    async def post_process(  # noqa: PLR6301
         self,
-        gctx: GlobalContext,
-        jctx: JobContext,
-        job: Job,
-    ) -> None:
+        gctx: GlobalContext,  # noqa: ARG002
+        jctx: JobContext,  # noqa: ARG002
+        job: Job,  # noqa: ARG002
+    ) -> StepResult:
         """Post-process the job.
 
         Do nothing.
@@ -118,7 +122,11 @@ class SseStep(Step):
             jctx: The job context.
             job: The job object.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
+        return StepResult()
 
     async def _run_sse(
         self,
@@ -163,6 +171,9 @@ class SseStep(Step):
             msg = "internal server error"
             raise RuntimeError(msg) from e
         else:
+            if sse_runner.result_job is None:
+                msg = "SSE runner completed without a result_job"
+                raise RuntimeError(msg)
             job.status = sse_runner.result_job.status
             logger.info(
                 "succeeded to run SSE",
@@ -178,16 +189,16 @@ class SseStep(Step):
                 raise RuntimeError(msg)
         finally:
             elapsed_sec = time.perf_counter() - start
-            self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)
-            await gctx.job_repository.update_job_transpiler_info(job)
+            self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)  # type: ignore[arg-type]
+            await gctx.job_repository.update_job_transpiler_info(job)  # type: ignore[union-attr]
 
             if job.transpile_result is not None:
                 # Upload to storage
-                urls = await gctx.job_repository.get_job_upload_url(
+                urls = await gctx.job_repository.get_job_upload_url(  # type: ignore[union-attr]
                     job=job,
                     items=["transpile_result"],
                 )
-                await gctx.job_repository.upload_job_output(
+                await gctx.job_repository.upload_job_output(  # type: ignore[union-attr]
                     job=job,
                     presigned_url=urls[0],
                     data=job.transpile_result.model_dump(),
@@ -496,7 +507,8 @@ class SseRunner:
                     "container log",
                     extra={"job_id": self._job_id, "container_log": logs_content},
                 )
-            self.result_job.sse_log = logs_content
+            if self.result_job is not None:
+                self.result_job.sse_log = logs_content
         except Exception:
             logger.exception(
                 "failed to get container log",

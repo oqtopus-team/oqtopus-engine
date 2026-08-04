@@ -173,7 +173,7 @@ Each worker repeatedly performs:
 
 Workers continue this loop until the executor is stopped.
 
-If a step implements `DetachOnPreprocess` or `DetachOnPostprocess`,
+If a step returns `StepResult(directive=PipelineDirective.DETACH)`,
 the caller regains control immediately while the detached coroutine continues
 in the background, but the buffer consumption pattern (get → resume pre-process)
 remains unchanged.
@@ -218,19 +218,33 @@ This enables functionalities such as:
 
 ### 6.2 How Splitting Works
 
-Depending on the type of step:
+A step triggers a split by returning a `StepResult` with one of the split directives
+from its `pre_process()` or `post_process()` method:
 
-- **SplitOnPreprocess**: splitting occurs during pre-process traversal.
-- **SplitOnPostprocess**: splitting occurs during post-process traversal.
+- **`PipelineDirective.SPLIT_FOR_JOIN`**: children run independently; parent waits until all
+  children reach the join step before resuming.
+- **`PipelineDirective.SPLIT_WITHOUT_JOIN`**: children run independently; parent does **not**
+  wait — no pending-children counter is registered.
+
+The `StepResult` carries the child jobs and child contexts:
+
+```python
+return StepResult(
+    directive=PipelineDirective.SPLIT_FOR_JOIN,
+    child_jobs=child_jobs,
+    child_contexts=child_ctxs,
+)
+```
 
 When a split occurs:
 
 1. The parent job's traversal **pauses**.
-2. New child jobs and contexts are created and placed in `job.children` and `jctx.children`.
+2. The executor calls `link_parent_and_children` to establish `job.children` /
+   `jctx.children` — the step must **not** call this function itself.
 3. Each child job starts its own execution:
    - traversal starts from the first pipeline element,
    - workers, buffers, and phases apply independently.
-4. Parent job waits until children complete.
+4. For `SPLIT_FOR_JOIN`: the parent job waits until all children complete.
 
 The executor automatically manages:
 
@@ -291,10 +305,13 @@ This ensures:
 
 ### 7.3 Join During Forward vs Backward Traversal
 
-Join steps may live in the pipeline during pre-process or post-process phases:
+A step signals join intent by returning `StepResult(directive=PipelineDirective.JOIN)`
+from either its `pre_process()` or `post_process()` method (typically guarded by
+`if job.parent is not None`):
 
-- **JoinOnPreprocess**: parent resumes from the join point during forward traversal.
-- **JoinOnPostprocess**: parent resumes during backward traversal.
+- Returning `JOIN` from **`pre_process`**: parent resumes from the join point during
+  forward traversal.
+- Returning `JOIN` from **`post_process`**: parent resumes during backward traversal.
 
 This enables expressive control-flow patterns.
 
@@ -322,10 +339,9 @@ separate coroutine.
 This enables the worker to immediately return to its buffer loop,
 improving throughput while preserving the pipeline’s two-phase semantics.
 
-A step may detach at:
-
-- **pre-process phase** (`DetachOnPreprocess`)
-- **post-process phase** (`DetachOnPostprocess`)
+A step triggers a detach by returning
+`StepResult(directive=PipelineDirective.DETACH)` from either its
+`pre_process()` or `post_process()` method.
 
 When a detach occurs:
 

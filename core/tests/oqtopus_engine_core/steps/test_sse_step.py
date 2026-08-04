@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import docker.errors  # type: ignore[import]
 import pytest
 
-from oqtopus_engine_core.framework import GlobalContext, Job
+from oqtopus_engine_core.framework import GlobalContext, Job, JobResult, SamplingResult
 from oqtopus_engine_core.framework.job_repository import JobRepository
 from oqtopus_engine_core.steps.sse_step import SseRunner, SseRuntimeError, SseStep
 
@@ -27,7 +27,7 @@ _JOB_DEFAULTS: dict[str, Any] = {
     "device_id": "test-device",
     "shots": 1024,
     "job_type": "sse",
-    "input": "{}",
+    "input": "test-job/input.zip",
     "program": ["test_sse_program"],
     "operator": [],
     "sse_program": "print('sse')",
@@ -39,16 +39,9 @@ _JOB_DEFAULTS: dict[str, Any] = {
 
 
 def _make_job(**overrides: Any) -> Job:
-    """Create a Job instance with sensible defaults.
-
-    Any field can be overridden via keyword arguments.
-    Nested 'job_info' can be passed as a dict and will be merged
-    with defaults.
-
-    Returns:
-        A Job instance with the given overrides applied.
-    """
-    return Job(**{**_JOB_DEFAULTS, **overrides})
+    """Create a Job instance with sensible defaults."""
+    data = {**_JOB_DEFAULTS, **overrides}
+    return Job(**data)
 
 
 def _make_transpile_result() -> dict[str, Any]:
@@ -60,11 +53,6 @@ def _make_transpile_result() -> dict[str, Any]:
 
 
 def _make_gctx() -> GlobalContext:
-    """Create a GlobalContext with a mocked JobRepository.
-
-    Returns:
-        A GlobalContext with an AsyncMock JobRepository.
-    """
     mock_repo = AsyncMock(spec=JobRepository)
     mock_repo.get_job_upload_url.return_value = ["https://invalid.example.com/upload"]
     return GlobalContext(config={}, job_repository=mock_repo)
@@ -106,7 +94,12 @@ def mock_gctx() -> GlobalContext:
 
 @pytest.fixture
 def sample_job() -> Job:
-    return _make_job(job_id="test-job-001", job_type="sse", status="ready")
+    return _make_job(
+        job_id="test-job-001",
+        job_type="sse",
+        status="ready",
+        sse_program="print('hello')",
+    )
 
 
 @pytest.fixture
@@ -130,11 +123,10 @@ class TestSseStepPreProcess:
     async def test_skip_non_sse_job(
         self, sse_step: SseStep, mock_gctx: GlobalContext, non_sse_job: Job
     ) -> None:
-        """non-sse job should be skipped without any side effects."""
         jctx: dict[str, object] = {}
         await sse_step.pre_process(mock_gctx, jctx, non_sse_job)
 
-        assert non_sse_job.status == "ready"  # status should be unchanged
+        assert non_sse_job.status == "ready"
         mock_gctx.job_repository.update_job_status.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -194,10 +186,7 @@ class TestSseStepPreProcess:
         mock_gctx: GlobalContext,
         sample_job: Job,
     ) -> None:
-        """Unexpected exceptions should be wrapped.
-
-        Wraps as RuntimeError('internal server error').
-        """
+        """Unexpected exceptions should be wrapped as RuntimeError('internal server error')."""
         with (
             patch.object(
                 sse_step,
@@ -217,14 +206,12 @@ class TestSseStepPreProcess:
         sample_job: Job,
         tmp_path: Path,
     ) -> None:
-        """Temp directories should be cleaned up after pre_process completes."""
         sse_step._settings["host_work_path"] = str(tmp_path / "work")
         with patch.object(
             sse_step, "_run_sse", new_callable=AsyncMock
         ):
             await sse_step.pre_process(mock_gctx, {}, sample_job)
 
-        # temp dirs should have been deleted
         base_dir = tmp_path / "work" / sample_job.job_id
         assert not base_dir.exists()
 
@@ -236,7 +223,6 @@ class TestSseStepPreProcess:
         sample_job: Job,
         tmp_path: Path,
     ) -> None:
-        """When delete_host_temp_dirs=False, temp dirs should remain."""
         sse_step._settings["host_work_path"] = str(tmp_path / "work")
         sse_step._settings["delete_host_temp_dirs"] = False
         with patch.object(
@@ -269,9 +255,7 @@ class TestSseStepPostProcess:
     async def test_post_process_does_nothing(
         self, sse_step: SseStep, mock_gctx: GlobalContext, sample_job: Job
     ) -> None:
-        """post_process should be a no-op."""
         await sse_step.post_process(mock_gctx, {}, sample_job)
-        # No exception means success
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +274,6 @@ class TestMakeTmpdir:
         assert paths["out"] == tmp_path / "job-1" / "out"
 
     def test_exists_ok(self, tmp_path: Path) -> None:
-        """Calling twice should not raise."""
         SseStep._make_tmpdir("job-1", str(tmp_path))
         SseStep._make_tmpdir("job-1", str(tmp_path))
 
@@ -305,23 +288,22 @@ class TestDeleteTmpdir:
 
     def test_non_existent_dir_no_error(self, tmp_path: Path) -> None:
         target = tmp_path / "non_existent"
-        SseStep._delete_tmpdir(target)  # no error
+        SseStep._delete_tmpdir(target)
 
 
 class TestMakeUserprogramFile:
     @pytest.mark.asyncio
-    async def test_writes_plain_text_file(self, tmp_path: Path) -> None:
+    async def test_writes_text_file(self, tmp_path: Path) -> None:
         content = "print('hello world')"
         await SseStep._make_userprogram_file(content, tmp_path, "main.py")
         written = (tmp_path / "main.py").read_text(encoding="utf-8")
         assert written == content
 
     @pytest.mark.asyncio
-    async def test_invalid_text_still_writes(self, tmp_path: Path) -> None:
-        content = "not-valid-base64!!!"
-        await SseStep._make_userprogram_file(content, tmp_path, "main.py")
-        written = (tmp_path / "main.py").read_text(encoding="utf-8")
-        assert written == content
+    async def test_file_permission_is_set(self, tmp_path: Path) -> None:
+        await SseStep._make_userprogram_file("print('hi')", tmp_path, "main.py")
+        mode = (tmp_path / "main.py").stat().st_mode & 0o777
+        assert mode == 0o600
 
 
 class TestSetResultToJob:
@@ -330,38 +312,33 @@ class TestSetResultToJob:
         result_job = _make_job(
             job_id="j1", job_type="sse", status="succeeded",
             transpiler_info={"key": "value"},
-            program=["result_prog"],
-            message="ok",
         )
+        result_job.result = JobResult(sampling=SamplingResult(counts={"0": 10}))
+        result_job.sse_log = "some log"
 
         SseStep._set_result_to_job(job, result_job, 1.5)
 
-        assert job.program == ["test_sse_program"]
-        assert job.message is None
+        assert job.result == result_job.result
+        assert job.sse_log == "some log"
         assert job.transpiler_info == {"key": "value"}
         assert job.execution_time == 1.5
 
     def test_none_result_job_noop(self) -> None:
         job = _make_job(job_id="j2", job_type="sse", status="running")
-        original_program = job.program
-        original_message = job.message
+        original_result = job.result
         SseStep._set_result_to_job(job, None, 2.0)
-        assert job.program == original_program
-        assert job.message == original_message
+        assert job.result == original_result
+        assert job.execution_time is None
 
-    def test_result_fields_none_do_not_overwrite(self) -> None:
+    def test_sse_log_and_transpiler_are_copied(self) -> None:
         job = _make_job(job_id="j3", job_type="sse", status="running")
-        original_program = job.program
-        original_message = job.message
-        result_job = MagicMock()
-        result_job.result = None
-        result_job.sse_log = None
+        result_job = _make_job(job_id="j3", job_type="sse", status="succeeded")
+        result_job.sse_log = "log data"
         result_job.transpiler_info = {"t": "info"}
         result_job.transpile_result = None
 
         SseStep._set_result_to_job(job, result_job, 3.0)
-        assert job.program == original_program
-        assert job.message == original_message
+        assert job.sse_log == "log data"
         assert job.transpiler_info == {"t": "info"}
         assert job.execution_time == 3.0
 
@@ -380,7 +357,6 @@ class TestRunSse:
         sample_job: Job,
         tmp_path: Path,
     ) -> None:
-        """Successful SSE run should update job status & transpiler info."""
         temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
 
         result_job = _make_job(
@@ -412,7 +388,6 @@ class TestRunSse:
         sample_job: Job,
         tmp_path: Path,
     ) -> None:
-        """SseRuntimeError from run_sse should be wrapped as RuntimeError."""
         temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
 
         result_job = _make_job(
@@ -443,7 +418,6 @@ class TestRunSse:
         sample_job: Job,
         tmp_path: Path,
     ) -> None:
-        """Generic exception from run_sse should be wrapped as internal server error."""
         temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
 
         result_job = _make_job(
@@ -474,10 +448,6 @@ class TestRunSse:
         sample_job: Job,
         tmp_path: Path,
     ) -> None:
-        """When run_sse completes but status != 'succeeded'.
-
-        Should raise RuntimeError.
-        """
         temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
 
         sample_job.message = "custom failure message"
@@ -507,7 +477,6 @@ class TestRunSse:
         sample_job: Job,
         tmp_path: Path,
     ) -> None:
-        """When SseRunner __init__ fails, should raise RuntimeError."""
         temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
 
         with patch(
@@ -547,7 +516,6 @@ class TestSseRunnerRunSse:
     async def test_run_sse_full_success(
         self, _mock_docker: MagicMock, runner_settings: dict, sample_job: Job  # noqa: PT019
     ) -> None:
-        """Full success path: preprocess -> exec -> postprocess -> stop/remove."""
         gctx = _make_gctx()
         temp_dirs = {
             "base": Path("/tmp/work/job-1"),
@@ -573,7 +541,6 @@ class TestSseRunnerRunSse:
     async def test_run_sse_preprocess_failure(
         self, _mock_docker: MagicMock, runner_settings: dict, sample_job: Job  # noqa: PT019
     ) -> None:
-        """When preprocess fails, should propagate exception."""
         gctx = _make_gctx()
         temp_dirs = {
             "base": Path("/tmp/work/job-1"),
@@ -593,7 +560,6 @@ class TestSseRunnerRunSse:
     async def test_run_sse_exec_failure_raises_sse_runtime_error(
         self, _mock_docker: MagicMock, runner_settings: dict, sample_job: Job  # noqa: PT019
     ) -> None:
-        """When user program execution fails, should raise SseRuntimeError."""
         gctx = _make_gctx()
         temp_dirs = {
             "base": Path("/tmp/work/job-1"),
@@ -617,7 +583,6 @@ class TestSseRunnerRunSse:
     async def test_run_sse_postprocess_failure_raises(
         self, _mock_docker: MagicMock, runner_settings: dict, sample_job: Job  # noqa: PT019
     ) -> None:
-        """When postprocess fails (but exec succeeds), should raise RuntimeError."""
         gctx = _make_gctx()
         temp_dirs = {
             "base": Path("/tmp/work/job-1"),
@@ -653,11 +618,6 @@ class TestSseRuntimeError:
 def make_runner(
     runner_settings: dict, sample_job: Job
 ) -> _MakeRunner:
-    """Factory that returns (runner, mock_docker_module) with docker patched.
-
-    Returns:
-        A callable that creates a tuple of (SseRunner, mock_docker, gctx).
-    """
     def _make(
         **overrides: Any,
     ) -> tuple[SseRunner, MagicMock, GlobalContext]:
@@ -680,7 +640,6 @@ def make_runner(
 
 class TestMakeTmpdirErrors:
     def test_mkdir_failure_raises(self, tmp_path: Path) -> None:
-        """When mkdir fails, exception should propagate."""
         with (
             patch.object(
                 Path, "mkdir", side_effect=OSError("permission denied")
@@ -735,10 +694,6 @@ class TestMakeUserprogramFileErrors:
         mode = (tmp_path / "main.py").stat().st_mode & 0o777
         assert mode == 0o600
 
-
-# ---------------------------------------------------------------------------
-# _prep_userprogram
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # SseRunner._start_container
@@ -828,7 +783,6 @@ class TestExecInContainer:
         runner._container = MagicMock()
         runner._container.exec_run.side_effect = docker.errors.APIError("api err")
 
-        # exec_cmd catches APIError and returns -1, which causes RuntimeError
         with pytest.raises(RuntimeError, match="command execution failed"):
             await runner._exec_in_container(cmd="fail", user="root", privileged=True)
 
@@ -884,11 +838,6 @@ class TestCopyUserProgramIntoContainer:
 # ---------------------------------------------------------------------------
 
 def _make_tar_bytes(filename: str, content: bytes) -> list:
-    """Create tar chunks simulating docker exec_run stream output.
-
-    Returns:
-        A list of (stdout, stderr) tuples.
-    """
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
         info = tarfile.TarInfo(name=filename)
@@ -898,14 +847,6 @@ def _make_tar_bytes(filename: str, content: bytes) -> list:
 
 
 def _make_tar_bytes_directory(dirname: str) -> list:
-    """Create tar chunks containing a directory entry.
-
-    tar.extractfile() returns None for directory members,
-    so this helper is used to test that edge case.
-
-    Returns:
-        A list of (stdout, stderr) tuples.
-    """
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
         info = tarfile.TarInfo(name=dirname)
@@ -922,8 +863,7 @@ class TestGetResultFromContainer:
 
         job_data = {
             "job_id": "j1", "device_id": "dev", "job_type": "sse",
-            "shots": 100, "status": "succeeded", "input": "{}",
-            "program": ["p"], "operator": [], "sse_program": "print('x')",
+            "shots": 100, "status": "succeeded", "input": "j1/input.zip",
             "transpiler_info": {}, "simulator_info": {},
             "mitigation_info": {},
         }
@@ -963,10 +903,6 @@ class TestGetResultFromContainer:
     def test_directory_entry_extractfile_returns_none(
         self, make_runner: _MakeRunner
     ) -> None:
-        """When the tar member is a directory, extractfile() returns None.
-
-        This covers the 'result file not found in tar' branch.
-        """
         runner, _, _ = make_runner()
         runner._container = MagicMock()
 
@@ -978,10 +914,6 @@ class TestGetResultFromContainer:
                 user="appuser", container_path=Path("/sse/out"), filename="result.json"
             )
 
-
-# ---------------------------------------------------------------------------
-# SseRunner._save_container_log
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # SseRunner._stop_and_remove
@@ -1002,7 +934,6 @@ class TestStopAndRemove:
         runner._container = MagicMock()
         runner._container.stop.side_effect = docker.errors.APIError("stop err")
 
-        # Should NOT raise, just log
         runner._stop_and_remove()
         runner._container.remove.assert_called_once()
 
@@ -1019,7 +950,7 @@ class TestStopAndRemove:
         runner._container = MagicMock()
         runner._container.remove.side_effect = docker.errors.APIError("remove err")
 
-        runner._stop_and_remove()  # should not raise
+        runner._stop_and_remove()
 
     def test_remove_generic_error_does_not_raise(
         self, make_runner: _MakeRunner
@@ -1028,7 +959,7 @@ class TestStopAndRemove:
         runner._container = MagicMock()
         runner._container.remove.side_effect = Exception("remove boom")
 
-        runner._stop_and_remove()  # should not raise
+        runner._stop_and_remove()
 
     def test_both_fail_does_not_raise(self, make_runner: _MakeRunner) -> None:
         runner, _, _ = make_runner()
@@ -1036,12 +967,8 @@ class TestStopAndRemove:
         runner._container.stop.side_effect = docker.errors.APIError("s")
         runner._container.remove.side_effect = docker.errors.APIError("r")
 
-        runner._stop_and_remove()  # should not raise
+        runner._stop_and_remove()
 
-
-# ---------------------------------------------------------------------------
-# SseRunner._s3upload
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # SseRunner._preprocess_container
@@ -1051,7 +978,6 @@ class TestPreprocessContainer:
     @pytest.mark.asyncio
     async def test_success(self, make_runner: _MakeRunner, tmp_path: Path) -> None:
         runner, _, _ = make_runner()
-        # Prepare user program file on host
         in_dir = tmp_path / "in"
         in_dir.mkdir(parents=True)
         (in_dir / "main.py").write_bytes(b"test_sse_program")
@@ -1067,7 +993,6 @@ class TestPreprocessContainer:
 
         runner._start_container.assert_called_once()
         assert runner._container is mock_container
-        # init call + (copy handled by mocked method)
         runner._exec_in_container.assert_awaited_once()
         runner._copy_user_program_into_container.assert_awaited_once()
 
@@ -1114,7 +1039,7 @@ class TestPreprocessContainer:
 
         mock_container = MagicMock()
         runner._start_container = MagicMock(return_value=mock_container)
-        runner._exec_in_container = AsyncMock()  # init succeeds
+        runner._exec_in_container = AsyncMock()
         runner._copy_user_program_into_container = AsyncMock(
             side_effect=RuntimeError("copy fail")
         )
@@ -1139,36 +1064,54 @@ class TestPostprocessContainer:
 
         result_job = _make_job(job_id="j1", job_type="sse", status="succeeded")
         runner._get_result_from_container = MagicMock(return_value=result_job)
+        runner._container.logs.return_value = b"log output"
 
         await runner._postprocess_container(exec_is_success=True)
 
         assert runner.result_job is result_job
-        assert runner.result_job.sse_log == "container logs"
+        assert runner.result_job.sse_log == "log output"
+        runner._container.logs.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_result_failure_raises(self, make_runner: _MakeRunner) -> None:
         runner, _, _gctx = make_runner()
         runner._container = MagicMock()
-        runner._container.logs.return_value = b"container logs"
-
+        runner._container.logs.return_value = b"some log"
         runner._get_result_from_container = MagicMock(
             side_effect=RuntimeError("no result")
         )
 
-        with pytest.raises(RuntimeError, match="failed to get result or log"):
+        with pytest.raises(RuntimeError, match="failed to get result"):
             await runner._postprocess_container(exec_is_success=True)
 
     @pytest.mark.asyncio
-    async def test_get_log_failure_raises(self, make_runner: _MakeRunner) -> None:
+    async def test_log_failure_raises(self, make_runner: _MakeRunner) -> None:
         runner, _, _gctx = make_runner()
         runner._container = MagicMock()
         runner._container.logs.side_effect = RuntimeError("log read failed")
 
         result_job = _make_job(job_id="j1", job_type="sse", status="succeeded")
         runner._get_result_from_container = MagicMock(return_value=result_job)
+        runner._container.logs.side_effect = RuntimeError("logs failed")
 
-        with pytest.raises(RuntimeError, match="failed to get result or log"):
+        with pytest.raises(RuntimeError, match="failed to get result"):
             await runner._postprocess_container(exec_is_success=True)
+
+    @pytest.mark.asyncio
+    async def test_exec_failure_flag_logs_to_engine(
+        self, make_runner: _MakeRunner, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        runner, _, _gctx = make_runner()
+        runner._container = MagicMock()
+        runner._container.logs.return_value = b"error output"
+
+        result_job = _make_job(job_id="j1", job_type="sse", status="succeeded")
+        runner._get_result_from_container = MagicMock(return_value=result_job)
+
+        with caplog.at_level("INFO"):
+            await runner._postprocess_container(exec_is_success=False)
+
+        assert any(r.message == "container log" for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_exec_failure_still_records_logs(self, make_runner: _MakeRunner) -> None:
@@ -1184,7 +1127,7 @@ class TestPostprocessContainer:
 
 
 # ---------------------------------------------------------------------------
-# SseStep._run_sse - additional edge case: message is None falls back
+# SseStep._run_sse — edge case: message is None falls back to default
 # ---------------------------------------------------------------------------
 
 class TestRunSseAdditional:
@@ -1196,10 +1139,6 @@ class TestRunSseAdditional:
         sample_job: Job,
         tmp_path: Path,
     ) -> None:
-        """When status != 'succeeded' and message is None.
-
-        Falls back to 'sse job failed'.
-        """
         temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
 
         sample_job.message = None

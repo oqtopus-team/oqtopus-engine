@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 async def wait_until_fetchable(
     gctx: GlobalContext,
     pipeline: PipelineExecutor,
-    interval_seconds: int,
+    interval_seconds: float,
     job_fetch_threshold: int,
 ) -> None:
     """Wait until the device is ready and the job buffer is below the fetch threshold.

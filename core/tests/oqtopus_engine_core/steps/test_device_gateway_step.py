@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from oqtopus_engine_core.framework.context import JobContext
+from oqtopus_engine_core.framework.context import HAS_ORIGINAL_JOB_CHILDREN_KEY, JobContext
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2
 from oqtopus_engine_core.steps.device_gateway_step import DeviceGatewayStep, _collect_status_update_targets, _find_all_leaf_jobs, _find_all_root_jobs
 
@@ -108,7 +108,7 @@ async def test_pre_process_estimation_job_raises_configuration_error(
         RuntimeError,
         match="estimation jobs must be split before reaching device gateway",
     ):
-        await gateway_step.pre_process(gctx, {}, job)
+        await gateway_step.pre_process(gctx, JobContext(), job)
 
 
 @pytest.mark.asyncio
@@ -129,7 +129,7 @@ async def test_pre_process_internal_child_updates_parent_status(
 
     # 2. Setup Contexts
     parent_jctx = JobContext()
-    child_jctx = JobContext({"has_actual_parent": True})
+    child_jctx = JobContext()
     child_jctx.parent = parent_jctx # Link logical context
 
     # Execute
@@ -159,7 +159,7 @@ async def test_pre_process_parent_updates_children_repository_statuses(
     child_b.parent = parent
     parent.children = [child_a, child_b]
 
-    parent_jctx = JobContext({"has_actual_children": True})
+    parent_jctx = JobContext({HAS_ORIGINAL_JOB_CHILDREN_KEY: True})
     child_a_jctx = JobContext()
     child_a_jctx.parent = parent_jctx
     child_b_jctx = JobContext()
@@ -194,9 +194,9 @@ async def test_pre_process_parent_job_updates_status_only_once(
 
     # Create parent jctx and associate children
     parent_jctx = JobContext()
-    child_a_jctx = JobContext({"has_actual_parent": True})
+    child_a_jctx = JobContext()
     child_a_jctx.parent = parent_jctx
-    child_b_jctx = JobContext({"has_actual_parent": True})
+    child_b_jctx = JobContext()
     child_b_jctx.parent = parent_jctx
 
     # Execute: Set context flag to indicate this is a parent job with children
@@ -250,9 +250,9 @@ async def test_find_all_leaf_jobs_multi_level() -> None:
     # 4. Create JobContexts mirroring the hierarchy
     leaf_a_jctx = JobContext()
     leaf_b_jctx = JobContext()
-    mid_jctx = JobContext({"has_actual_children": True})
+    mid_jctx = JobContext({HAS_ORIGINAL_JOB_CHILDREN_KEY: True})
     mid_jctx.children = [leaf_a_jctx, leaf_b_jctx]
-    root_jctx = JobContext({"has_actual_children": True})
+    root_jctx = JobContext({HAS_ORIGINAL_JOB_CHILDREN_KEY: True})
     root_jctx.children = [mid_jctx]
 
     # Execute: Find leaves starting from the root
@@ -276,7 +276,7 @@ async def test_find_all_leaf_jobs_single_node() -> None:
     # Setup: Standalone job
     job = _make_job("sampling")
     job.job_id = "standalone-job"
-    jctx = JobContext()  # has_actual_children is False by default
+    jctx = JobContext()  # HAS_ORIGINAL_JOB_CHILDREN_KEY absent by default
 
     # Execute
     leaf_pairs = _find_all_leaf_jobs(jctx, job)
@@ -302,15 +302,15 @@ async def test_find_all_leaf_jobs_cycle_prevention() -> None:
     job_a.children = [job_b]
     job_b.children = [job_a]
 
-    jctx_a = JobContext({"has_actual_children": True})
-    jctx_b = JobContext({"has_actual_children": True})
+    jctx_a = JobContext({HAS_ORIGINAL_JOB_CHILDREN_KEY: True})
+    jctx_b = JobContext({HAS_ORIGINAL_JOB_CHILDREN_KEY: True})
     jctx_a.children = [jctx_b]
     jctx_b.children = [jctx_a]
 
     # Execute: Should terminate without RecursionError
     leaf_pairs = _find_all_leaf_jobs(jctx_a, job_a)
 
-    # In a pure cycle with no nodes having has_actual_children=False,
+    # In a pure cycle where all nodes have HAS_ORIGINAL_JOB_CHILDREN_KEY set,
     # it should return an empty list based on the logic.
     assert isinstance(leaf_pairs, list)
     assert len(leaf_pairs) == 0
@@ -339,10 +339,10 @@ async def test_find_all_root_jobs_multi_level() -> None:
     # 2. Create JobContexts mirroring the hierarchy
     root_jctx = JobContext()
 
-    mid_jctx = JobContext({"has_actual_parent": True})
+    mid_jctx = JobContext()
     mid_jctx.parent = root_jctx
 
-    leaf_jctx = JobContext({"has_actual_parent": True})
+    leaf_jctx = JobContext()
     leaf_jctx.parent = mid_jctx
 
     # Execute: Find roots starting from the leaf
@@ -375,10 +375,10 @@ async def test_find_all_root_jobs_diamond_structure() -> None:
     root_a_jctx = JobContext()
     root_b_jctx = JobContext()
 
-    leaf_jctx_via_a = JobContext({"has_actual_parent": True})
+    leaf_jctx_via_a = JobContext()
     leaf_jctx_via_a.parent = root_a_jctx
 
-    leaf_jctx_via_b = JobContext({"has_actual_parent": True})
+    leaf_jctx_via_b = JobContext()
     leaf_jctx_via_b.parent = root_b_jctx
 
     # Execute for Path A: Set the job's parent to root_a specifically
@@ -405,7 +405,7 @@ async def test_find_all_root_jobs_single_node() -> None:
     # Setup
     job = _make_job("sampling")
     job.job_id = "standalone-job"
-    jctx = JobContext() # has_actual_parent is False by default
+    jctx = JobContext()  # job.parent is None by default
 
     # Execute
     root_pairs = _find_all_root_jobs(jctx, job)
@@ -437,14 +437,14 @@ async def test_collect_status_update_targets_diamond_dependency() -> None:
 
     # 2. Setup JobContexts
     # Context for Path A
-    root_a_jctx = JobContext({"has_actual_children": True})
-    leaf_jctx_a = JobContext({"has_actual_parent": True})
+    root_a_jctx = JobContext({HAS_ORIGINAL_JOB_CHILDREN_KEY: True})
+    leaf_jctx_a = JobContext()
     root_a_jctx.children = [leaf_jctx_a]
     leaf_jctx_a.parent = root_a_jctx
 
     # Context for Path B
-    root_b_jctx = JobContext({"has_actual_children": True})
-    leaf_jctx_b = JobContext({"has_actual_parent": True})
+    root_b_jctx = JobContext({HAS_ORIGINAL_JOB_CHILDREN_KEY: True})
+    leaf_jctx_b = JobContext()
     root_b_jctx.children = [leaf_jctx_b]
     leaf_jctx_b.parent = root_b_jctx
 
@@ -455,19 +455,15 @@ async def test_collect_status_update_targets_diamond_dependency() -> None:
     # leaf_job.parent will be toggled by the traversal logic or needs to match jctx
     leaf_job.parent = root_a # Initial state
 
-    # Execute: We start from Root A
-    # The logic should find 'shared-leaf', then find 'root-a' AND 'root-b'
-    # provided the traversal can reach them.
-    # (In this specific test, we simulate the entry point at root_a)
+    # Execute: We start from Root A, which has HAS_ORIGINAL_JOB_CHILDREN_KEY.
+    # The algorithm returns the leaves directly (shared-leaf) rather than
+    # traversing up to the root, because the leaves are the actual execution units.
     targets = _collect_status_update_targets(root_a_jctx, root_a)
 
-    # Verification
-    # Expected: {root-a, shared-leaf}
-    # Note: root-b would only be found if 'shared-leaf' was reached via a path
-    # that knows about root-b's context.
+    # Verification: shared-leaf is the leaf and should be the target.
     target_ids = {job.job_id for job in targets}
-    assert "root-a" in target_ids
-    assert "shared-leaf" not in target_ids
+    assert "shared-leaf" in target_ids
+    assert "root-a" not in target_ids
     assert len(targets) == 1
 
 
@@ -491,20 +487,22 @@ async def test_collect_status_update_targets_multi_level_deduplication() -> None
 
     root_job.children = [leaf_a, leaf_b]
 
-    root_jctx = JobContext({"has_actual_children": True})
-    leaf_a_jctx = JobContext({"has_actual_parent": True})
+    root_jctx = JobContext({HAS_ORIGINAL_JOB_CHILDREN_KEY: True})
+    leaf_a_jctx = JobContext()
     leaf_a_jctx.parent = root_jctx
-    leaf_b_jctx = JobContext({"has_actual_parent": True})
+    leaf_b_jctx = JobContext()
     leaf_b_jctx.parent = root_jctx
     root_jctx.children = [leaf_a_jctx, leaf_b_jctx]
 
     # Execute
     targets = _collect_status_update_targets(root_jctx, root_job)
 
-    # Verification
-    # Total targets: root, leaf-a, leaf-b (Exactly 3, no duplicates)
-    assert len(targets) == 1
-    assert targets[0].job_id == "root"
+    # Verification: root has HAS_ORIGINAL_JOB_CHILDREN_KEY, so leaves are returned directly.
+    # leaf-a and leaf-b are the actual execution units, both without duplicates.
+    assert len(targets) == 2
+    target_ids = {job.job_id for job in targets}
+    assert "leaf-a" in target_ids
+    assert "leaf-b" in target_ids
 
 
 @pytest.mark.asyncio

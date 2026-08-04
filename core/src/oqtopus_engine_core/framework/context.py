@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import UserDict
-from enum import Enum, auto
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -10,15 +9,10 @@ from .device_repository import DeviceRepository  # noqa: TC001
 from .job_repository import JobRepository  # noqa: TC001
 from .model import Device, Job  # noqa: TC001
 
-
-class PipelineDirective(Enum):
-    """Directives from a step to the pipeline engine to modify execution behavior."""
-
-    NONE = auto()
-
-    # Skip updating the remaining_children counter for the parent job after a split.
-    # Used in scenarios where a split occurs but no corresponding join is expected.
-    IGNORE_SPLIT_TRACKING = auto()
+# Stored in combined-job contexts by MpAutoCombiningBuffer to indicate that
+# the context's children are the original repository-tracked jobs (requires
+# special status-update handling in DeviceGatewayStep and FailJobRepositoryHandler).
+HAS_ORIGINAL_JOB_CHILDREN_KEY = "has_original_job_children"
 
 
 class GlobalContext(BaseModel):
@@ -78,9 +72,6 @@ class JobContext(UserDict):
         super().__setattr__("parent", parent)
         super().__setattr__("children", children or [])
 
-        # pipeline_directive is a reserved attribute for step-to-engine communication
-        super().__setattr__("pipeline_directive", PipelineDirective.NONE)
-
         # ------------------------------------------------------------
         # Lightweight step history for debugging.
         # The pipeline can append tuples: (step_phase, cursor)
@@ -117,7 +108,7 @@ class JobContext(UserDict):
             value: The value to associate with the given key.
 
         """
-        if name in {"parent", "children", "data", "step_history", "pipeline_directive"}:
+        if name in {"parent", "children", "data", "step_history"}:
             super().__setattr__(name, value)
         else:
             self.data[name] = value
@@ -132,7 +123,7 @@ class JobContext(UserDict):
             AttributeError: If the key is not found in the data store.
 
         """
-        if name in {"parent", "children", "data", "step_history", "pipeline_directive"}:
+        if name in {"parent", "children", "data", "step_history"}:
             message = f"'{name}' is a reserved attribute and cannot be deleted"
             raise AttributeError(message)
         if name in self.data:

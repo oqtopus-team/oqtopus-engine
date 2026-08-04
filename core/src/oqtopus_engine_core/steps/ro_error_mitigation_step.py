@@ -4,13 +4,14 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
     Job,
     JobContext,
     Step,
+    StepResult,
 )
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
     mitigator_pb2,
@@ -62,12 +63,12 @@ class ReadoutErrorMitigationStep(Step):
             },
         )
 
-    async def pre_process(
+    async def pre_process(  # noqa: PLR6301
         self,
-        gctx: GlobalContext,
-        jctx: JobContext,
-        job: Job,
-    ) -> None:
+        gctx: GlobalContext,  # noqa: ARG002
+        jctx: JobContext,  # noqa: ARG002
+        job: Job,  # noqa: ARG002
+    ) -> StepResult:
         """Pre-process the job before error mitigation.
 
         Do nothing.
@@ -77,14 +78,18 @@ class ReadoutErrorMitigationStep(Step):
             jctx: The job context.
             job: The job object.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
+        return StepResult()
 
     async def post_process(
         self,
         gctx: GlobalContext,
         jctx: JobContext,  # noqa: ARG002
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Post-process the job by sending a request to mitigator service via gRPC.
 
         This method handles post-processing for mitigation jobs by sending
@@ -100,6 +105,9 @@ class ReadoutErrorMitigationStep(Step):
             ValueError: If gctx.device is None, gctx.device.device_info is None,
                 or required job result fields are None.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
         if (
             job.mitigation_info == {}
@@ -109,7 +117,7 @@ class ReadoutErrorMitigationStep(Step):
                 "ro_error_mitigation is not set, skipping post_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         if job.mitigation_info["ro_error_mitigation"] == "pseudo_inverse":
             # Extract necessary information from the job
@@ -129,21 +137,21 @@ class ReadoutErrorMitigationStep(Step):
             # Prepare device_topology protobuf (common for both job types)
             qubits_pb = []
             for qubit in device_info_json["qubits"]:
-                mes_error = mitigator_pb2.MesError(
+                mes_error = mitigator_pb2.MesError(  # type: ignore[attr-defined]
                     p0m1=float(qubit["meas_error"]["prob_meas1_prep0"]),
                     p1m0=float(qubit["meas_error"]["prob_meas0_prep1"]),
                 )
-                qubit_pb = mitigator_pb2.Qubit(mes_error=mes_error)
+                qubit_pb = mitigator_pb2.Qubit(mes_error=mes_error)  # type: ignore[attr-defined]
                 qubits_pb.append(qubit_pb)
 
-            device_topology = mitigator_pb2.DeviceTopology(qubits=qubits_pb)
+            device_topology = mitigator_pb2.DeviceTopology(qubits=qubits_pb)  # type: ignore[attr-defined]
 
             if job.job_type not in {"sampling", "multi_manual"}:
                 logger.debug(
                     "job_type is not 'sampling' or 'multi_manual', skipping mitigation",
                     extra={"job_id": job.job_id, "job_type": job.job_type},
                 )
-                return
+                return StepResult()
 
             if job.result is None:  # pragma: no cover
                 message = "job.result is None. Cannot perform readout error mitigation."
@@ -162,10 +170,10 @@ class ReadoutErrorMitigationStep(Step):
                 raise ValueError(message)
             orig_counts = job.result.sampling.counts
 
-            request = mitigator_pb2.ReqMitigationRequest(
+            request = mitigator_pb2.ReqMitigationRequest(  # type: ignore[attr-defined]
                 device_topology=device_topology,
                 counts=orig_counts,
-                program=job.program[0],
+                program=job.program[0],  # type: ignore[index]
             )
             logger.info(
                 "ReqMitigation request",
@@ -197,4 +205,5 @@ class ReadoutErrorMitigationStep(Step):
                 orig_counts,
             )
 
-            return
+            return StepResult()
+        return StepResult()
