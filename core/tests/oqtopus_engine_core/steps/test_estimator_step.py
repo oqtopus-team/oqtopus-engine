@@ -83,7 +83,7 @@ async def test_pre_process_calls_grpc_and_creates_children(
     assert len(result.child_contexts) == 2
     assert join_info.child_order == [j.job_id for j in result.child_jobs]
     assert all(j.job_type == "sampling" for j in result.child_jobs)
-    assert result.child_contexts[0]["has_actual_parent"] is True
+    assert "has_actual_parent" not in result.child_contexts[0]
     assert result.child_contexts[0][ESTIMATION_CHILD_INDEX_KEY] == 0
     assert result.child_contexts[1][ESTIMATION_CHILD_INDEX_KEY] == 1
 
@@ -203,7 +203,7 @@ class FakeSamplingExecutionStep(Step):
         return StepResult()
 
     async def post_process(self, gctx, jctx, job) -> StepResult:
-        if jctx.get("has_actual_parent", False):
+        if ESTIMATION_CHILD_INDEX_KEY in jctx:
             index = jctx[ESTIMATION_CHILD_INDEX_KEY]
             job.result = JobResult(
                 sampling=SamplingResult(counts={f"{index}": index + 1})

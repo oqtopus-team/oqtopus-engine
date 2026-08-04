@@ -24,6 +24,7 @@ from qiskit.transpiler.layout import (  # type: ignore[import-untyped]
 from uuid_extensions import uuid7  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import Buffer, GlobalContext, JobContext
+from oqtopus_engine_core.framework.context import HAS_ORIGINAL_JOB_CHILDREN_KEY
 from oqtopus_engine_core.framework.model import Job, TranspileResult
 from oqtopus_engine_core.interfaces.combiner_interface.v1 import (
     combiner_pb2,
@@ -344,7 +345,7 @@ class MpAutoCombiningBuffer(Buffer):
             gctx, combined_jctx, combined_job = create_combined_job(
                 combined_program=combined_group["combined_program"],
                 combine_info=cmb_info,
-                original_jobs=original_jobs
+                original_jobs=original_jobs,
             )
 
             # store the combined job
@@ -440,16 +441,16 @@ class MpAutoCombiningBuffer(Buffer):
             job: The job whose transpile_result is to be uploaded.
 
         """
-        urls = await gctx.job_repository.get_job_upload_url(
+        urls = await gctx.job_repository.get_job_upload_url(  # type: ignore[union-attr]
             job=job,
             items=["transpile_result"],
         )
 
-        await gctx.job_repository.upload_job_output_nowait(
+        await gctx.job_repository.upload_job_output_nowait(  # type: ignore[union-attr]
             job=job,
             presigned_url=urls[0],
-            data=job.transpile_result.model_dump(),
-            arcname_ext=".json"
+            data=job.transpile_result.model_dump(),  # type: ignore[union-attr]
+            arcname_ext=".json",
         )
 
     async def _request_combine(
@@ -554,7 +555,7 @@ def _is_combinable(job: Job) -> bool:
 def create_combined_job(
     combined_program: str,
     combine_info: dict[str, Any],
-    original_jobs: dict[str, tuple[GlobalContext, JobContext, Job]]
+    original_jobs: dict[str, tuple[GlobalContext, JobContext, Job]],
 ) -> tuple[GlobalContext, JobContext, Job]:
     """Create a combined Job object from the combined QASM.
 
@@ -596,7 +597,7 @@ def create_combined_job(
     # of the original jobs before they are combined.
     combined_job.children = [job for _, _, job in original_jobs.values()]
     combined_jctx.children = [jctx for _, jctx, _ in original_jobs.values()]
-    combined_jctx.has_actual_children = True
+    combined_jctx[HAS_ORIGINAL_JOB_CHILDREN_KEY] = True
 
     # take gctx from one of the original jobs. gctx is common among jobs.
     gctx = next(iter(original_jobs.values()))[0]

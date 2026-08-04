@@ -16,6 +16,7 @@ from oqtopus_engine_core.framework import (
     Step,
     StepResult,
 )
+from oqtopus_engine_core.framework.context import HAS_ORIGINAL_JOB_CHILDREN_KEY
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2, qpu_pb2_grpc
 
 logger = logging.getLogger(__name__)
@@ -27,33 +28,31 @@ def _collect_status_update_targets(
 ) -> list[Job]:
     """Collect jobs to be updated.
 
-    Follows these steps:
-    1. Traverse down to find all reachable leaf children.
-    2. For each leaf children, traverse up to find all reachable root parents.
+    When the context has HAS_ORIGINAL_JOB_CHILDREN_KEY, the leaf children are the actual
+    execution units sent to the device — return them directly.
+    Otherwise traverse down to leaves and then up to root parents.
 
     Args:
         jctx: The job context of the current job.
         job: The current job.
 
     Returns:
-        A list of (JobContext, Job) tuples to be updated.
+        A list of Job objects to be updated.
 
     """
-    # Step 1: Find all terminal nodes at the bottom of the graph
-    # Returns a list[tuple[JobContext, Job]]
     leaf_pairs = _find_all_leaf_jobs(jctx, job)
 
-    # Step 2: From each leaf, identify all paths leading to the top-level roots.
-    # We use a dictionary keyed by job_id for O(1) deduplication.
+    if HAS_ORIGINAL_JOB_CHILDREN_KEY in jctx:
+        # The leaves are the repository-tracked children being executed on devices.
+        return [leaf_job for _, leaf_job in leaf_pairs]
+
+    # Traverse upwards from each leaf to find the user-visible root jobs.
     unique_jobs: dict[str, Job] = {}
     visited_up: set[str] = set()
-
     for leaf_jctx, leaf_job in leaf_pairs:
-        # Traverse upwards to find all roots
         root_pairs = _find_all_root_jobs(leaf_jctx, leaf_job, visited=visited_up)
         for _, root_job in root_pairs:
             unique_jobs[root_job.job_id] = root_job
-
     return list(unique_jobs.values())
 
 
@@ -82,7 +81,7 @@ def _find_all_leaf_jobs(
 
     leaves: list[tuple[JobContext, Job]] = []
 
-    if jctx.get("has_actual_children", False):
+    if HAS_ORIGINAL_JOB_CHILDREN_KEY in jctx:
         # Continue traversing down if children exist
         for child_jctx, child_job in zip(jctx.children, job.children, strict=True):
             leaves.extend(_find_all_leaf_jobs(child_jctx, child_job, visited))
@@ -118,10 +117,9 @@ def _find_all_root_jobs(
 
     roots: list[tuple[JobContext, Job]] = []
 
-    if jctx.get("has_actual_parent", False) and job.parent is not None:
-        if jctx.parent is not None:
-            # Continue traversing up to find the entry point of the job graph
-            roots.extend(_find_all_root_jobs(jctx.parent, job.parent, visited))
+    if job.parent is not None and jctx.parent is not None:
+        # Continue traversing up to find the entry point of the job graph
+        roots.extend(_find_all_root_jobs(jctx.parent, job.parent, visited))
     else:
         # Reached a root node, append the pair to the list
         roots.append((jctx, job))

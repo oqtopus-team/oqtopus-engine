@@ -1099,7 +1099,7 @@ class TestPostprocessContainer:
 
     @pytest.mark.asyncio
     async def test_exec_failure_flag_logs_to_engine(
-        self, make_runner: _MakeRunner
+        self, make_runner: _MakeRunner, caplog: pytest.LogCaptureFixture
     ) -> None:
         runner, _, _gctx = make_runner()
         runner._container = MagicMock()
@@ -1108,8 +1108,10 @@ class TestPostprocessContainer:
         result_job = _make_job(job_id="j1", job_type="sse", status="succeeded")
         runner._get_result_from_container = MagicMock(return_value=result_job)
 
-        with pytest.raises(RuntimeError, match="failed to get result or log"):
-            await runner._postprocess_container(exec_is_success=True)
+        with caplog.at_level("INFO"):
+            await runner._postprocess_container(exec_is_success=False)
+
+        assert any(r.message == "container log" for r in caplog.records)
 
     @pytest.mark.asyncio
     async def test_exec_failure_still_records_logs(self, make_runner: _MakeRunner) -> None:

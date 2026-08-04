@@ -9,6 +9,11 @@ from .device_repository import DeviceRepository  # noqa: TC001
 from .job_repository import JobRepository  # noqa: TC001
 from .model import Device, Job  # noqa: TC001
 
+# Stored in combined-job contexts by MpAutoCombiningBuffer to indicate that
+# the context's children are the original repository-tracked jobs (requires
+# special status-update handling in DeviceGatewayStep and FailJobRepositoryHandler).
+HAS_ORIGINAL_JOB_CHILDREN_KEY = "has_original_job_children"
+
 
 class GlobalContext(BaseModel):
     """A context shared across all jobs and steps."""

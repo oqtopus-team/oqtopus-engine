@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 ESTIMATION_JOIN_INFO_KEY = "estimation_join_info"
 ESTIMATION_CHILD_INDEX_KEY = "estimation_child_index"
-ESTIMATOR_STEP_NAME = "EstimatorStep"
 
 
 class EstimationJoinInfo:
@@ -37,17 +36,6 @@ class EstimationJoinInfo:
     grouped_operators: list[list] | None = None
     child_order: list[str] | None = None
     started_at: float | None = None
-    internal_children: bool = True
-
-
-def _is_split_child_context(jctx: JobContext) -> bool:
-    """Return True only for contexts explicitly marked as split children.
-
-    Returns:
-        True when the context belongs to an internal split child job.
-
-    """
-    return jctx.get("has_actual_parent", False)
 
 
 def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
@@ -159,7 +147,7 @@ class EstimatorStep(Step):
             )
             return StepResult()
 
-        if _is_split_child_context(jctx):
+        if ESTIMATION_CHILD_INDEX_KEY in jctx:
             logger.debug(
                 "estimation child skips pre_process body",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
@@ -216,7 +204,6 @@ class EstimatorStep(Step):
             child_ctxs.append(
                 JobContext(
                     initial={
-                        "has_actual_parent": True,
                         ESTIMATION_CHILD_INDEX_KEY: index,
                     }
                 )
@@ -243,12 +230,13 @@ class EstimatorStep(Step):
             StepResult: JOIN directive for split children; NONE otherwise.
 
         """
-        if _is_split_child_context(jctx):
+        if ESTIMATION_CHILD_INDEX_KEY in jctx:
             logger.debug(
                 "estimation split child reaching join point",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
             return StepResult(directive=PipelineDirective.JOIN)
+
         logger.debug(
             "non-child job, skipping join gate post_process",
             extra={"job_id": job.job_id, "job_type": job.job_type},
