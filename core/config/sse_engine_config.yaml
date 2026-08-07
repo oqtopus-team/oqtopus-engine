@@ -27,12 +27,12 @@ di_container:
 
     job_fetcher:
       _target_: oqtopus_engine_core.fetchers.SseEngineGateway
-      sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:52014"}
+      sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:51014"}
       grpc_options: *grpc_options
 
     device_fetcher:
       _target_: oqtopus_engine_core.fetchers.DeviceGatewayFetcher
-      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
       grpc_options: *grpc_options
       initial_interval_seconds: ${DEVICE_FETCHER_INITIAL_INTERVAL_SECONDS, 10}
       initial_backoff_max_seconds: ${DEVICE_FETCHER_INITIAL_BACKOFF_MAX_SECONDS, 60}
@@ -60,11 +60,11 @@ di_container:
 
     multi_manual_step:
       _target_: oqtopus_engine_core.steps.MultiManualStep
-      combiner_address: ${COMBINER_ADDRESS, "localhost:52013"}
+      combiner_address: ${COMBINER_ADDRESS, "localhost:51013"}
 
     tranqu_step:
       _target_: oqtopus_engine_core.steps.TranquStep
-      tranqu_address: ${TRANQU_ADDRESS, "localhost:52020"}
+      tranqu_address: ${TRANQU_ADDRESS, "localhost:51020"}
       grpc_options: *grpc_options
       default_transpiler_info:
         transpiler_lib: qiskit
@@ -73,7 +73,7 @@ di_container:
 
     estimator_step:
       _target_: oqtopus_engine_core.steps.EstimatorStep
-      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:52012"}
+      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:51012"}
       grpc_options: *grpc_options
       basis_gates:
         - "cx"
@@ -87,12 +87,12 @@ di_container:
 
     ro_error_mitigation_step:
       _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
-      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:51011"}
       grpc_options: *grpc_options
 
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep
-      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
       grpc_options: *grpc_options
 
     # exception handler configurations
