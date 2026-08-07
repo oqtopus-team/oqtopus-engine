@@ -114,7 +114,7 @@ class TranquStep(Step):
         else:
             program_to_transpile = job.program[0]  # type: ignore[index]
         request = tranqu_pb2.TranspileRequest(  # type: ignore[attr-defined]
-            request_id="id",
+            request_id=job.job_id,
             program=program_to_transpile,
             program_lib="openqasm3",
             transpiler_lib=job.transpiler_info["transpiler_lib"],
