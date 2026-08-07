@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -186,6 +185,7 @@ async def test_update_device_info_uploads_payload_before_patch():
         presigned_url=upload_response.presigned_url,
         data=device.device_info,
         arcname="device_info.json",
+        max_size=10485760,
         proxies=None,
         timeout_s=60,
     )
@@ -211,10 +211,13 @@ async def test_update_device_info_does_not_patch_when_upload_fails():
         {},
     )
 
-    with patch(
-        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.OqtopusStorage.upload",
-        side_effect=OqtopusStorageError("upload failed"),
-    ), pytest.raises(OqtopusStorageError, match="upload failed"):
+    with (
+        patch(
+            "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.OqtopusStorage.upload",
+            side_effect=OqtopusStorageError("upload failed"),
+        ),
+        pytest.raises(OqtopusStorageError, match="upload failed"),
+    ):
         await repo.update_device_info(device)
 
     devices_api.patch_device_info_with_http_info.assert_not_called()

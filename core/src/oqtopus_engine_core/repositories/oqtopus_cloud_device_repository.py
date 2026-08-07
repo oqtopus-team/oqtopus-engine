@@ -50,6 +50,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         workers: int = 5,
         api_request_timeout_seconds: int = 10,
         file_op_timeout_seconds: int = 60,
+        max_file_size: int = 10485760,
     ) -> None:
         """Initialize the device repository with the API URL and interval.
 
@@ -60,6 +61,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
             workers: The number of concurrent workers to use for API requests.
             api_request_timeout_seconds: Timeout for Devices API HTTP requests.
             file_op_timeout_seconds: Timeout for file upload requests.
+            max_file_size: Maximum allowed size for uploaded ZIP payloads.
 
         """
         super().__init__()
@@ -78,6 +80,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         self._api_request_timeout_seconds = api_request_timeout_seconds
         self._proxy = proxy
         self._file_op_timeout_seconds = file_op_timeout_seconds
+        self._max_file_size = max_file_size
 
         logger.info(
             "OqtopusCloudDeviceRepository was initialized",
@@ -87,6 +90,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
                 "workers": workers,
                 "api_request_timeout_seconds": api_request_timeout_seconds,
                 "file_op_timeout_seconds": file_op_timeout_seconds,
+                "max_file_size": max_file_size,
             },
         )
 
@@ -132,6 +136,39 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
                 raise
             except Exception:
                 # Same reasoning as above: avoid duplicate ERROR-level logs.
+                logger.info(
+                    "%s: unexpected error",
+                    label,
+                    extra=extra,
+                )
+                raise
+
+    async def _storage_request_with_error_logging(
+        self,
+        call: Callable[[], T],
+        label: str,
+        extra: dict[str, Any],
+    ) -> T:
+        """Call a storage operation in a worker thread with error logging.
+
+        Returns:
+            The value returned by the storage call.
+
+        Raises:
+            OqtopusStorageError: If a storage-specific error occurs.
+
+        """
+        async with self._sem:
+            try:
+                return await asyncio.to_thread(call)
+            except OqtopusStorageError as ex:
+                logger.info(
+                    "%s: storage error",
+                    label,
+                    extra={"error": str(ex), **extra},
+                )
+                raise
+            except Exception:
                 logger.info(
                     "%s: unexpected error",
                     label,
@@ -233,7 +270,6 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
 
         Raises:
             ValueError: If `device.device_info` is missing.
-            OqtopusStorageError: If uploading device_info fails.
 
         """
         if device.device_info is None:
@@ -282,6 +318,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
                 presigned_url=presigned_url,
                 data=device.device_info or "",
                 arcname="device_info.json",
+                max_size=self._max_file_size,
                 proxies=proxies,
                 timeout_s=self._file_op_timeout_seconds,
             )
@@ -298,24 +335,11 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         )
 
         start = time.perf_counter()
-        async with self._sem:
-            try:
-                await asyncio.to_thread(_upload_call)
-            except OqtopusStorageError as ex:
-                logger.info(
-                    "device_info upload: storage error",
-                    extra={
-                        "error": str(ex),
-                        **extra,
-                    },
-                )
-                raise
-            except Exception:
-                logger.info(
-                    "device_info upload: unexpected error",
-                    extra=extra,
-                )
-                raise
+        await self._storage_request_with_error_logging(
+            _upload_call,
+            "device_info upload",
+            extra,
+        )
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
