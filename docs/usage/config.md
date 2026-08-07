@@ -16,10 +16,10 @@ pipeline_executor:
     - estimator_step
     - ro_error_mitigation_step
     - mp_auto_combining_step
-    - buffer
+    - ${JOB_BUFFER, buffer}
     - sse_step
     - device_gateway_step
-  job_buffer: buffer
+  job_buffer: ${JOB_BUFFER, buffer}
   exception_handler: pipeline_exception_handler
 
 # Dependency Injection Container Configuration
@@ -40,7 +40,7 @@ di_container:
 
     device_fetcher:
       _target_: oqtopus_engine_core.fetchers.DeviceGatewayFetcher
-      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
       initial_interval_seconds: ${DEVICE_FETCHER_INITIAL_INTERVAL_SECONDS, 10}
       initial_backoff_max_seconds: ${DEVICE_FETCHER_INITIAL_BACKOFF_MAX_SECONDS, 60}
       loop_interval_seconds: ${DEVICE_FETCHER_LOOP_INTERVAL_SECONDS, 60}
@@ -74,9 +74,9 @@ di_container:
     buffer:
       _target_: oqtopus_engine_core.buffers.QueueBuffer
 
-    _buffer:
+    buffer_mp_auto_combining:
       _target_: oqtopus_engine_core.mp.auto_combining.MpAutoCombiningBuffer
-      combiner_address: ${COMBINER_ADDRESS, "localhost:52013"}
+      combiner_address: ${COMBINER_ADDRESS, "localhost:51013"}
       monitor_interval_seconds: ${MP_AUTO_BUFFER_MONITOR_INTERVAL_SECONDS, 1}
       max_batch_size: ${MP_AUTO_BUFFER_MAX_BATCH_SIZE, 30}
       max_qsize_to_proceed: ${MP_AUTO_BUFFER_MAX_QSIZE_TO_PROCEED, 5}
@@ -90,11 +90,11 @@ di_container:
 
     multi_manual_step:
       _target_: oqtopus_engine_core.steps.MultiManualStep
-      combiner_address: ${COMBINER_ADDRESS, "localhost:52013"}
+      combiner_address: ${COMBINER_ADDRESS, "localhost:51013"}
 
     tranqu_step:
       _target_: oqtopus_engine_core.steps.TranquStep
-      tranqu_address: ${TRANQU_ADDRESS, "localhost:52020"}
+      tranqu_address: ${TRANQU_ADDRESS, "localhost:51020"}
       default_transpiler_info:
         transpiler_lib: qiskit
         transpiler_options:
@@ -102,7 +102,7 @@ di_container:
 
     estimator_step:
       _target_: oqtopus_engine_core.steps.EstimatorStep
-      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:52012"}
+      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:51012"}
       basis_gates:
         - "cx"
         - "id"
@@ -115,19 +115,19 @@ di_container:
 
     ro_error_mitigation_step:
       _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
-      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:51011"}
 
     mp_auto_combining_step:
       _target_: oqtopus_engine_core.mp.auto_combining.MpAutoCombiningStep
 
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep
-      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
 
     sse_step:
       _target_: oqtopus_engine_core.steps.sse_step.SseStep
       runner_settings:
-        sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:52014"}
+        sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:51014"}
         host_work_path: ${SSE_HOST_WORK_PATH, "/sse_work"}
         delete_host_temp_dirs: ${SSE_DELETE_HOST_TEMP_DIRS, true}
         container_work_path: ${SSE_CONTAINER_PATH, "/sse"}
@@ -180,11 +180,11 @@ di_container:
 
     job_fetcher:
       _target_: oqtopus_engine_core.fetchers.SseEngineGateway
-      sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:52014"}
+      sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:51014"}
 
     device_fetcher:
       _target_: oqtopus_engine_core.fetchers.DeviceGatewayFetcher
-      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
       initial_interval_seconds: ${DEVICE_FETCHER_INITIAL_INTERVAL_SECONDS, 10}
       initial_backoff_max_seconds: ${DEVICE_FETCHER_INITIAL_BACKOFF_MAX_SECONDS, 60}
       loop_interval_seconds: ${DEVICE_FETCHER_LOOP_INTERVAL_SECONDS, 60}
@@ -211,11 +211,11 @@ di_container:
 
     multi_manual_step:
       _target_: oqtopus_engine_core.steps.MultiManualStep
-      combiner_address: ${COMBINER_ADDRESS, "localhost:52013"}
+      combiner_address: ${COMBINER_ADDRESS, "localhost:51013"}
 
     tranqu_step:
       _target_: oqtopus_engine_core.steps.TranquStep
-      tranqu_address: ${TRANQU_ADDRESS, "localhost:52020"}
+      tranqu_address: ${TRANQU_ADDRESS, "localhost:51020"}
       default_transpiler_info:
         transpiler_lib: qiskit
         transpiler_options:
@@ -223,7 +223,7 @@ di_container:
 
     estimator_step:
       _target_: oqtopus_engine_core.steps.EstimatorStep
-      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:52012"}
+      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:51012"}
       basis_gates:
         - "cx"
         - "id"
@@ -236,16 +236,16 @@ di_container:
 
     ro_error_mitigation_step:
       _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
-      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:51011"}
 
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep
-      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
 
     sse_step:
       _target_: oqtopus_engine_core.steps.sse_step.SseStep
       runner_settings:
-        sse_engine_port: ${SSE_GATEWAY_ROUTER_LISTEN_PORT, 52014}
+        sse_engine_port: ${SSE_GATEWAY_ROUTER_LISTEN_PORT, 51014}
 
     # exception handler configurations
     pipeline_exception_handler:
