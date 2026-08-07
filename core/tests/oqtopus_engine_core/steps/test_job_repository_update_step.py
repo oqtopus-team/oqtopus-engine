@@ -4,10 +4,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from oqtopus_engine_core.framework import Job, JobContext, JobResult, SamplingResult
-from oqtopus_engine_core.interfaces.oqtopus_cloud import (
-    JobsJobInfoUploadPresignedURL,
-    JobsJobInfoUploadPresignedURLFields,
-)
 from oqtopus_engine_core.steps.job_repository_update_step import JobRepositoryUpdateStep
 
 
@@ -40,42 +36,23 @@ async def test_post_process_uses_configured_sse_log_filename() -> None:
             "di_container": {
                 "registry": {
                     "sse_step": {
-                        "runner_settings": {
-                            "log_file_name": "ssecontainer.log"
-                        }
+                        "runner_settings": {"log_file_name": "ssecontainer.log"}
                     }
                 }
             }
         },
         job_repository=SimpleNamespace(
-            get_job_upload_url=AsyncMock(
-                return_value=[
-                    JobsJobInfoUploadPresignedURL(
-                        url="null://upload",
-                        fields=JobsJobInfoUploadPresignedURLFields(
-                            key="job-1/result"
-                        ),
-                    ),
-                    JobsJobInfoUploadPresignedURL(
-                        url="null://upload",
-                        fields=JobsJobInfoUploadPresignedURLFields(
-                            key="job-1/sse_log"
-                        ),
-                    ),
-                ]
-            ),
-            upload_job_output=AsyncMock(),
+            upload_job_outputs=AsyncMock(),
             update_job_status_nowait=AsyncMock(),
-        )
+        ),
     )
 
     await step.post_process(gctx, jctx, job)
 
-    assert gctx.job_repository.upload_job_output.await_count == 2
-    gctx.job_repository.upload_job_output.assert_any_await(
+    gctx.job_repository.upload_job_outputs.assert_awaited_once_with(
         job=job,
-        presigned_url=gctx.job_repository.get_job_upload_url.return_value[1],
-        data=job.sse_log,
-        arcname_ext=".log",
-        arcname="ssecontainer.log",
+        outputs=[
+            ("result", job.result.model_dump(), ".json", None),
+            ("sse_log", job.sse_log, ".log", "ssecontainer.log"),
+        ],
     )

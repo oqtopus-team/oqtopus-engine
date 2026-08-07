@@ -4,6 +4,7 @@ from oqtopus_engine_core.framework import (
     GlobalContext,
     Job,
     JobContext,
+    JobOutput,
     Step,
     StepResult,
 )
@@ -66,41 +67,37 @@ class JobRepositoryUpdateStep(Step):
 
         Raises:
             ValueError: If the job result or SSE log is missing.
+            RuntimeError: If no job repository is configured.
 
         Returns:
             StepResult: NONE directive — the pipeline continues normally.
 
         """
-        items = ["result"]
-        if job.job_type == "sse":
-            items.append("sse_log")
-        urls = await gctx.job_repository.get_job_upload_url(  # type: ignore[union-attr]
-            job=job,
-            items=items,
-        )
-
         if job.result is None:
             message = "job result is None"
             raise ValueError(message)
-        await gctx.job_repository.upload_job_output(  # type: ignore[union-attr]
-            job=job,
-            presigned_url=urls[0],
-            data=job.result.model_dump(),
-            arcname_ext=".json",
-        )
+        if gctx.job_repository is None:
+            message = "job repository is not configured"
+            raise RuntimeError(message)
+        job_repository = gctx.job_repository
 
+        outputs: list[JobOutput] = [("result", job.result.model_dump(), ".json", None)]
         if job.job_type == "sse":
             if job.sse_log is None:
                 message = "job sse_log is None"
                 raise ValueError(message)
-            await gctx.job_repository.upload_job_output(  # type: ignore[union-attr]
-                job=job,
-                presigned_url=urls[1],
-                data=job.sse_log,
-                arcname_ext=".log",
-                arcname=self._get_sse_log_file_name(gctx),
-            )
+            outputs.append((
+                "sse_log",
+                job.sse_log,
+                ".log",
+                self._get_sse_log_file_name(gctx),
+            ))
+
+        await job_repository.upload_job_outputs(
+            job=job,
+            outputs=outputs,
+        )
 
         job.status = "succeeded"
-        await gctx.job_repository.update_job_status_nowait(job)  # type: ignore[union-attr]
+        await job_repository.update_job_status_nowait(job)
         return StepResult()

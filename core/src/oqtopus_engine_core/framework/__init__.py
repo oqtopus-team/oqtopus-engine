@@ -5,7 +5,7 @@ from .device_repository import DeviceRepository
 from .engine import Engine
 from .exception_handler import PipelineExceptionHandler
 from .job_fetcher import JobFetcher
-from .job_repository import JobRepository
+from .job_repository import JobOutput, JobRepository
 from .model import (
     Device,
     EstimationResult,
@@ -36,6 +36,7 @@ __all__ = [
     "JobContext",
     "JobFetcher",
     "JobInput",
+    "JobOutput",
     "JobRepository",
     "JobResult",
     "OperatorItem",
