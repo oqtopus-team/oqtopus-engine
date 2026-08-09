@@ -12,7 +12,7 @@ from oqtopus_engine_core.framework import (
     JobContext,
     JobFetcher,
 )
-from oqtopus_engine_core.framework.pipeline import PipelineExecutor
+from oqtopus_engine_core.framework.pipeline_manager import PipelineManager
 from oqtopus_engine_core.interfaces.sse_interface.v1 import (
     sse_pb2,
     sse_pb2_grpc,
@@ -58,7 +58,7 @@ class SseEngineGateway(JobFetcher):
 
         """
         if self.pipeline is None or self.gctx is None:
-            msg = "PipelineExecutor and GlobalContext must not be None"
+            msg = "PipelineManager and GlobalContext must not be None"
             raise ValueError(msg)
 
         server = grpc.aio.server(options=self._grpc_options)
@@ -81,7 +81,7 @@ class SseEngineGateway(JobFetcher):
 class SseEngineGatewayServicer:
     """gRPC Servicer that handles job requests."""
 
-    def __init__(self, pipeline: PipelineExecutor, gctx: GlobalContext) -> None:
+    def __init__(self, pipeline: PipelineManager, gctx: GlobalContext) -> None:
         """Initialize the SseEngineGateway Servicer."""
         self.pipeline = pipeline
         self.gctx = gctx

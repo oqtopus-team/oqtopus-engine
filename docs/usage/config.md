@@ -6,21 +6,48 @@ This page describes the configuration files used to customize the behavior of OQ
 
 This is the configuration file for the core engine (`oqtopus-engine-core`).
 
+For the syntax and semantics of each pipeline's `if` field below, see
+[Pipeline Selection Conditions](./pipeline_conditions.md).
+
 ```yaml
-# Pipeline Executor Configuration (get instances from DI container)
-pipeline_executor:
-  pipeline:
-    - job_repository_update_step
-    - multi_manual_step
-    - tranqu_step
-    - estimator_step
-    - ro_error_mitigation_step
-    - mp_auto_combining_step
-    - ${JOB_BUFFER, buffer}
-    - sse_step
-    - device_gateway_step
+# Pipeline Manager Configuration (get instances from DI container)
+pipeline_manager:
   job_buffer: ${JOB_BUFFER, buffer}
   exception_handler: pipeline_exception_handler
+  pipelines:
+    - name: sampling_or_multi_manual
+      # sampling and multi_manual share the exact same steps: multi_manual_step
+      # no-ops for job.job_type != "multi_manual", but MpAutoCombiningBuffer
+      # can combine both types together, so keeping them as one pipeline
+      # avoids the two step lists silently drifting apart (see the note on
+      # MpAutoCombiningBuffer in di_container.registry below).
+      if: job.job_type == "sampling" || job.job_type == "multi_manual"
+      steps:
+        - job_repository_update_step
+        - multi_manual_step
+        - tranqu_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+    - name: estimation
+      if: job.job_type == "estimation"
+      steps:
+        - job_repository_update_step
+        - tranqu_step
+        - estimator_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+    - name: sse
+      if: job.job_type == "sse"
+      steps:
+        - job_repository_update_step
+        - ${JOB_BUFFER, buffer}
+        - sse_step
 
 # Dependency Injection Container Configuration
 di_container:
@@ -154,19 +181,33 @@ di_container:
 This is the configuration file for the SSE engine.
 
 ```yaml
-# Pipeline Executor Configuration (get instances from DI container)
-pipeline_executor:
-  pipeline:
-    - job_repository_update_step
-    - multi_manual_step
-    - tranqu_step
-    - estimator_step
-    - ro_error_mitigation_step
-    - buffer
-    - sse_step
-    - device_gateway_step
-  job_buffer: buffer
+# Pipeline Manager Configuration (get instances from DI container)
+pipeline_manager:
+  job_buffer: ${JOB_BUFFER, buffer}
   exception_handler: pipeline_exception_handler
+  pipelines:
+    - name: sampling_or_multi_manual
+      # See the note on this pipeline in config.yaml above.
+      if: job.job_type == "sampling" || job.job_type == "multi_manual"
+      steps:
+        - job_repository_update_step
+        - multi_manual_step
+        - tranqu_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+    - name: estimation
+      if: job.job_type == "estimation"
+      steps:
+        - job_repository_update_step
+        - tranqu_step
+        - estimator_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
 
 # Dependency Injection Container Configuration
 di_container:
@@ -201,6 +242,13 @@ di_container:
     # buffer configurations
     buffer:
       _target_: oqtopus_engine_core.buffers.QueueBuffer
+
+    buffer_mp_auto_combining:
+      _target_: oqtopus_engine_core.mp.auto_combining.MpAutoCombiningBuffer
+      combiner_address: ${COMBINER_ADDRESS, "localhost:51013"}
+      monitor_interval_seconds: ${MP_AUTO_BUFFER_MONITOR_INTERVAL_SECONDS, 1}
+      max_batch_size: ${MP_AUTO_BUFFER_MAX_BATCH_SIZE, 30}
+      max_qsize_to_proceed: ${MP_AUTO_BUFFER_MAX_QSIZE_TO_PROCEED, 5}
 
     # step configurations
     debug_step:
@@ -241,11 +289,6 @@ di_container:
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep
       gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
-
-    sse_step:
-      _target_: oqtopus_engine_core.steps.sse_step.SseStep
-      runner_settings:
-        sse_engine_port: ${SSE_GATEWAY_ROUTER_LISTEN_PORT, 51014}
 
     # exception handler configurations
     pipeline_exception_handler:

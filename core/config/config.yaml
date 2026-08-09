@@ -1,20 +1,39 @@
 monitoring:
   enabled: ${MONITORING_ENABLED, false}
 
-# Pipeline Executor Configuration (get instances from DI container)
-pipeline_executor:
-  pipeline:
-    - job_repository_update_step
-    - multi_manual_step
-    - tranqu_step
-    - estimator_step
-    - ro_error_mitigation_step
-    - mp_auto_combining_step
-    - ${JOB_BUFFER, buffer}
-    - sse_step
-    - device_gateway_step
+# Pipeline Manager Configuration (get instances from DI container)
+pipeline_manager:
   job_buffer: ${JOB_BUFFER, buffer}
   exception_handler: pipeline_exception_handler
+  pipelines:
+    - name: sampling_or_multi_manual
+      if: job.job_type == "sampling" || job.job_type == "multi_manual"
+      steps:
+        - job_repository_update_step
+        - multi_manual_step
+        - tranqu_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+    - name: estimation
+      if: job.job_type == "estimation"
+      steps:
+        - job_repository_update_step
+        - tranqu_step
+        - estimator_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+    - name: sse
+      if: job.job_type == "sse"
+      steps:
+        - job_repository_update_step
+        - ${JOB_BUFFER, buffer}
+        - sse_step
 
 # Dependency Injection Container Configuration
 di_container:
