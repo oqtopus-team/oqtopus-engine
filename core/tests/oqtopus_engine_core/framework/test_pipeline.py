@@ -1106,3 +1106,72 @@ async def test_split_without_join_children_cleaned_via_cascade():
     assert len(jctx.children) == 2
     # Pending-children cleaned up via cascade_cleanup (no join triggered).
     assert executor._pending_children == {}
+
+
+@pytest.mark.asyncio
+async def test_split_without_join_resolves_already_parented_childs_real_parent():
+    """
+    A child returned by SPLIT_WITHOUT_JOIN may already have a `.parent` from
+    an earlier, unrelated split (e.g. an auto-combining buffer re-emitting an
+    estimation sub-circuit combined with other same-pipeline jobs). Such a
+    child must not be re-parented to the combining job, and must still run
+    locally (not be routed through job_buffer), so its real parent's
+    pending-children counter resolves via cascade cleanup instead of being
+    permanently orphaned.
+    """
+
+    real_parent_job = make_test_job("real-parent")
+    real_parent_jctx = JobContext()
+    already_parented_child = make_test_job("already-parented-child")
+    already_parented_child.parent = real_parent_job
+    already_parented_child_jctx = JobContext()
+    already_parented_child_jctx.parent = real_parent_jctx
+
+    class MixedSplitWithoutJoinStep(Step):
+        async def pre_process(self, gctx, jctx, job) -> StepResult:
+            return StepResult()
+
+        async def post_process(self, gctx, jctx, job) -> StepResult:
+            if job.parent is not None:
+                return StepResult()
+            fresh_child = make_test_job(f"{job.job_id}-fresh-child")
+            fresh_child_jctx = JobContext()
+            return StepResult(
+                directive=PipelineDirective.SPLIT_WITHOUT_JOIN,
+                child_jobs=[already_parented_child, fresh_child],
+                child_contexts=[already_parented_child_jctx, fresh_child_jctx],
+            )
+
+    pipeline = [MixedSplitWithoutJoinStep()]
+    buffer = FakeBuffer()
+    executor = PipelineExecutor(pipeline, buffer)
+    jctx = JobContext()
+    root_job = make_test_job("root")
+
+    # Simulate the real parent (e.g. an "estimation" job on this same
+    # instance) still waiting on this one child.
+    executor._pending_children[real_parent_job.job_id] = 1
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    # The already-parented child keeps pointing to its real parent.
+    assert already_parented_child.parent is real_parent_job
+    assert already_parented_child_jctx.parent is real_parent_jctx
+
+    # It ran locally instead of being routed through job_buffer.
+    assert buffer.size() == 0
+
+    # Its real parent's pending-children counter resolved via cascade
+    # cleanup, instead of being permanently orphaned.
+    assert real_parent_job.job_id not in executor._pending_children
+
+    # Only the fresh child was linked/counted under the combining job.
+    assert len(root_job.children) == 1
+    assert root_job.children[0].parent is root_job
+    assert len(jctx.children) == 1
+    assert jctx.children[0].parent is jctx
+
+    # The fresh child completed (no further steps) and cleaned up via cascade.
+    assert executor._pending_children == {}

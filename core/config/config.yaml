@@ -6,7 +6,7 @@ pipeline_manager:
   job_buffer: ${JOB_BUFFER, buffer}
   exception_handler: pipeline_exception_handler
   pipelines:
-    - name: sampling_or_multi_manual
+    - name: sampling
       if: job.job_type == "sampling" || job.job_type == "multi_manual"
       steps:
         - job_repository_update_step

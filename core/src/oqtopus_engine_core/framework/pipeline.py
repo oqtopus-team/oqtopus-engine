@@ -650,7 +650,7 @@ class PipelineExecutor:
                 return
             cur = cur.parent
 
-    async def _handle_split(  # noqa: PLR0913, PLR0917
+    async def _handle_split(  # noqa: C901, PLR0913, PLR0917
         self,
         result: StepResult,
         step: Step,
@@ -666,9 +666,12 @@ class PipelineExecutor:
         StepResult with SPLIT_FOR_JOIN or SPLIT_WITHOUT_JOIN directive.
 
         Responsibilities:
-        - Link parent job/context with the child jobs/contexts from StepResult.
-        - Initialize pending-children counter.
-        - Start child pipelines concurrently.
+        - Link parent job/context with the child jobs/contexts from StepResult,
+          except for children that already have a `.parent` (e.g. re-emitted
+          by auto-combining) — their real `.parent` is preserved and they are
+          not counted under this job's pending-children counter.
+        - Initialize pending-children counter for the newly-linked children.
+        - Start all child pipelines concurrently.
         - Stop the parent pipeline.
 
         Raises:
@@ -683,12 +686,7 @@ class PipelineExecutor:
         assert child_contexts is not None  # noqa: S101
 
         # ------------------------------------------------------------
-        # 1. Establish parent ↔ child links
-        # ------------------------------------------------------------
-        link_parent_and_children(jctx, job, child_contexts, child_jobs)
-
-        # ------------------------------------------------------------
-        # 2. Validate non-empty children
+        # 1. Validate non-empty children
         # ------------------------------------------------------------
         if not child_jobs:
             message = "split requested but child_jobs is empty"
@@ -704,26 +702,53 @@ class PipelineExecutor:
             raise RuntimeError(message)
 
         # ------------------------------------------------------------
+        # 2. Partition children, then establish parent ↔ child links for
+        # the "fresh" ones only.
+        #
+        # A child may already have a `.parent` (e.g. an estimation
+        # sub-circuit that was combined with other same-pipeline jobs by
+        # MpAutoCombiningBuffer — combining never mixes jobs across
+        # different pipeline_names, see MpAutoCombiningBuffer). Linking it
+        # to *this* job would overwrite its real parent and permanently
+        # orphan that parent's pending-children counter, so its `.parent`
+        # is left untouched and it is not counted below. It still starts
+        # locally like any other child: because combining is same-pipeline
+        # only, `self` is guaranteed to be the PipelineExecutor instance
+        # that owns its real parent's pending-children state.
+        # ------------------------------------------------------------
+        fresh_jobs: list[Job] = []
+        fresh_contexts: list[JobContext] = []
+        for c_job, c_jctx in zip(child_jobs, child_contexts, strict=True):
+            if c_job.parent is None:
+                fresh_jobs.append(c_job)
+                fresh_contexts.append(c_jctx)
+
+        if fresh_jobs:
+            link_parent_and_children(jctx, job, fresh_contexts, fresh_jobs)
+
+        # ------------------------------------------------------------
         # 3. Initialize pending-child counter for join/cleanup handling
         # ------------------------------------------------------------
         parent_id = job.job_id
-        child_count = len(child_jobs)
-        async with self._pending_children_lock:
-            # Overwrite is allowed but indicates a nested split on the same parent.
-            # For now we just log it to make debugging easier.
-            if parent_id in self._pending_children:
-                logger.warning(
-                    "overwriting pending-children counter for parent (nested split?)",
-                    extra={
-                        "parent_job_id": parent_id,
-                        "old_value": self._pending_children[parent_id],
-                        "new_value": child_count,
-                    },
-                )
-            self._pending_children[parent_id] = child_count
+        child_count = len(fresh_jobs)
+        if child_count:
+            async with self._pending_children_lock:
+                # Overwrite is allowed but indicates a nested split on the
+                # same parent. For now we just log it to make debugging easier.
+                if parent_id in self._pending_children:
+                    logger.warning(
+                        "overwriting pending-children counter for parent"
+                        " (nested split?)",
+                        extra={
+                            "parent_job_id": parent_id,
+                            "old_value": self._pending_children[parent_id],
+                            "new_value": child_count,
+                        },
+                    )
+                self._pending_children[parent_id] = child_count
 
         # ------------------------------------------------------------
-        # 3. Start child pipelines (and wait for them)
+        # 4. Start child pipelines (and wait for them)
         # ------------------------------------------------------------
         child_coroutines: list[Awaitable[None]] = []
 
@@ -734,7 +759,7 @@ class PipelineExecutor:
         parent_obs_ctx = jctx.get("_oqtopus_obs_ctx")
         pipeline_name = jctx.get("pipeline_name")
 
-        for child_job, child_jctx in zip(job.children, jctx.children, strict=True):
+        for child_job, child_jctx in zip(child_jobs, child_contexts, strict=True):
             logger.info(
                 "start child pipeline",
                 extra={
@@ -785,7 +810,7 @@ class PipelineExecutor:
         )
 
         # ------------------------------------------------------------
-        # 4. Finalize the parent's job-level span if this was a root job.
+        # 5. Finalize the parent's job-level span if this was a root job.
         # When the pipeline terminates via a split (no join resumes the
         # parent), the parent's _run_state_machine never reaches the
         # cursor<0 branch that normally calls _finalize_job_observability,

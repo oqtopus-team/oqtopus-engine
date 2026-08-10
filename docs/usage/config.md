@@ -15,12 +15,7 @@ pipeline_manager:
   job_buffer: ${JOB_BUFFER, buffer}
   exception_handler: pipeline_exception_handler
   pipelines:
-    - name: sampling_or_multi_manual
-      # sampling and multi_manual share the exact same steps: multi_manual_step
-      # no-ops for job.job_type != "multi_manual", but MpAutoCombiningBuffer
-      # can combine both types together, so keeping them as one pipeline
-      # avoids the two step lists silently drifting apart (see the note on
-      # MpAutoCombiningBuffer in di_container.registry below).
+    - name: sampling
       if: job.job_type == "sampling" || job.job_type == "multi_manual"
       steps:
         - job_repository_update_step
@@ -176,9 +171,14 @@ di_container:
       _target_: oqtopus_engine_core.handlers.FailJobRepositoryHandler
 ```
 
+A few notes on the pipelines above:
+
+- **`sampling`**: `sampling` and `multi_manual` jobs share the exact same `steps` list (`multi_manual_step` no-ops when `job.job_type != "multi_manual"`), and `MpAutoCombiningBuffer` (used when `${JOB_BUFFER, buffer}` resolves to `buffer_mp_auto_combining` below) can combine both types together. Keeping them as a single pipeline avoids the two step lists silently drifting apart. `MpAutoCombiningBuffer` never combines jobs across different pipelines, so this pool never mixes with, for example, the `estimation` pipeline's sub-circuits, even though their `job.job_type` is also `"sampling"`.
+- **`sse`**: SSE jobs run entirely inside the SSE runner (`sse_step`) — they are not transpiled, combined, or sent to the device gateway — so this pipeline omits `tranqu_step`, `mp_auto_combining_step`, and `device_gateway_step` entirely, rather than relying on those steps' own `job.job_type` checks to no-op.
+
 ## sse_engine_config.yaml
 
-This is the configuration file for the SSE engine.
+This is the configuration file for the SSE engine. Its `sampling` and `estimation` pipelines are the same as in `config.yaml` above. It has no `sse` pipeline, because jobs arriving here via `SseEngineGateway` are the sampling/multi_manual/estimation circuit calls made by an already-running SSE program — never a `job.job_type == "sse"` job itself.
 
 ```yaml
 # Pipeline Manager Configuration (get instances from DI container)
@@ -186,8 +186,7 @@ pipeline_manager:
   job_buffer: ${JOB_BUFFER, buffer}
   exception_handler: pipeline_exception_handler
   pipelines:
-    - name: sampling_or_multi_manual
-      # See the note on this pipeline in config.yaml above.
+    - name: sampling
       if: job.job_type == "sampling" || job.job_type == "multi_manual"
       steps:
         - job_repository_update_step

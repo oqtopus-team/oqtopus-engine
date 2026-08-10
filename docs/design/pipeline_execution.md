@@ -118,6 +118,32 @@ This allows:
 
 The following sections describe **how a single constructed `PipelineExecutor` executes jobs** including two-phase traversal, buffers, workers, split/join semantics, detach, and error handling. This part of the model is unaffected by pipeline selection: once a job is routed to a pipeline, it runs exactly as described below.
 
+### 2.3 Buffers Shared Across Multiple Pipelines
+
+A `Buffer` instance (e.g. `${JOB_BUFFER, buffer}`) may be referenced by more
+than one pipeline's `steps` list. `PipelineBuilder` detects this sharing (by
+object identity) and has `PipelineManager` — not the individual
+`PipelineExecutor`s — spawn that buffer's worker(s) centrally, dispatching
+each dequeued job back to the `PipelineExecutor` for the pipeline it belongs
+to (via `pipeline_name`, stored on the job's `JobContext`).
+
+Sharing a `Buffer` object across pipelines is purely an implementation
+detail for avoiding duplicate workers and configuration drift; it does
+**not** mean the pipeline execution model supports a job crossing from one
+pipeline into another. A job's pipeline is fixed for its entire lifetime,
+including across any number of buffer hand-offs, splits, or joins — a job
+dequeued from a shared buffer must always resume on the `PipelineExecutor`
+for the *same* pipeline it started in, never a different one.
+
+This is a hard invariant that buffer/step implementations must uphold
+themselves when they build derived jobs and enqueue them onto a shared
+buffer. For example, `MpAutoCombiningBuffer` (see
+[Configuration](../usage/config.md)) merges several original jobs into one
+combined job before re-enqueuing it; it groups jobs by `pipeline_name`
+before combining and never merges jobs from different pipelines together,
+precisely because a combined job spanning multiple pipelines would have no
+single `PipelineExecutor` to resume on.
+
 ## 3. Pipeline Structure
 
 A pipeline consists of an ordered sequence of **elements**:
@@ -256,7 +282,9 @@ from its `pre_process()` or `post_process()` method:
 - **`PipelineDirective.SPLIT_FOR_JOIN`**: children run independently; parent waits until all
   children reach the join step before resuming.
 - **`PipelineDirective.SPLIT_WITHOUT_JOIN`**: children run independently; parent does **not**
-  wait — no pending-children counter is registered.
+  wait. A pending-children counter is still registered internally (so cascade
+  cleanup can detect when every child has finished), but nothing ever waits
+  on it — no join step resumes the parent.
 
 The `StepResult` carries the child jobs and child contexts:
 
@@ -272,7 +300,13 @@ When a split occurs:
 
 1. The parent job's traversal **pauses**.
 2. The executor calls `link_parent_and_children` to establish `job.children` /
-   `jctx.children` — the step must **not** call this function itself.
+   `jctx.children` — the step must **not** call this function itself. A
+   child that already has a `.parent` from an earlier, unrelated split
+   (e.g. a job re-emitted by an auto-combining buffer that groups jobs from
+   multiple splits together) is left untouched instead: its real `.parent`
+   is not overwritten, and it is not counted under this job's
+   pending-children counter, since its completion will resolve its real
+   parent's counter instead.
 3. Each child job starts its own execution:
    - traversal starts from the first pipeline element,
    - workers, buffers, and phases apply independently.
