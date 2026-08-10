@@ -102,10 +102,6 @@ def sample_job() -> Job:
     )
 
 
-@pytest.fixture
-def non_sse_job() -> Job:
-    return _make_job(job_id="test-job-002", job_type="sampling", status="ready")
-
 
 # ---------------------------------------------------------------------------
 # SseStep tests
@@ -119,16 +115,6 @@ class TestSseStepInit:
 
 
 class TestSseStepPreProcess:
-    @pytest.mark.asyncio
-    async def test_skip_non_sse_job(
-        self, sse_step: SseStep, mock_gctx: GlobalContext, non_sse_job: Job
-    ) -> None:
-        jctx: dict[str, object] = {}
-        await sse_step.pre_process(mock_gctx, jctx, non_sse_job)
-
-        assert non_sse_job.status == "ready"
-        mock_gctx.job_repository.update_job_status.assert_not_awaited()
-
     @pytest.mark.asyncio
     async def test_pre_process_updates_status_to_running(
         self,

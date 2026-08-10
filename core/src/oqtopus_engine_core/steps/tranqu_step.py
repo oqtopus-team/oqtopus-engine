@@ -72,13 +72,6 @@ class TranquStep(Step):
             StepResult: NONE directive — the pipeline continues normally.
 
         """
-        # Skip SSE job
-        if job.job_type == "sse":
-            logger.debug(
-                "job_type is sse, skipping",
-                extra={"job_id": job.job_id, "job_type": job.job_type},
-            )
-            return StepResult()
         # Skip if the transpiler is disabled
         if job.transpiler_info.get("transpiler_lib", {}) is None:
             logger.debug(
