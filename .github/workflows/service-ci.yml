@@ -1,0 +1,69 @@
+name: Service CI
+
+# Reusable workflow shared by every microservice (core, mitigator, estimator,
+# combiner, sse_runtime). Called from ci.yaml, once per changed service.
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "Microservice directory to build (core, mitigator, estimator, combiner, sse_runtime)"
+        required: true
+        type: string
+
+defaults:
+  run:
+    working-directory: ${{ inputs.service }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          # Scope the cache key to this service's own uv.lock only.
+          cache-dependency-glob: "${{ inputs.service }}/uv.lock"
+          cache-python: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Show uv and python info
+        run: |
+          uv --version
+          uv run python --version
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Lint
+        run: make lint
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          # Scope the cache key to this service's own uv.lock only.
+          cache-dependency-glob: "${{ inputs.service }}/uv.lock"
+          cache-python: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Test with coverage
+        run: make test

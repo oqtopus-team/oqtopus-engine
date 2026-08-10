@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+# Cancel outdated workflows for the same PR or branch
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.filter.outputs.core }}
+      mitigator: ${{ steps.filter.outputs.mitigator }}
+      estimator: ${{ steps.filter.outputs.estimator }}
+      combiner: ${{ steps.filter.outputs.combiner }}
+      sse_runtime: ${{ steps.filter.outputs.sse_runtime }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            core:
+              - "core/**"
+            mitigator:
+              - "mitigator/**"
+            estimator:
+              - "estimator/**"
+            combiner:
+              - "combiner/**"
+            sse_runtime:
+              - "sse_runtime/**"
+
+  core:
+    needs: changes
+    if: needs.changes.outputs.core == 'true'
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: core
+
+  mitigator:
+    needs: changes
+    if: needs.changes.outputs.mitigator == 'true'
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: mitigator
+
+  estimator:
+    needs: changes
+    if: needs.changes.outputs.estimator == 'true'
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: estimator
+
+  combiner:
+    needs: changes
+    if: needs.changes.outputs.combiner == 'true'
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: combiner
+
+  sse_runtime:
+    needs: changes
+    if: needs.changes.outputs.sse_runtime == 'true'
+    uses: ./.github/workflows/service-ci.yml
+    with:
+      service: sse_runtime
