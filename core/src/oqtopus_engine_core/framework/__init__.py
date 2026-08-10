@@ -18,6 +18,7 @@ from .model import (
 )
 from .pipeline import PipelineExecutor
 from .pipeline_builder import PipelineBuilder
+from .pipeline_manager import PipelineManager
 from .step import (
     PipelineDirective,
     Step,
@@ -43,6 +44,7 @@ __all__ = [
     "PipelineDirective",
     "PipelineExceptionHandler",
     "PipelineExecutor",
+    "PipelineManager",
     "SamplingResult",
     "Step",
     "StepResult",

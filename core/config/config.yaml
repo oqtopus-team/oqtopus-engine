@@ -1,28 +1,48 @@
 monitoring:
   enabled: ${MONITORING_ENABLED, false}
 
-# Pipeline Executor Configuration (get instances from DI container)
-pipeline_executor:
-  pipeline:
-    - job_repository_update_step
-    - multi_manual_step
-    - tranqu_step
-    - estimator_step
-    - ro_error_mitigation_step
-    - mp_auto_combining_step
-    - ${JOB_BUFFER, buffer}
-    - sse_step
-    - device_gateway_step
+# Pipeline Manager Configuration (get instances from DI container)
+pipeline_manager:
   job_buffer: ${JOB_BUFFER, buffer}
   exception_handler: pipeline_exception_handler
+  pipelines:
+    - name: sampling
+      if: job.job_type == "sampling" || job.job_type == "multi_manual"
+      steps:
+        - job_repository_update_step
+        - multi_manual_step
+        - tranqu_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+    - name: estimation
+      if: job.job_type == "estimation"
+      steps:
+        - job_repository_update_step
+        - tranqu_step
+        - estimator_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+    - name: sse
+      if: job.job_type == "sse"
+      steps:
+        - job_repository_update_step
+        - ${JOB_BUFFER, buffer}
+        - sse_step
+
+# gRPC Options
+grpc_options: &grpc_options
+  - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
+  - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
 
 # Dependency Injection Container Configuration
 di_container:
   registry:
-    grpc_options: &grpc_options
-      - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
-      - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
-
     # fetcher configurations
     _job_fetcher:
       _target_: oqtopus_engine_core.fetchers.MockJobFetcher

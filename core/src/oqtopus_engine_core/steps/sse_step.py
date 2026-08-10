@@ -58,13 +58,6 @@ class SseStep(Step):
             StepResult: NONE directive — the pipeline continues normally.
 
         """
-        if job.job_type != "sse":
-            logger.debug(
-                "job_type is not sse, skipping",
-                extra={"job_id": job.job_id, "job_type": job.job_type},
-            )
-            return StepResult()
-
         if job.sse_program is None:
             message = "the sse_program is not specified in the job."
             raise ValueError(message)

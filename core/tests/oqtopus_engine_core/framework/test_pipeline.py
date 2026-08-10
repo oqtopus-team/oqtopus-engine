@@ -5,6 +5,7 @@ import pytest
 from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.framework.buffer import Buffer
 from oqtopus_engine_core.framework.context import GlobalContext, JobContext
+from oqtopus_engine_core.framework.exception_handler import PipelineExceptionHandler
 from oqtopus_engine_core.framework.model import Job
 from oqtopus_engine_core.framework.pipeline import PipelineExecutor, StepPhase
 from oqtopus_engine_core.framework.step import PipelineDirective, Step, StepResult
@@ -286,6 +287,33 @@ class FakeBuffer(Buffer):
     @property
     def max_concurrency(self) -> int:
         return self._max_concurrency
+
+
+class RaisingPutBuffer(Buffer):
+    """Buffer whose put() always raises, to test _safe_buffer_put."""
+
+    async def put(self, gctx, jctx, job):
+        message = "put exploded"
+        raise RuntimeError(message)
+
+    async def get(self):
+        raise NotImplementedError
+
+    def size(self):
+        return 0
+
+# ---------------------------------------------------------------------------
+# Helper Exception Handler
+# ---------------------------------------------------------------------------
+
+class FakeExceptionHandler(PipelineExceptionHandler):
+    """Records every (exception, job) pair passed to handle_exception."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def handle_exception(self, ex, gctx, jctx, job):
+        self.calls.append((ex, job))
 
 # ---------------------------------------------------------------------------
 # Test Cases
@@ -1106,3 +1134,238 @@ async def test_split_without_join_children_cleaned_via_cascade():
     assert len(jctx.children) == 2
     # Pending-children cleaned up via cascade_cleanup (no join triggered).
     assert executor._pending_children == {}
+
+
+@pytest.mark.asyncio
+async def test_split_without_join_resolves_already_parented_childs_real_parent():
+    """
+    A child returned by SPLIT_WITHOUT_JOIN may already have a `.parent` from
+    an earlier, unrelated split (e.g. an auto-combining buffer re-emitting an
+    estimation sub-circuit combined with other same-pipeline jobs). Such a
+    child must not be re-parented to the combining job, and must still run
+    locally (not be routed through job_buffer), so its real parent's
+    pending-children counter resolves via cascade cleanup instead of being
+    permanently orphaned.
+    """
+
+    real_parent_job = make_test_job("real-parent")
+    real_parent_jctx = JobContext()
+    already_parented_child = make_test_job("already-parented-child")
+    already_parented_child.parent = real_parent_job
+    already_parented_child_jctx = JobContext()
+    already_parented_child_jctx.parent = real_parent_jctx
+
+    class MixedSplitWithoutJoinStep(Step):
+        async def pre_process(self, gctx, jctx, job) -> StepResult:
+            return StepResult()
+
+        async def post_process(self, gctx, jctx, job) -> StepResult:
+            if job.parent is not None:
+                return StepResult()
+            fresh_child = make_test_job(f"{job.job_id}-fresh-child")
+            fresh_child_jctx = JobContext()
+            return StepResult(
+                directive=PipelineDirective.SPLIT_WITHOUT_JOIN,
+                child_jobs=[already_parented_child, fresh_child],
+                child_contexts=[already_parented_child_jctx, fresh_child_jctx],
+            )
+
+    pipeline = [MixedSplitWithoutJoinStep()]
+    buffer = FakeBuffer()
+    executor = PipelineExecutor(pipeline, buffer)
+    jctx = JobContext()
+    root_job = make_test_job("root")
+
+    # Simulate the real parent (e.g. an "estimation" job on this same
+    # instance) still waiting on this one child.
+    executor._pending_children[real_parent_job.job_id] = 1
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    # The already-parented child keeps pointing to its real parent.
+    assert already_parented_child.parent is real_parent_job
+    assert already_parented_child_jctx.parent is real_parent_jctx
+
+    # It ran locally instead of being routed through job_buffer.
+    assert buffer.size() == 0
+
+    # Its real parent's pending-children counter resolved via cascade
+    # cleanup, instead of being permanently orphaned.
+    assert real_parent_job.job_id not in executor._pending_children
+
+    # Only the fresh child was linked/counted under the combining job.
+    assert len(root_job.children) == 1
+    assert root_job.children[0].parent is root_job
+    assert len(jctx.children) == 1
+    assert jctx.children[0].parent is jctx
+
+    # The fresh child completed (no further steps) and cleaned up via cascade.
+    assert executor._pending_children == {}
+
+
+@pytest.mark.asyncio
+async def test_handle_split_raises_if_child_jobs_is_none():
+    """
+    _handle_split defensively rejects a StepResult whose child_jobs is None,
+    checked independently of child_contexts. StepResult.__post_init__ blocks
+    constructing one this way, but StepResult is a mutable dataclass, so a
+    caller could still clear the field after construction.
+    """
+    executor = PipelineExecutor([RecordStep()], QueueBuffer())
+    result = StepResult(
+        directive=PipelineDirective.SPLIT_FOR_JOIN,
+        child_jobs=[make_test_job("child")],
+        child_contexts=[JobContext()],
+    )
+    result.child_jobs = None
+
+    with pytest.raises(RuntimeError, match="requires child_jobs"):
+        await executor._handle_split(
+            result=result,
+            step=RecordStep(),
+            step_phase=StepPhase.PRE_PROCESS,
+            next_index=1,
+            gctx=make_test_global_context(),
+            jctx=JobContext(),
+            job=make_test_job("root"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_handle_split_raises_if_child_contexts_is_none():
+    """
+    _handle_split defensively rejects a StepResult whose child_contexts is
+    None, checked independently of child_jobs (see
+    test_handle_split_raises_if_child_jobs_is_none).
+    """
+    executor = PipelineExecutor([RecordStep()], QueueBuffer())
+    result = StepResult(
+        directive=PipelineDirective.SPLIT_FOR_JOIN,
+        child_jobs=[make_test_job("child")],
+        child_contexts=[JobContext()],
+    )
+    result.child_contexts = None
+
+    with pytest.raises(RuntimeError, match="requires child_contexts"):
+        await executor._handle_split(
+            result=result,
+            step=RecordStep(),
+            step_phase=StepPhase.PRE_PROCESS,
+            next_index=1,
+            gctx=make_test_global_context(),
+            jctx=JobContext(),
+            job=make_test_job("root"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# _safe_handle_split / _safe_handle_join / _safe_buffer_put integration tests
+# ---------------------------------------------------------------------------
+
+class RaisingSplitStep(Step):
+    """Return a StepResult that makes _handle_split itself fail."""
+
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        result = StepResult(
+            directive=PipelineDirective.SPLIT_FOR_JOIN,
+            child_jobs=[make_test_job(f"{job.job_id}-child")],
+            child_contexts=[JobContext()],
+        )
+        result.child_contexts = None
+        return result
+
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
+
+
+@pytest.mark.asyncio
+async def test_split_failure_invokes_exception_handler():
+    """
+    A failure inside _handle_split itself (not a step's own pre/post_process)
+    must still route through exception_handler via _safe_handle_split,
+    instead of only being logged and silently dropped.
+    """
+    handler = FakeExceptionHandler()
+    executor = PipelineExecutor(
+        [RaisingSplitStep()], QueueBuffer(), exception_handler=handler
+    )
+    jctx = JobContext()
+    root_job = make_test_job("root")
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    assert len(handler.calls) == 1
+    ex, failed_job = handler.calls[0]
+    assert isinstance(ex, RuntimeError)
+    assert failed_job is root_job
+    # No pending-children entry was leaked for the failed split.
+    assert executor._pending_children == {}
+
+
+class FailingJoinStep(Step):
+    """Join step whose join_jobs() always raises."""
+
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        if job.parent is not None:
+            return StepResult(directive=PipelineDirective.JOIN)
+        return StepResult()
+
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
+
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child) -> None:
+        message = "join_jobs exploded"
+        raise RuntimeError(message)
+
+
+@pytest.mark.asyncio
+async def test_join_failure_invokes_exception_handler():
+    """
+    A failure inside join_jobs() (called from _handle_join) must route
+    through exception_handler via _safe_handle_join, instead of only being
+    logged and re-raised into the void.
+    """
+    handler = FakeExceptionHandler()
+    pipeline = [SplitOnPreStep(), FailingJoinStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer(), exception_handler=handler)
+    jctx = JobContext()
+    root_job = make_test_job("root")
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    assert len(handler.calls) == 1
+    ex, failed_job = handler.calls[0]
+    assert isinstance(ex, RuntimeError)
+    assert str(ex) == "join_jobs exploded"
+    # The failed job is whichever child happened to be the last (race-safe).
+    assert failed_job.parent is root_job
+
+
+@pytest.mark.asyncio
+async def test_buffer_put_failure_invokes_exception_handler():
+    """
+    A failure inside Buffer.put() must route through exception_handler via
+    _safe_buffer_put, instead of propagating unhandled.
+    """
+    handler = FakeExceptionHandler()
+    executor = PipelineExecutor(
+        [RaisingPutBuffer()], QueueBuffer(), exception_handler=handler
+    )
+    jctx = JobContext()
+    root_job = make_test_job("root")
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    assert len(handler.calls) == 1
+    ex, failed_job = handler.calls[0]
+    assert isinstance(ex, RuntimeError)
+    assert str(ex) == "put exploded"
+    assert failed_job is root_job
