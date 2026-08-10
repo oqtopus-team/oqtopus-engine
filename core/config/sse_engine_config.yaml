@@ -25,13 +25,14 @@ pipeline_manager:
         - ${JOB_BUFFER, buffer}
         - device_gateway_step
 
+# gRPC Options
+grpc_options: &grpc_options
+  - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
+  - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
+
 # Dependency Injection Container Configuration
 di_container:
   registry:
-    grpc_options: &grpc_options
-      - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
-      - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
-
     # fetcher configurations
     _job_fetcher:
       _target_: oqtopus_engine_core.fetchers.MockJobFetcher
@@ -82,6 +83,7 @@ di_container:
     multi_manual_step:
       _target_: oqtopus_engine_core.steps.MultiManualStep
       combiner_address: ${COMBINER_ADDRESS, "localhost:51013"}
+      grpc_options: *grpc_options
 
     tranqu_step:
       _target_: oqtopus_engine_core.steps.TranquStep
