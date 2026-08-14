@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
-from oqtopus_engine_core.framework import Job, JobRepository
+from oqtopus_engine_core.framework import Job, JobOutput, JobRepository
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     ApiClient,
     Configuration,
@@ -399,6 +399,40 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         return response
+
+    async def upload_job_outputs(
+        self,
+        job: Job,
+        outputs: list[JobOutput],
+    ) -> None:
+        """Fetch presigned URLs and upload a group of job output files.
+
+        Each output is represented as ``(item, data, arcname_ext, arcname)``.
+        The order of ``outputs`` is preserved for both URL allocation and upload.
+
+        Raises:
+            ValueError: If the number of returned URLs does not match ``outputs``.
+
+        """
+        urls = await self.get_job_upload_url(
+            job=job,
+            items=[item for item, _, _, _ in outputs],
+        )
+        if len(urls) != len(outputs):
+            msg = (
+                "Job repository returned a different number of upload URLs "
+                "than requested"
+            )
+            raise ValueError(msg)
+
+        for url, (_, data, arcname_ext, arcname) in zip(urls, outputs, strict=True):
+            await self.upload_job_output(
+                job=job,
+                presigned_url=url,
+                data=data,
+                arcname_ext=arcname_ext,
+                arcname=arcname,
+            )
 
     async def download_job_input(
         self,

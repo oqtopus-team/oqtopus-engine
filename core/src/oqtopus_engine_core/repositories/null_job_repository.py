@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from oqtopus_engine_core.framework import Job, JobRepository
+from oqtopus_engine_core.framework import Job, JobOutput, JobRepository
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     JobsJobInfoUploadPresignedURL,
     JobsJobInfoUploadPresignedURLFields,
@@ -70,6 +70,19 @@ class NullJobRepository(JobRepository):
             )
             for item in items
         ]
+
+    async def upload_job_outputs(
+        self,
+        job: Job,
+        outputs: list[JobOutput],
+    ) -> None:
+        """Log and discard a group of job output upload requests."""
+        self._log_noop(
+            "upload_job_outputs",
+            job_id=job.job_id,
+            job_type=job.job_type,
+            items=[item for item, _, _, _ in outputs],
+        )
 
     async def download_job_input(
         self,

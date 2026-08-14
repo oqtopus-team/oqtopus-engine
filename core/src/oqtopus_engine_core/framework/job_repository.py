@@ -55,41 +55,24 @@ class JobRepository(ABC):
         )
         raise NotImplementedError(message)
 
+    @abstractmethod
     async def upload_job_outputs(
         self,
         job: Job,
         outputs: list[JobOutput],
     ) -> None:
-        """Fetch presigned URLs and upload a group of job output files.
+        """Upload a group of job output files.
 
         Each output is represented as ``(item, data, arcname_ext, arcname)``.
-        The order of ``outputs`` is preserved for both URL allocation and upload.
-        Keeping this orchestration in the repository makes callers independent of
-        the backing storage protocol, just like ``DeviceRepository.update_device_info``.
 
         Raises:
-            ValueError: If the number of returned URLs does not match ``outputs``.
+            NotImplementedError: If not implemented in subclass.
 
         """
-        urls = await self.get_job_upload_url(
-            job=job,
-            items=[item for item, _, _, _ in outputs],
+        message = (
+            "`upload_job_outputs` must be implemented in subclasses of JobRepository."
         )
-        if len(urls) != len(outputs):
-            msg = (
-                "Job repository returned a different number of upload URLs "
-                "than requested"
-            )
-            raise ValueError(msg)
-
-        for url, (_, data, arcname_ext, arcname) in zip(urls, outputs, strict=True):
-            await self.upload_job_output(
-                job=job,
-                presigned_url=url,
-                data=data,
-                arcname_ext=arcname_ext,
-                arcname=arcname,
-            )
+        raise NotImplementedError(message)
 
     @abstractmethod
     async def download_job_input(
