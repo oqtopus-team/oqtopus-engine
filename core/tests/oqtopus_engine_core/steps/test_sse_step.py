@@ -83,7 +83,7 @@ def runner_settings(tmp_path: Path) -> dict:
         "container_memory": 268_435_456,
         "container_cpu_set": "0",
         "container_network": "sse_net",
-        "container_extra_hosts": ["sse_engine:host-gateway"],
+        "container_extra_hosts": {"sse_engine": "host-gateway"},
     }
 
 
