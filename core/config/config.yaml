@@ -160,13 +160,13 @@ di_container:
         userprogram_name: ${SSE_USER_PROGRAM_NAME, "userprogram.py"}
         result_file_name: ${SSE_RESULT_NAME, "result.json"}
         log_file_name: ${SSE_LOG_NAME, "sse_runtime.log"}
-        container_image: ${SSE_CONTAINER_IMAGE, "sse-v2/python3.13:latest"}
+        container_image: ${SSE_CONTAINER_IMAGE, "sse-runtime:latest"}
         container_disk_quota: ${SSE_CONTAINER_DISK_QUOTA, 67108864}
         container_memory: ${SSE_CONTAINER_MEMORY, 268435456}
         container_cpu_set: ${SSE_CONTAINER_CPU_SET, "0"}
         container_network: ${SSE_CONTAINER_NETWORK, "context_app_net"}
         container_extra_hosts:
-          - sse_engine:${SSE_ENGINE_IP, localhost}
+          sse_engine: ${SSE_ENGINE_IP, "host-gateway"}
         timeout: ${SSE_TIMEOUT, 600}
 
     # exception handler configurations

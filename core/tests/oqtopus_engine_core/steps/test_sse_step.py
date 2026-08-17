@@ -73,12 +73,17 @@ def runner_settings(tmp_path: Path) -> dict:
         "delete_host_temp_dirs": True,
         "container_image": "sse-runtime:latest",
         "sse_engine_address": "localhost:50051",
+        "grpc_options": [
+            ("grpc.max_receive_message_length", 10_000_000),
+            ("grpc.max_send_message_length", 10_000_000)
+        ],
         "timeout": 600,
         "max_file_size": 10_000_000,
         "container_disk_quota": 67_108_864,
         "container_memory": 268_435_456,
         "container_cpu_set": "0",
         "container_network": "sse_net",
+        "container_extra_hosts": {"sse_engine": "host-gateway"},
     }
 
 
@@ -111,7 +116,7 @@ def sample_job() -> Job:
 class TestSseStepInit:
     def test_init_stores_settings(self, runner_settings: dict) -> None:
         step = SseStep(runner_settings=runner_settings)
-        assert step._settings is runner_settings
+        assert step._settings == runner_settings
 
 
 class TestSseStepPreProcess:
@@ -1025,7 +1030,7 @@ class TestPreprocessContainer:
 
         mock_container = MagicMock()
         runner._start_container = MagicMock(return_value=mock_container)
-        runner._exec_in_container = AsyncMock()
+        runner._exec_in_container = AsyncMock()  # init succeeds
         runner._copy_user_program_into_container = AsyncMock(
             side_effect=RuntimeError("copy fail")
         )
