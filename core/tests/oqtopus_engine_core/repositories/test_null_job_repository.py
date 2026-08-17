@@ -1,10 +1,6 @@
 import pytest
 
 from oqtopus_engine_core.framework import Job
-from oqtopus_engine_core.interfaces.oqtopus_cloud import (
-    JobsJobInfoUploadPresignedURL,
-    JobsJobInfoUploadPresignedURLFields,
-)
 from oqtopus_engine_core.repositories.null_job_repository import NullJobRepository
 
 
@@ -34,11 +30,11 @@ async def test_get_jobs_returns_empty_list() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_job_upload_url_returns_placeholder_urls() -> None:
+async def test_get_job_upload_urls_returns_placeholder_urls() -> None:
     repository = NullJobRepository()
     job = _make_job()
 
-    urls = await repository.get_job_upload_url(job, ["transpile_result", "result"])
+    urls = await repository.get_job_upload_urls(job, ["transpile_result", "result"])
 
     assert [url.url for url in urls] == ["null://upload", "null://upload"]
     assert [url.fields.key for url in urls] == [
@@ -57,19 +53,13 @@ async def test_download_job_input_returns_empty_dict() -> None:
 
 
 @pytest.mark.asyncio
-async def test_upload_job_output_does_not_mutate_output_files() -> None:
+async def test_upload_job_outputs_does_not_mutate_output_files() -> None:
     repository = NullJobRepository()
     job = _make_job()
-    presigned_url = JobsJobInfoUploadPresignedURL(
-        url="null://upload",
-        fields=JobsJobInfoUploadPresignedURLFields(key="job-1/result"),
-    )
 
-    await repository.upload_job_output(
+    await repository.upload_job_outputs(
         job=job,
-        presigned_url=presigned_url,
-        data={"ok": True},
-        arcname_ext=".json",
+        outputs=[("result", {"ok": True}, ".json", None)],
     )
 
     assert job.output_files == []

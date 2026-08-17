@@ -169,6 +169,33 @@ async def test_update_job_status_nowait_bypasses_queue_when_false():
 
 
 # ---------------------------------------------------------------------------
+# upload_job_outputs_nowait – preserve_order=True (default)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_upload_job_outputs_nowait_uses_queue_by_default():
+    """Grouped output uploads should route through the per-job queue."""
+    repo = make_repo()
+    job = make_test_job()
+    outputs = [("result", {"ok": True}, ".json", None)]
+
+    enqueued: list[str] = []
+
+    async def fake_enqueue(job_id: str, coroutine: object) -> None:
+        enqueued.append(job_id)
+        _close_coroutine(coroutine)
+
+    repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
+
+    await repo.upload_job_outputs_nowait(job, outputs)
+
+    await asyncio.sleep(0)
+
+    assert enqueued == [job.job_id]
+
+
+# ---------------------------------------------------------------------------
 # update_job_transpiler_info_nowait – preserve_order=True (default)
 # ---------------------------------------------------------------------------
 
