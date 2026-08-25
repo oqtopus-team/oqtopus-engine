@@ -3,9 +3,14 @@ import random
 import numpy as np
 import pytest
 from pydantic.dataclasses import dataclass
-from qiskit import QuantumCircuit, qasm3  # type: ignore[import-untyped]
+from qiskit import (  # type: ignore[import-untyped]
+    ClassicalRegister,
+    QuantumCircuit,
+    qasm3,
+)
 from qiskit.result import QuasiDistribution  # type: ignore[import-untyped]
 
+from oqtopus_engine_core.interfaces.mitigator_interface.v1 import mitigator_pb2
 from oqtopus_engine_mitigator.app import ErrorMitigator, get_measured_qubits
 
 
@@ -42,6 +47,103 @@ def test_get_measured_qubits_multiple_measures():
     actual = get_measured_qubits(program)
     expected = [7, 5, 4, 1, 3]
     assert actual == expected
+
+
+def test_ro_error_mitigation_expectation_values(error_mitigator):
+    device_topology = DeviceTopology(
+        name="sc",
+        qubits=[
+            Qubit(
+                id=0,
+                t1=100e-6,
+                t2=100e-6,
+                gate_error=1e-2,
+                mes_error=MesError(p0m1=0.2, p1m0=0.0),
+            ),
+            Qubit(
+                id=1,
+                t1=100e-6,
+                t2=100e-6,
+                gate_error=1e-2,
+                mes_error=MesError(p0m1=0.0, p1m0=0.0),
+            ),
+            Qubit(
+                id=2,
+                t1=100e-6,
+                t2=100e-6,
+                gate_error=1e-2,
+                mes_error=MesError(p0m1=0.1, p1m0=0.15),
+            ),
+        ],
+    )
+    counts = {"00": 1200, "01": 6800, "10": 300, "11": 1700}
+    circuit = QuantumCircuit(3, 2)
+    circuit.measure([2, 0], [0, 1])
+
+    expectation_values, standard_deviations = (
+        error_mitigator.ro_error_mitigation_expectation_values(
+            device_topology,
+            counts,
+            qasm3.dumps(circuit),
+            ["ZI", "IZ", "ZZ", "II"],
+        )
+    )
+
+    assert expectation_values == pytest.approx([1.0, -1.0, -1.0, 1.0])
+    assert all(value > 0 for value in standard_deviations[:3])
+    assert standard_deviations[3] == 0.0
+
+
+def test_ro_error_mitigation_uses_expectation_register(error_mitigator):
+    device_topology = DeviceTopology(
+        name="sc",
+        qubits=[
+            Qubit(
+                id=index,
+                t1=100e-6,
+                t2=100e-6,
+                gate_error=1e-2,
+                mes_error=MesError(p0m1=0.0, p1m0=0.0),
+            )
+            for index in range(2)
+        ],
+    )
+    circuit = QuantumCircuit(2, 1)
+    circuit.measure(1, 0)
+    circuit.add_register(ClassicalRegister(1, "__c_Z"))
+    circuit.measure(0, circuit.clbits[-1])
+
+    expectation_values, _ = error_mitigator.ro_error_mitigation_expectation_values(
+        device_topology,
+        {"10": 500, "11": 500},
+        qasm3.dumps(circuit),
+        ["Z"],
+    )
+
+    assert expectation_values == pytest.approx([-1.0])
+
+
+def test_req_mitigation_returns_expectation_values(error_mitigator):
+    circuit = QuantumCircuit(1, 1)
+    circuit.measure(0, 0)
+    request = mitigator_pb2.ReqMitigationRequest(
+        device_topology=mitigator_pb2.DeviceTopology(
+            qubits=[
+                mitigator_pb2.Qubit(
+                    mes_error=mitigator_pb2.MesError(p0m1=0.1, p1m0=0.0)
+                )
+            ]
+        ),
+        counts={"0": 900, "1": 100},
+        program=qasm3.dumps(circuit),
+        paulis=["Z"],
+    )
+
+    response = error_mitigator.ReqMitigation(request, None)
+
+    assert list(response.expectation_values) == pytest.approx([1.0])
+    assert list(response.standard_deviations)[0] > 0
+    assert dict(response.counts) == {}
 
 
 def test_ro_error_mitigation(error_mitigator):

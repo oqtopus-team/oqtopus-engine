@@ -266,20 +266,40 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             operators = json.loads(grouped_operators)
             if span.is_recording():
                 span.set_attribute("estimator.num_measurement_groups", len(counts_list))
+                if counts_list:
+                    span.set_attribute(
+                        "estimator.shots",
+                        sum(counts_list[0].counts.values()),
+                    )
             for counts, pauli_list, coeff_list in zip(
                 counts_list, operators[0], operators[1], strict=True
             ):
-                paulis = PauliList(pauli_list)
                 coeffs = np.array(coeff_list)
+                mitigated_exp_values = np.array(
+                    getattr(counts, "expectation_values", [])
+                )
+                mitigated_stds = np.array(getattr(counts, "standard_deviations", []))
+                if mitigated_exp_values.size:
+                    if (
+                        mitigated_exp_values.size != coeffs.size
+                        or mitigated_stds.size != coeffs.size
+                    ):
+                        message = (
+                            "Mitigated expectation values, standard deviations, and "
+                            "operator coefficients must have equal lengths"
+                        )
+                        raise ValueError(message)
+                    exp_value += np.dot(mitigated_exp_values, coeffs)
+                    stds += np.dot(mitigated_stds, np.abs(coeffs))
+                    continue
+
+                paulis = PauliList(pauli_list)
                 exp_values, variances = _pauli_expval_with_variance(
                     Counts(counts.counts), paulis
                 )
                 exp_value += np.dot(exp_values, coeffs)
-                stds += np.dot(variances**0.5, np.abs(coeffs))
-            shots = sum(counts_list[0].counts.values())
-            if span.is_recording():
-                span.set_attribute("estimator.shots", shots)
-            stds /= np.sqrt(shots)
+                shots = sum(counts.counts.values())
+                stds += np.dot(variances**0.5, np.abs(coeffs)) / np.sqrt(shots)
 
             return np.real_if_close([exp_value])[0], stds
 

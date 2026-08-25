@@ -1,8 +1,8 @@
 import json
 import logging
 import time
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol
 
 import grpc  # type: ignore[import-untyped]
 
@@ -10,6 +10,7 @@ from oqtopus_engine_core.framework import (
     GlobalContext,
     Job,
     JobContext,
+    SamplingResult,
     Step,
     StepResult,
 )
@@ -17,8 +18,53 @@ from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
     mitigator_pb2,
     mitigator_pb2_grpc,
 )
+from oqtopus_engine_core.steps.estimator_step import (
+    ESTIMATION_EXPECTATION_VALUES_KEY,
+    ESTIMATION_PAULIS_KEY,
+    ESTIMATION_STANDARD_DEVIATIONS_KEY,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class _MitigationResponse(Protocol):
+    @property
+    def counts(self) -> Mapping[str, int]: ...
+
+    @property
+    def expectation_values(self) -> Sequence[float]: ...
+
+    @property
+    def standard_deviations(self) -> Sequence[float]: ...
+
+
+def _apply_mitigation_response(
+    sampling: SamplingResult,
+    jctx: JobContext,
+    paulis: Sequence[str],
+    response: _MitigationResponse,
+    original_counts: Mapping[str, object],
+) -> None:
+    if paulis and response.expectation_values:
+        jctx[ESTIMATION_EXPECTATION_VALUES_KEY] = list(response.expectation_values)
+        jctx[ESTIMATION_STANDARD_DEVIATIONS_KEY] = list(response.standard_deviations)
+        logger.debug(
+            "ro_error_mitigated expectation_values is %s, standard_deviations is %s",
+            jctx[ESTIMATION_EXPECTATION_VALUES_KEY],
+            jctx[ESTIMATION_STANDARD_DEVIATIONS_KEY],
+        )
+        return
+
+    mitigated_counts = dict(response.counts)
+    if paulis and not mitigated_counts:
+        message = "mitigator response contains neither expectation values nor counts"
+        raise RuntimeError(message)
+    sampling.counts = mitigated_counts
+    logger.debug(
+        "ro_error_mitigated_counts is %s, original_counts is %s",
+        mitigated_counts,
+        original_counts,
+    )
 
 
 class ReadoutErrorMitigationStep(Step):
@@ -87,7 +133,7 @@ class ReadoutErrorMitigationStep(Step):
     async def post_process(
         self,
         gctx: GlobalContext,
-        jctx: JobContext,  # noqa: ARG002
+        jctx: JobContext,
         job: Job,
     ) -> StepResult:
         """Post-process the job by sending a request to mitigator service via gRPC.
@@ -169,11 +215,13 @@ class ReadoutErrorMitigationStep(Step):
                 )
                 raise ValueError(message)
             orig_counts = job.result.sampling.counts
+            paulis: list[str] = jctx.get(ESTIMATION_PAULIS_KEY, [])
 
             request = mitigator_pb2.ReqMitigationRequest(  # type: ignore[attr-defined]
                 device_topology=device_topology,
                 counts=orig_counts,
                 program=job.program[0],  # type: ignore[index]
+                paulis=paulis,
             )
             logger.info(
                 "ReqMitigation request",
@@ -197,12 +245,12 @@ class ReadoutErrorMitigationStep(Step):
                     "response": response,
                 },
             )
-            mitigated_counts = dict(response.counts)
-            job.result.sampling.counts = mitigated_counts
-            logger.debug(
-                "ro_error_mitigated_counts is %s, original_counts is %s",
-                mitigated_counts,
-                orig_counts,
+            _apply_mitigation_response(
+                sampling=job.result.sampling,
+                jctx=jctx,
+                paulis=paulis,
+                response=response,
+                original_counts=orig_counts,
             )
 
             return StepResult()

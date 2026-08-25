@@ -4,6 +4,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from oqtopus_engine_core.steps.estimator_step import (
+    ESTIMATION_EXPECTATION_VALUES_KEY,
+    ESTIMATION_PAULIS_KEY,
+    ESTIMATION_STANDARD_DEVIATIONS_KEY,
+)
 from oqtopus_engine_core.steps.ro_error_mitigation_step import ReadoutErrorMitigationStep
 
 
@@ -86,6 +91,52 @@ async def test_post_process_skips_when_mitigation_is_unset(
 
     mitigation_step._stub.ReqMitigation.assert_not_awaited()
     assert job.result.sampling.counts == original_counts
+
+
+@pytest.mark.asyncio
+async def test_post_process_estimation_child_updates_expectation_values(
+    setup_sampling_job,
+    mitigation_step: ReadoutErrorMitigationStep,
+) -> None:
+    gctx, _, job = setup_sampling_job
+    jctx = {ESTIMATION_PAULIS_KEY: ["XX", "II"]}
+    original_counts = dict(job.result.sampling.counts)
+    mitigation_step._stub.ReqMitigation.return_value = SimpleNamespace(
+        counts={},
+        expectation_values=[0.8, 1.0],
+        standard_deviations=[0.03, 0.0],
+    )
+
+    await mitigation_step.post_process(gctx, jctx, job)
+
+    request = mitigation_step._stub.ReqMitigation.call_args.args[0]
+    assert list(request.paulis) == ["XX", "II"]
+    assert job.result.sampling.counts == original_counts
+    assert jctx[ESTIMATION_EXPECTATION_VALUES_KEY] == [0.8, 1.0]
+    assert jctx[ESTIMATION_STANDARD_DEVIATIONS_KEY] == [0.03, 0.0]
+
+
+@pytest.mark.asyncio
+async def test_post_process_estimation_child_accepts_legacy_mitigated_counts(
+    setup_sampling_job,
+    mitigation_step: ReadoutErrorMitigationStep,
+) -> None:
+    gctx, _, job = setup_sampling_job
+    jctx = {ESTIMATION_PAULIS_KEY: ["XX"]}
+    mitigation_step._stub.ReqMitigation.return_value = SimpleNamespace(
+        counts={"00": 480, "01": 320, "10": 140, "11": 60},
+        expectation_values=[],
+        standard_deviations=[],
+    )
+
+    await mitigation_step.post_process(gctx, jctx, job)
+
+    assert job.result.sampling.counts == {
+        "00": 480,
+        "01": 320,
+        "10": 140,
+        "11": 60,
+    }
 
 
 @pytest.mark.asyncio

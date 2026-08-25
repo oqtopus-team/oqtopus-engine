@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\nEoqtopus_engine_core/interfaces/mitigator_interface/v1/mitigator.proto\x12\x16mitigator_interface.v1\"2\n\x08MesError\x12\x12\n\x04p0m1\x18\x01 \x01(\x02R\x04p0m1\x12\x12\n\x04p1m0\x18\x02 \x01(\x02R\x04p1m0\"\x95\x01\n\x05Qubit\x12\x0e\n\x02id\x18\x01 \x01(\x05R\x02id\x12\x0e\n\x02t1\x18\x02 \x01(\x02R\x02t1\x12\x0e\n\x02t2\x18\x03 \x01(\x02R\x02t2\x12\x1d\n\ngate_error\x18\x04 \x01(\x02R\tgateError\x12=\n\tmes_error\x18\x05 \x01(\x0b\x32 .mitigator_interface.v1.MesErrorR\x08mesError\"[\n\x0e\x44\x65viceTopology\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12\x35\n\x06qubits\x18\x02 \x03(\x0b\x32\x1d.mitigator_interface.v1.QubitR\x06qubits\"\x8e\x02\n\x14ReqMitigationRequest\x12O\n\x0f\x64\x65vice_topology\x18\x01 \x01(\x0b\x32&.mitigator_interface.v1.DeviceTopologyR\x0e\x64\x65viceTopology\x12P\n\x06\x63ounts\x18\x02 \x03(\x0b\x32\x38.mitigator_interface.v1.ReqMitigationRequest.CountsEntryR\x06\x63ounts\x12\x18\n\x07program\x18\x03 \x01(\tR\x07program\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x05R\x05value:\x02\x38\x01\"\xa5\x01\n\x15ReqMitigationResponse\x12Q\n\x06\x63ounts\x18\x01 \x03(\x0b\x32\x39.mitigator_interface.v1.ReqMitigationResponse.CountsEntryR\x06\x63ounts\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x05R\x05value:\x02\x38\x01\x32\x80\x01\n\x10MitigatorService\x12l\n\rReqMitigation\x12,.mitigator_interface.v1.ReqMitigationRequest\x1a-.mitigator_interface.v1.ReqMitigationResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\nEoqtopus_engine_core/interfaces/mitigator_interface/v1/mitigator.proto\x12\x16mitigator_interface.v1\"2\n\x08MesError\x12\x12\n\x04p0m1\x18\x01 \x01(\x02R\x04p0m1\x12\x12\n\x04p1m0\x18\x02 \x01(\x02R\x04p1m0\"\x95\x01\n\x05Qubit\x12\x0e\n\x02id\x18\x01 \x01(\x05R\x02id\x12\x0e\n\x02t1\x18\x02 \x01(\x02R\x02t1\x12\x0e\n\x02t2\x18\x03 \x01(\x02R\x02t2\x12\x1d\n\ngate_error\x18\x04 \x01(\x02R\tgateError\x12=\n\tmes_error\x18\x05 \x01(\x0b\x32 .mitigator_interface.v1.MesErrorR\x08mesError\"[\n\x0e\x44\x65viceTopology\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12\x35\n\x06qubits\x18\x02 \x03(\x0b\x32\x1d.mitigator_interface.v1.QubitR\x06qubits\"\xa6\x02\n\x14ReqMitigationRequest\x12O\n\x0f\x64\x65vice_topology\x18\x01 \x01(\x0b\x32&.mitigator_interface.v1.DeviceTopologyR\x0e\x64\x65viceTopology\x12P\n\x06\x63ounts\x18\x02 \x03(\x0b\x32\x38.mitigator_interface.v1.ReqMitigationRequest.CountsEntryR\x06\x63ounts\x12\x18\n\x07program\x18\x03 \x01(\tR\x07program\x12\x16\n\x06paulis\x18\x04 \x03(\tR\x06paulis\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x05R\x05value:\x02\x38\x01\"\x85\x02\n\x15ReqMitigationResponse\x12Q\n\x06\x63ounts\x18\x01 \x03(\x0b\x32\x39.mitigator_interface.v1.ReqMitigationResponse.CountsEntryR\x06\x63ounts\x12-\n\x12\x65xpectation_values\x18\x02 \x03(\x01R\x11\x65xpectationValues\x12/\n\x13standard_deviations\x18\x03 \x03(\x01R\x12standardDeviations\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\x05R\x05value:\x02\x38\x01\x32\x80\x01\n\x10MitigatorService\x12l\n\rReqMitigation\x12,.mitigator_interface.v1.ReqMitigationRequest\x1a-.mitigator_interface.v1.ReqMitigationResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -42,13 +42,13 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_DEVICETOPOLOGY']._serialized_start=301
   _globals['_DEVICETOPOLOGY']._serialized_end=392
   _globals['_REQMITIGATIONREQUEST']._serialized_start=395
-  _globals['_REQMITIGATIONREQUEST']._serialized_end=665
-  _globals['_REQMITIGATIONREQUEST_COUNTSENTRY']._serialized_start=608
-  _globals['_REQMITIGATIONREQUEST_COUNTSENTRY']._serialized_end=665
-  _globals['_REQMITIGATIONRESPONSE']._serialized_start=668
-  _globals['_REQMITIGATIONRESPONSE']._serialized_end=833
-  _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._serialized_start=608
-  _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._serialized_end=665
-  _globals['_MITIGATORSERVICE']._serialized_start=836
-  _globals['_MITIGATORSERVICE']._serialized_end=964
+  _globals['_REQMITIGATIONREQUEST']._serialized_end=689
+  _globals['_REQMITIGATIONREQUEST_COUNTSENTRY']._serialized_start=632
+  _globals['_REQMITIGATIONREQUEST_COUNTSENTRY']._serialized_end=689
+  _globals['_REQMITIGATIONRESPONSE']._serialized_start=692
+  _globals['_REQMITIGATIONRESPONSE']._serialized_end=953
+  _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._serialized_start=632
+  _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._serialized_end=689
+  _globals['_MITIGATORSERVICE']._serialized_start=956
+  _globals['_MITIGATORSERVICE']._serialized_end=1084
 # @@protoc_insertion_point(module_scope)

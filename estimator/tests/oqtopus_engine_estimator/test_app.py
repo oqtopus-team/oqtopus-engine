@@ -116,6 +116,25 @@ def test_postprocess(estimator):
     assert cmath.isclose(actual_stds, expect_stds, abs_tol=1e-2)
 
 
+def test_postprocess_uses_mitigated_expectation_values(estimator):
+    counts1 = counts_test()
+    counts1.counts = {"00": 500, "11": 500}
+    counts1.expectation_values = [0.8, 1.0]
+    counts1.standard_deviations = [0.03, 0.0]
+    counts2 = counts_test()
+    counts2.counts = {"00": 500, "11": 500}
+    counts2.expectation_values = [0.5]
+    counts2.standard_deviations = [0.04]
+    grouped_operators = '[[["XX", "II"], ["ZY"]], [[1.5, -0.5], [1.2]]]'
+
+    actual_expval, actual_stds = estimator._postprocess(
+        [counts1, counts2], grouped_operators
+    )
+
+    assert actual_expval == pytest.approx(1.3)
+    assert actual_stds == pytest.approx(0.093)
+
+
 def test_simple_circuits_with_random_op(estimator):
     num_qubits = 2
     basis_gates = ["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"]

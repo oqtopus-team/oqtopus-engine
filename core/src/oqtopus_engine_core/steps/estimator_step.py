@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 ESTIMATION_JOIN_INFO_KEY = "estimation_join_info"
 ESTIMATION_CHILD_INDEX_KEY = "estimation_child_index"
+ESTIMATION_PAULIS_KEY = "estimation_paulis"
+ESTIMATION_EXPECTATION_VALUES_KEY = "estimation_expectation_values"
+ESTIMATION_STANDARD_DEVIATIONS_KEY = "estimation_standard_deviations"
 
 
 class EstimationJoinInfo:
@@ -185,7 +188,8 @@ class EstimatorStep(Step):
         )
 
         join_info = EstimationJoinInfo()
-        join_info.grouped_operators = json.loads(response.grouped_operators)
+        grouped_operators: list[list] = json.loads(response.grouped_operators)
+        join_info.grouped_operators = grouped_operators
         join_info.started_at = time.perf_counter()
 
         child_jobs: list[Job] = []
@@ -205,6 +209,7 @@ class EstimatorStep(Step):
                 JobContext(
                     initial={
                         ESTIMATION_CHILD_INDEX_KEY: index,
+                        ESTIMATION_PAULIS_KEY: grouped_operators[0][index],
                     }
                 )
             )
@@ -265,19 +270,37 @@ class EstimatorStep(Step):
             child.job_id for child in parent_job.children
         ]
         child_by_id = {child.job_id: child for child in parent_job.children}
+        child_context_by_index = {
+            child_jctx[ESTIMATION_CHILD_INDEX_KEY]: child_jctx
+            for child_jctx in parent_jctx.children
+        }
 
         counts_pb_list = []
-        for child_id in child_order:
+        for index, child_id in enumerate(child_order):
             child = child_by_id.get(child_id)
             if child is None:
                 message = f"child job not found during join: {child_id}"
                 raise RuntimeError(message)
             sampling = child.result.sampling if child.result else None
-            counts = sampling.counts if sampling else None
-            if counts is None:
+            if sampling is None or sampling.counts is None:
                 message = f"child job counts are missing during join: {child_id}"
                 raise RuntimeError(message)
-            counts_pb_list.append(estimator_pb2.Counts(counts=counts))  # type: ignore[attr-defined]
+            counts = sampling.counts
+            child_jctx = child_context_by_index.get(index)
+            if child_jctx is None:
+                message = f"child context not found during join: {child_id}"
+                raise RuntimeError(message)
+            counts_pb_list.append(
+                estimator_pb2.Counts(  # type: ignore[attr-defined]
+                    counts=counts,
+                    expectation_values=child_jctx.get(
+                        ESTIMATION_EXPECTATION_VALUES_KEY, []
+                    ),
+                    standard_deviations=child_jctx.get(
+                        ESTIMATION_STANDARD_DEVIATIONS_KEY, []
+                    ),
+                )
+            )
 
         request = estimator_pb2.ReqEstimationPostProcessRequest(  # type: ignore[attr-defined]
             counts=counts_pb_list,

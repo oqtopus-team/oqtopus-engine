@@ -22,7 +22,10 @@ from oqtopus_engine_core.framework.model import TranspileResult
 from oqtopus_engine_core.framework.pipeline import StepPhase
 from oqtopus_engine_core.steps.estimator_step import (
     ESTIMATION_CHILD_INDEX_KEY,
+    ESTIMATION_EXPECTATION_VALUES_KEY,
     ESTIMATION_JOIN_INFO_KEY,
+    ESTIMATION_PAULIS_KEY,
+    ESTIMATION_STANDARD_DEVIATIONS_KEY,
     EstimationJoinInfo,
     EstimatorStep,
 )
@@ -63,7 +66,7 @@ async def test_pre_process_calls_grpc_and_creates_children(
 
     estimator_step_instance._stub.ReqEstimationPreProcess.return_value = SimpleNamespace(
         qasm_codes=["preprocessed-qasm-0", "preprocessed-qasm-1"],
-        grouped_operators=json.dumps([[["X"]], [[1.0]]]),
+        grouped_operators=json.dumps([[["X"], ["Z"]], [[1.0], [2.0]]]),
     )
 
     result = await estimator_step_instance.pre_process(gctx, jctx, job)
@@ -77,7 +80,7 @@ async def test_pre_process_calls_grpc_and_creates_children(
 
     join_info = jctx[ESTIMATION_JOIN_INFO_KEY]
     assert isinstance(join_info, EstimationJoinInfo)
-    assert join_info.grouped_operators == [[["X"]], [[1.0]]]
+    assert join_info.grouped_operators == [[["X"], ["Z"]], [[1.0], [2.0]]]
     assert result.directive == PipelineDirective.SPLIT_FOR_JOIN
     assert len(result.child_jobs) == 2
     assert len(result.child_contexts) == 2
@@ -86,6 +89,8 @@ async def test_pre_process_calls_grpc_and_creates_children(
     assert "has_actual_parent" not in result.child_contexts[0]
     assert result.child_contexts[0][ESTIMATION_CHILD_INDEX_KEY] == 0
     assert result.child_contexts[1][ESTIMATION_CHILD_INDEX_KEY] == 1
+    assert result.child_contexts[0][ESTIMATION_PAULIS_KEY] == ["X"]
+    assert result.child_contexts[1][ESTIMATION_PAULIS_KEY] == ["Z"]
 
 
 @pytest.mark.asyncio
@@ -141,7 +146,11 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
             shots=100,
             input="job-4-1/input.zip",
             program=["qasm-1"],
-            result=JobResult(sampling=SamplingResult(counts={"11": 20, "00": 10})),
+            result=JobResult(
+                sampling=SamplingResult(
+                    counts={"11": 20, "00": 10},
+                )
+            ),
             transpiler_info={},
             simulator_info={},
             mitigation_info={},
@@ -156,7 +165,11 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
             shots=100,
             input="job-4-0/input.zip",
             program=["qasm-0"],
-            result=JobResult(sampling=SamplingResult(counts={"01": 5, "10": 7})),
+            result=JobResult(
+                sampling=SamplingResult(
+                    counts={"01": 5, "10": 7},
+                )
+            ),
             transpiler_info={},
             simulator_info={},
             mitigation_info={},
@@ -167,13 +180,31 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     ]
 
     join_info = EstimationJoinInfo()
-    join_info.grouped_operators = [[["ZZ"]], [[1.0]]]
+    join_info.grouped_operators = [[["XX"], ["ZZ"]], [[2.0], [1.0]]]
     join_info.child_order = [
         "job-4-0",
         "job-4-1",
     ]
     join_info.started_at = time.perf_counter() - 0.25
-    parent_jctx = JobContext(initial={ESTIMATION_JOIN_INFO_KEY: join_info})
+    parent_jctx = JobContext(
+        initial={ESTIMATION_JOIN_INFO_KEY: join_info},
+        children=[
+            JobContext(
+                initial={
+                    ESTIMATION_CHILD_INDEX_KEY: 0,
+                    ESTIMATION_EXPECTATION_VALUES_KEY: [0.4],
+                    ESTIMATION_STANDARD_DEVIATIONS_KEY: [0.06],
+                }
+            ),
+            JobContext(
+                initial={
+                    ESTIMATION_CHILD_INDEX_KEY: 1,
+                    ESTIMATION_EXPECTATION_VALUES_KEY: [0.25],
+                    ESTIMATION_STANDARD_DEVIATIONS_KEY: [0.05],
+                }
+            ),
+        ],
+    )
 
     estimator_step_instance._stub.ReqEstimationPostProcess.return_value = SimpleNamespace(
         expval=0.25,
@@ -191,7 +222,14 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     assert len(request.counts) == 2
     assert dict(request.counts[0].counts) == {"01": 5, "10": 7}
     assert dict(request.counts[1].counts) == {"11": 20, "00": 10}
-    assert json.loads(request.grouped_operators) == [[["ZZ"]], [[1.0]]]
+    assert list(request.counts[0].expectation_values) == [0.4]
+    assert list(request.counts[0].standard_deviations) == [0.06]
+    assert list(request.counts[1].expectation_values) == [0.25]
+    assert list(request.counts[1].standard_deviations) == [0.05]
+    assert json.loads(request.grouped_operators) == [
+        [["XX"], ["ZZ"]],
+        [[2.0], [1.0]],
+    ]
     assert parent_job.result.estimation.exp_value == 0.25
     assert parent_job.result.estimation.stds == 0.05
     assert parent_job.execution_time == 0.7
@@ -219,7 +257,7 @@ async def test_same_step_split_and_join_flow() -> None:
     estimator_step._stub.ReqEstimationPreProcess = AsyncMock(
         return_value=SimpleNamespace(
             qasm_codes=["qasm-0", "qasm-1"],
-            grouped_operators=json.dumps([[["X"]], [[1.0]]]),
+            grouped_operators=json.dumps([[["X"], ["Z"]], [[1.0], [1.0]]]),
         )
     )
     estimator_step._stub.ReqEstimationPostProcess = AsyncMock(
