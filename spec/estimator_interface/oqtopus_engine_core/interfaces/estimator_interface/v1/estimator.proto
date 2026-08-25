@@ -32,8 +32,11 @@ message ReqEstimationPreProcessResponse {
 
 message Counts {
   map<string, uint32> counts = 1;
-  repeated double expectation_values = 2;
-  repeated double standard_deviations = 3;
+}
+
+message ExpectationValues {
+  repeated double values = 1;
+  repeated double standard_deviations = 2;
 }
 
 message ReqEstimationPostProcessRequest {
@@ -42,6 +45,9 @@ message ReqEstimationPostProcessRequest {
 
   string grouped_operators = 2;
   // e.g. '[[["XX", "ZY"], ["YX"]], [[1.5, -0.5], [1.2]]]' means operator 1.5XX and -0.5ZY coresspond to circuit1, operator 1.2YX coressponds to circuit2
+
+  repeated ExpectationValues expectation_values = 3;
+  // Each entry corresponds to the Counts entry at the same index. Empty when post-processing raw counts.
 }
 
 message ReqEstimationPostProcessResponse {

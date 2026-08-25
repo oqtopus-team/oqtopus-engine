@@ -153,13 +153,18 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             try:
                 logger.info("start estimation postprocess")
                 logger.debug(
-                    "counts:%s, grouped_operators:%s",
+                    "counts:%s, grouped_operators:%s, expectation_values:%s",
                     request.counts,
                     request.grouped_operators,
+                    request.expectation_values,
                 )
                 counts_list = request.counts
                 grouped_operators = request.grouped_operators
-                expval, stds = self._postprocess(counts_list, grouped_operators)
+                expval, stds = self._postprocess(
+                    counts_list,
+                    grouped_operators,
+                    request.expectation_values,
+                )
                 logger.debug(
                     "expval:%f, stds:%f",
                     expval,
@@ -258,6 +263,7 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
         self,
         counts_list: list,
         grouped_operators: str,
+        expectation_values_list: list | None = None,
     ) -> tuple[np.float64 | np.complex64, np.float64 | np.complex64]:
         with tracer.start_as_current_span("estimator._postprocess.compute") as span:
             exp_value: np.float64 | np.complex64 = np.float64(0.0)
@@ -271,14 +277,31 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                         "estimator.shots",
                         sum(counts_list[0].counts.values()),
                     )
-            for counts, pauli_list, coeff_list in zip(
-                counts_list, operators[0], operators[1], strict=True
+
+            if expectation_values_list:
+                if len(expectation_values_list) != len(counts_list):
+                    message = (
+                        "Counts and expectation value groups must have equal lengths"
+                    )
+                    raise ValueError(message)
+                expectation_value_groups = expectation_values_list
+            else:
+                expectation_value_groups = [None] * len(counts_list)
+
+            for counts, expectation_values, pauli_list, coeff_list in zip(
+                counts_list,
+                expectation_value_groups,
+                operators[0],
+                operators[1],
+                strict=True,
             ):
                 coeffs = np.array(coeff_list)
                 mitigated_exp_values = np.array(
-                    getattr(counts, "expectation_values", [])
+                    getattr(expectation_values, "values", [])
                 )
-                mitigated_stds = np.array(getattr(counts, "standard_deviations", []))
+                mitigated_stds = np.array(
+                    getattr(expectation_values, "standard_deviations", [])
+                )
                 if mitigated_exp_values.size:
                     if (
                         mitigated_exp_values.size != coeffs.size

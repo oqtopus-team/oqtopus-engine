@@ -222,10 +222,10 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     assert len(request.counts) == 2
     assert dict(request.counts[0].counts) == {"01": 5, "10": 7}
     assert dict(request.counts[1].counts) == {"11": 20, "00": 10}
-    assert list(request.counts[0].expectation_values) == [0.4]
-    assert list(request.counts[0].standard_deviations) == [0.06]
-    assert list(request.counts[1].expectation_values) == [0.25]
-    assert list(request.counts[1].standard_deviations) == [0.05]
+    assert list(request.expectation_values[0].values) == [0.4]
+    assert list(request.expectation_values[0].standard_deviations) == [0.06]
+    assert list(request.expectation_values[1].values) == [0.25]
+    assert list(request.expectation_values[1].standard_deviations) == [0.05]
     assert json.loads(request.grouped_operators) == [
         [["XX"], ["ZZ"]],
         [[2.0], [1.0]],

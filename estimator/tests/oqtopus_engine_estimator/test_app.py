@@ -92,6 +92,11 @@ class counts_test:
     counts: counts
 
 
+class ExpectationValuesTest:
+    values: list[float]
+    standard_deviations: list[float]
+
+
 def test_postprocess(estimator):
     # counts_list= [
     #    {"00": 425, "01": 75, "10": 85, "11": 415},
@@ -119,16 +124,20 @@ def test_postprocess(estimator):
 def test_postprocess_uses_mitigated_expectation_values(estimator):
     counts1 = counts_test()
     counts1.counts = {"00": 500, "11": 500}
-    counts1.expectation_values = [0.8, 1.0]
-    counts1.standard_deviations = [0.03, 0.0]
     counts2 = counts_test()
     counts2.counts = {"00": 500, "11": 500}
-    counts2.expectation_values = [0.5]
-    counts2.standard_deviations = [0.04]
+    expectation_values1 = ExpectationValuesTest()
+    expectation_values1.values = [0.8, 1.0]
+    expectation_values1.standard_deviations = [0.03, 0.0]
+    expectation_values2 = ExpectationValuesTest()
+    expectation_values2.values = [0.5]
+    expectation_values2.standard_deviations = [0.04]
     grouped_operators = '[[["XX", "II"], ["ZY"]], [[1.5, -0.5], [1.2]]]'
 
     actual_expval, actual_stds = estimator._postprocess(
-        [counts1, counts2], grouped_operators
+        [counts1, counts2],
+        grouped_operators,
+        [expectation_values1, expectation_values2],
     )
 
     assert actual_expval == pytest.approx(1.3)

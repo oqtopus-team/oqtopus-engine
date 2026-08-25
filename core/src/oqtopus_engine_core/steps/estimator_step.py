@@ -276,6 +276,7 @@ class EstimatorStep(Step):
         }
 
         counts_pb_list = []
+        expectation_values_pb_list = []
         for index, child_id in enumerate(child_order):
             child = child_by_id.get(child_id)
             if child is None:
@@ -293,9 +294,11 @@ class EstimatorStep(Step):
             counts_pb_list.append(
                 estimator_pb2.Counts(  # type: ignore[attr-defined]
                     counts=counts,
-                    expectation_values=child_jctx.get(
-                        ESTIMATION_EXPECTATION_VALUES_KEY, []
-                    ),
+                )
+            )
+            expectation_values_pb_list.append(
+                estimator_pb2.ExpectationValues(  # type: ignore[attr-defined]
+                    values=child_jctx.get(ESTIMATION_EXPECTATION_VALUES_KEY, []),
                     standard_deviations=child_jctx.get(
                         ESTIMATION_STANDARD_DEVIATIONS_KEY, []
                     ),
@@ -305,6 +308,7 @@ class EstimatorStep(Step):
         request = estimator_pb2.ReqEstimationPostProcessRequest(  # type: ignore[attr-defined]
             counts=counts_pb_list,
             grouped_operators=json.dumps(join_info.grouped_operators),
+            expectation_values=expectation_values_pb_list,
         )
         logger.info(
             "ReqEstimationPostProcess request",
