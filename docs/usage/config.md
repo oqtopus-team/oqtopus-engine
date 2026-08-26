@@ -6,21 +6,48 @@ This page describes the configuration files used to customize the behavior of OQ
 
 This is the configuration file for the core engine (`oqtopus-engine-core`).
 
+For the syntax and semantics of each pipeline's `if` field below, see
+[Pipeline Selection Conditions](./pipeline_conditions.md).
+
 ```yaml
-# Pipeline Executor Configuration (get instances from DI container)
-pipeline_executor:
-  pipeline:
-    - job_repository_update_step
-    - multi_manual_step
-    - tranqu_step
-    - estimator_step
-    - ro_error_mitigation_step
-    - mp_auto_combining_step
-    - buffer
-    - sse_step
-    - device_gateway_step
-  job_buffer: buffer
+# Pipeline Manager Configuration (get instances from DI container)
+pipeline_manager:
+  job_buffer: ${JOB_BUFFER, buffer}
   exception_handler: pipeline_exception_handler
+  pipelines:
+    - name: sampling
+      if: job.job_type == "sampling" || job.job_type == "multi_manual"
+      steps:
+        - job_repository_update_step
+        - multi_manual_step
+        - tranqu_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+    - name: estimation
+      if: job.job_type == "estimation"
+      steps:
+        - job_repository_update_step
+        - tranqu_step
+        - estimator_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+    - name: sse
+      if: job.job_type == "sse"
+      steps:
+        - job_repository_update_step
+        - ${JOB_BUFFER, buffer}
+        - sse_step
+
+# gRPC Options
+grpc_options: &grpc_options
+  - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
+  - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
 
 # Dependency Injection Container Configuration
 di_container:
@@ -40,7 +67,8 @@ di_container:
 
     device_fetcher:
       _target_: oqtopus_engine_core.fetchers.DeviceGatewayFetcher
-      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
+      grpc_options: *grpc_options
       initial_interval_seconds: ${DEVICE_FETCHER_INITIAL_INTERVAL_SECONDS, 10}
       initial_backoff_max_seconds: ${DEVICE_FETCHER_INITIAL_BACKOFF_MAX_SECONDS, 60}
       loop_interval_seconds: ${DEVICE_FETCHER_LOOP_INTERVAL_SECONDS, 60}
@@ -74,9 +102,10 @@ di_container:
     buffer:
       _target_: oqtopus_engine_core.buffers.QueueBuffer
 
-    _buffer:
+    buffer_mp_auto_combining:
       _target_: oqtopus_engine_core.mp.auto_combining.MpAutoCombiningBuffer
-      combiner_address: ${COMBINER_ADDRESS, "localhost:52013"}
+      combiner_address: ${COMBINER_ADDRESS, "localhost:51013"}
+      grpc_options: *grpc_options
       monitor_interval_seconds: ${MP_AUTO_BUFFER_MONITOR_INTERVAL_SECONDS, 1}
       max_batch_size: ${MP_AUTO_BUFFER_MAX_BATCH_SIZE, 30}
       max_qsize_to_proceed: ${MP_AUTO_BUFFER_MAX_QSIZE_TO_PROCEED, 5}
@@ -90,11 +119,13 @@ di_container:
 
     multi_manual_step:
       _target_: oqtopus_engine_core.steps.MultiManualStep
-      combiner_address: ${COMBINER_ADDRESS, "localhost:52013"}
+      combiner_address: ${COMBINER_ADDRESS, "localhost:51013"}
+      grpc_options: *grpc_options
 
     tranqu_step:
       _target_: oqtopus_engine_core.steps.TranquStep
-      tranqu_address: ${TRANQU_ADDRESS, "localhost:52020"}
+      tranqu_address: ${TRANQU_ADDRESS, "localhost:51020"}
+      grpc_options: *grpc_options
       default_transpiler_info:
         transpiler_lib: qiskit
         transpiler_options:
@@ -102,7 +133,8 @@ di_container:
 
     estimator_step:
       _target_: oqtopus_engine_core.steps.EstimatorStep
-      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:52012"}
+      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:51012"}
+      grpc_options: *grpc_options
       basis_gates:
         - "cx"
         - "id"
@@ -115,19 +147,22 @@ di_container:
 
     ro_error_mitigation_step:
       _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
-      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:51011"}
+      grpc_options: *grpc_options
 
     mp_auto_combining_step:
       _target_: oqtopus_engine_core.mp.auto_combining.MpAutoCombiningStep
 
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep
-      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
+      grpc_options: *grpc_options
 
     sse_step:
       _target_: oqtopus_engine_core.steps.sse_step.SseStep
       runner_settings:
-        sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:52014"}
+        sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:51014"}
+        grpc_options: *grpc_options
         host_work_path: ${SSE_HOST_WORK_PATH, "/sse_work"}
         delete_host_temp_dirs: ${SSE_DELETE_HOST_TEMP_DIRS, true}
         container_work_path: ${SSE_CONTAINER_PATH, "/sse"}
@@ -142,31 +177,53 @@ di_container:
         container_extra_hosts:
           - sse_engine:${SSE_ENGINE_IP, localhost}
         timeout: ${SSE_TIMEOUT, 600}
-        max_file_size: ${SSE_MAX_FILE_SIZE, 10485760}
 
     # exception handler configurations
     pipeline_exception_handler:
       _target_: oqtopus_engine_core.handlers.FailJobRepositoryHandler
 ```
 
+A few notes on the pipelines above:
+
+- **`sampling`**: `sampling` and `multi_manual` jobs share the exact same `steps` list (`multi_manual_step` no-ops when `job.job_type != "multi_manual"`), and `MpAutoCombiningBuffer` (used when `${JOB_BUFFER, buffer}` resolves to `buffer_mp_auto_combining` below) can combine both types together. Keeping them as a single pipeline avoids the two step lists silently drifting apart. `MpAutoCombiningBuffer` never combines jobs across different pipelines, so this pool never mixes with, for example, the `estimation` pipeline's sub-circuits, even though their `job.job_type` is also `"sampling"`.
+- **`sse`**: SSE jobs run entirely inside the SSE runner (`sse_step`) — they are not transpiled, combined, or sent to the device gateway — so this pipeline omits `tranqu_step`, `mp_auto_combining_step`, and `device_gateway_step` entirely, rather than relying on those steps' own `job.job_type` checks to no-op.
+
 ## sse_engine_config.yaml
 
-This is the configuration file for the SSE engine.
+This is the configuration file for the SSE engine. Its `sampling` and `estimation` pipelines are the same as in `config.yaml` above. It has no `sse` pipeline, because jobs arriving here via `SseEngineGateway` are the sampling/multi_manual/estimation circuit calls made by an already-running SSE program — never a `job.job_type == "sse"` job itself.
 
 ```yaml
-# Pipeline Executor Configuration (get instances from DI container)
-pipeline_executor:
-  pipeline:
-    - job_repository_update_step
-    - multi_manual_step
-    - tranqu_step
-    - estimator_step
-    - ro_error_mitigation_step
-    - buffer
-    - sse_step
-    - device_gateway_step
-  job_buffer: buffer
+# Pipeline Manager Configuration (get instances from DI container)
+pipeline_manager:
+  job_buffer: ${JOB_BUFFER, buffer}
   exception_handler: pipeline_exception_handler
+  pipelines:
+    - name: sampling
+      if: job.job_type == "sampling" || job.job_type == "multi_manual"
+      steps:
+        - job_repository_update_step
+        - multi_manual_step
+        - tranqu_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+    - name: estimation
+      if: job.job_type == "estimation"
+      steps:
+        - job_repository_update_step
+        - tranqu_step
+        - estimator_step
+        - ro_error_mitigation_step
+        - mp_auto_combining_step
+        - ${JOB_BUFFER, buffer}
+        - device_gateway_step
+
+# gRPC Options
+grpc_options: &grpc_options
+  - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
+  - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
 
 # Dependency Injection Container Configuration
 di_container:
@@ -180,11 +237,13 @@ di_container:
 
     job_fetcher:
       _target_: oqtopus_engine_core.fetchers.SseEngineGateway
-      sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:52014"}
+      sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:51014"}
+      grpc_options: *grpc_options
 
     device_fetcher:
       _target_: oqtopus_engine_core.fetchers.DeviceGatewayFetcher
-      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
+      grpc_options: *grpc_options
       initial_interval_seconds: ${DEVICE_FETCHER_INITIAL_INTERVAL_SECONDS, 10}
       initial_backoff_max_seconds: ${DEVICE_FETCHER_INITIAL_BACKOFF_MAX_SECONDS, 60}
       loop_interval_seconds: ${DEVICE_FETCHER_LOOP_INTERVAL_SECONDS, 60}
@@ -202,6 +261,13 @@ di_container:
     buffer:
       _target_: oqtopus_engine_core.buffers.QueueBuffer
 
+    buffer_mp_auto_combining:
+      _target_: oqtopus_engine_core.mp.auto_combining.MpAutoCombiningBuffer
+      combiner_address: ${COMBINER_ADDRESS, "localhost:51013"}
+      monitor_interval_seconds: ${MP_AUTO_BUFFER_MONITOR_INTERVAL_SECONDS, 1}
+      max_batch_size: ${MP_AUTO_BUFFER_MAX_BATCH_SIZE, 30}
+      max_qsize_to_proceed: ${MP_AUTO_BUFFER_MAX_QSIZE_TO_PROCEED, 5}
+
     # step configurations
     debug_step:
       _target_: oqtopus_engine_core.steps.DebugStep
@@ -211,11 +277,12 @@ di_container:
 
     multi_manual_step:
       _target_: oqtopus_engine_core.steps.MultiManualStep
-      combiner_address: ${COMBINER_ADDRESS, "localhost:52013"}
+      combiner_address: ${COMBINER_ADDRESS, "localhost:51013"}
 
     tranqu_step:
       _target_: oqtopus_engine_core.steps.TranquStep
-      tranqu_address: ${TRANQU_ADDRESS, "localhost:52020"}
+      tranqu_address: ${TRANQU_ADDRESS, "localhost:51020"}
+      grpc_options: *grpc_options
       default_transpiler_info:
         transpiler_lib: qiskit
         transpiler_options:
@@ -223,7 +290,8 @@ di_container:
 
     estimator_step:
       _target_: oqtopus_engine_core.steps.EstimatorStep
-      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:52012"}
+      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:51012"}
+      grpc_options: *grpc_options
       basis_gates:
         - "cx"
         - "id"
@@ -236,16 +304,13 @@ di_container:
 
     ro_error_mitigation_step:
       _target_: oqtopus_engine_core.steps.ReadoutErrorMitigationStep
-      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:52011"}
+      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:51011"}
+      grpc_options: *grpc_options
 
     device_gateway_step:
       _target_: oqtopus_engine_core.steps.DeviceGatewayStep
-      gateway_address: ${GATEWAY_ADDRESS, "localhost:52021"}
-
-    sse_step:
-      _target_: oqtopus_engine_core.steps.sse_step.SseStep
-      runner_settings:
-        sse_engine_port: ${SSE_GATEWAY_ROUTER_LISTEN_PORT, 52014}
+      gateway_address: ${GATEWAY_ADDRESS, "localhost:51021"}
+      grpc_options: *grpc_options
 
     # exception handler configurations
     pipeline_exception_handler:

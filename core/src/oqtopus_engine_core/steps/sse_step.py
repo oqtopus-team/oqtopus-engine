@@ -58,13 +58,6 @@ class SseStep(Step):
             StepResult: NONE directive — the pipeline continues normally.
 
         """
-        if job.job_type != "sse":
-            logger.debug(
-                "job_type is not sse, skipping",
-                extra={"job_id": job.job_id, "job_type": job.job_type},
-            )
-            return StepResult()
-
         if job.sse_program is None:
             message = "the sse_program is not specified in the job."
             raise ValueError(message)
@@ -568,8 +561,7 @@ class SseRunner:
 
         # Set environment variables in container
         env_vars = [
-            f"JOB_JSON={self._job.model_dump_json()}",
-            f"IN_PATH={self._container_work_path['in']}",
+            f"JOB_ID={self._job_id}",
             f"OUT_PATH={self._container_work_path['out']}",
             f"SSE_ENGINE_ADDRESS={self._config['sse_engine_address']}",
             f"GRPC_MAX_RECEIVE_MESSAGE_LENGTH={grpc_max_receive}",

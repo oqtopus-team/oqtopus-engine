@@ -17,6 +17,7 @@ OQTOPUS Engine is organized as a microservice architecture centered around the c
 
 - [Getting Started](./usage/getting_started.md)
 - [Configuration](./usage/config.md)
+- [Pipeline Selection Conditions](./usage/pipeline_conditions.md)
 
 ## Design
 

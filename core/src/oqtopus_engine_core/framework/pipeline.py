@@ -58,11 +58,25 @@ class PipelineExecutor:
         pipeline: list[Step | Buffer],
         job_buffer: Buffer,
         exception_handler: PipelineExceptionHandler | None = None,
+        externally_managed_buffers: frozenset[Buffer] = frozenset(),
     ) -> None:
-        """Initialize the pipeline executor."""
+        """Initialize the pipeline executor.
+
+        Args:
+            pipeline: The ordered list of Steps/Buffers this executor runs.
+            job_buffer: Buffer exposed via the `job_buffer` property.
+            exception_handler: Handler invoked when a step raises.
+            externally_managed_buffers: Buffer nodes in `pipeline` whose
+                workers are spawned by someone else (a `PipelineManager`,
+                for buffers shared across multiple pipelines) rather than by
+                this executor's own `start()`. Used to avoid spawning two
+                independent sets of workers against the same Buffer.
+
+        """
         self._pipeline = pipeline
         self._job_buffer = job_buffer
         self._exception_handler = exception_handler
+        self._externally_managed_buffers = externally_managed_buffers
         self._workers: list[asyncio.Task] = []
 
         # Tracks how many children remain before a parent can be joined.
@@ -98,7 +112,8 @@ class PipelineExecutor:
     async def start(self) -> None:
         """Start pipeline workers and enter a long-running idle loop."""
         for index, node in enumerate(self._pipeline):
-            if isinstance(node, Buffer):
+            is_externally_managed = node in self._externally_managed_buffers
+            if isinstance(node, Buffer) and not is_externally_managed:
                 # Spawn one worker per allowed concurrency level.
                 for _ in range(node.max_concurrency):
                     task = asyncio.create_task(self._worker_loop(node, index))
@@ -110,6 +125,18 @@ class PipelineExecutor:
     async def stop(self) -> None:
         """Wake up start() and let the process exit (no graceful shutdown)."""
         self._stop_event.set()
+
+    async def resume_from_buffer(
+        self, index: int, gctx: GlobalContext, jctx: JobContext, job: Job
+    ) -> None:
+        """Resume PRE_PROCESS execution at `index` after a Buffer hand-off.
+
+        Used by `PipelineManager` for buffers shared across multiple
+        pipelines, whose workers it spawns centrally (see
+        `externally_managed_buffers`) instead of this executor's own
+        `_worker_loop`.
+        """
+        await self._run_from(StepPhase.PRE_PROCESS, index, gctx, jctx, job)
 
     async def _worker_loop(self, buffer: Buffer, buffer_index: int) -> None:
         while True:
@@ -200,7 +227,7 @@ class PipelineExecutor:
                 "job processing started",
                 extra={
                     "job_id": job.job_id,
-                    "job_type": job.job_type,
+                    "pipeline_name": jctx.get("pipeline_name"),
                 },
             )
 
@@ -216,22 +243,28 @@ class PipelineExecutor:
             and job.parent is None
             and "_oqtopus_obs_span" not in jctx
         ):
+            # Falls back to "unknown" when a caller drives PipelineExecutor
+            # directly without going through PipelineManager (e.g. tests),
+            # since OTel attribute values must not be None.
+            pipeline_name = jctx.get("pipeline_name") or "unknown"
             root_span = tracer.start_span(
                 "oqtopus_engine.job.process",
                 attributes={
                     "oqtopus.job_id": job.job_id,
-                    "oqtopus.job_type": job.job_type,
+                    "oqtopus.pipeline_name": pipeline_name,
                     "oqtopus.device_id": job.device_id,
                 },
             )
             ctx = trace.set_span_in_context(root_span)
             ctx = baggage.set_baggage("oqtopus.job_id", job.job_id, context=ctx)
-            ctx = baggage.set_baggage("oqtopus.job_type", job.job_type, context=ctx)
+            ctx = baggage.set_baggage(
+                "oqtopus.pipeline_name", pipeline_name, context=ctx
+            )
             jctx["_oqtopus_obs_span"] = root_span
             jctx["_oqtopus_obs_ctx"] = ctx
             jctx["_oqtopus_obs_start"] = time.perf_counter()
             jctx["_oqtopus_obs_finalized"] = False
-            job_ready_counter.add(1, {"oqtopus.job_type": job.job_type})
+            job_ready_counter.add(1, {"oqtopus.pipeline_name": pipeline_name})
             token = otel_context.attach(ctx)
 
         try:
@@ -289,11 +322,11 @@ class PipelineExecutor:
                     "job processing finished",
                     extra={
                         "job_id": job.job_id,
-                        "job_type": job.job_type,
+                        "pipeline_name": jctx.get("pipeline_name"),
                         "jctx": jctx,
                     },
                 )
-                self._finalize_job_observability(jctx, job, status="success")
+                self._finalize_job_observability(jctx, status="success")
                 return
 
             # at this point cursor must be valid (0 <= cursor < len)
@@ -308,7 +341,7 @@ class PipelineExecutor:
                 if current_phase == StepPhase.PRE_PROCESS:
                     # Delegate all buffering, scheduling, and any join-like
                     # semantics to the Buffer implementation itself.
-                    await node.put(gctx, jctx, job)
+                    await self._safe_buffer_put(node, gctx, jctx, job)
                     return
                 # In POST_PROCESS, Buffers are not expected. If they appear,
                 # the safest option is to skip them and continue backward.
@@ -341,7 +374,7 @@ class PipelineExecutor:
                             "detach executed",
                             extra={
                                 "job_id": job.job_id,
-                                "job_type": job.job_type,
+                                "pipeline_name": jctx.get("pipeline_name"),
                                 "phase": StepPhase.PRE_PROCESS,
                                 "next_cursor": next_cursor,
                             },
@@ -360,7 +393,7 @@ class PipelineExecutor:
 
                 # ----- join on PRE_PROCESS (children only) -----
                 if result.directive == PipelineDirective.JOIN:
-                    await self._handle_join(
+                    await self._safe_handle_join(
                         step=node,
                         step_phase=StepPhase.PRE_PROCESS,
                         next_index=next_cursor,
@@ -375,7 +408,7 @@ class PipelineExecutor:
                     PipelineDirective.SPLIT_FOR_JOIN,
                     PipelineDirective.SPLIT_WITHOUT_JOIN,
                 }:
-                    await self._handle_split(
+                    await self._safe_handle_split(
                         result=result,
                         step=node,
                         step_phase=StepPhase.PRE_PROCESS,
@@ -416,7 +449,7 @@ class PipelineExecutor:
                             "detach executed",
                             extra={
                                 "job_id": job.job_id,
-                                "job_type": job.job_type,
+                                "pipeline_name": jctx.get("pipeline_name"),
                                 "phase": StepPhase.POST_PROCESS,
                                 "next_cursor": next_cursor,
                             },
@@ -436,7 +469,7 @@ class PipelineExecutor:
                 # ----- join on POST_PROCESS (children only) -----
                 if result.directive == PipelineDirective.JOIN:
                     # parent should resume from the next step after the join.
-                    await self._handle_join(
+                    await self._safe_handle_join(
                         step=node,
                         step_phase=StepPhase.POST_PROCESS,
                         next_index=next_cursor,
@@ -453,7 +486,7 @@ class PipelineExecutor:
                 }:
                     # children created from a post-process split start from
                     # the step immediately before the splitter.
-                    await self._handle_split(
+                    await self._safe_handle_split(
                         result=result,
                         step=node,
                         step_phase=StepPhase.POST_PROCESS,
@@ -491,6 +524,7 @@ class PipelineExecutor:
             The StepResult from the function, or None if an exception occurred.
 
         """
+        pipeline_name = jctx.get("pipeline_name")
         try:
             # Starting log
             logger.info(
@@ -499,7 +533,7 @@ class PipelineExecutor:
                     "step": step.__class__.__name__,
                     "phase": phase.value,
                     "job_id": job.job_id,
-                    "job_type": job.job_type,
+                    "pipeline_name": pipeline_name,
                 },
             )
 
@@ -509,7 +543,7 @@ class PipelineExecutor:
                 f"oqtopus_engine.pipeline.{step.__class__.__name__}.{phase.value}",
                 attributes={
                     "oqtopus.job_id": job.job_id,
-                    "oqtopus.job_type": job.job_type,
+                    "oqtopus.pipeline_name": pipeline_name or "unknown",
                     "oqtopus.pipeline.step": step.__class__.__name__,
                     "oqtopus.pipeline.phase": phase.value,
                 },
@@ -525,7 +559,7 @@ class PipelineExecutor:
                     "step": step.__class__.__name__,
                     "phase": phase.value,
                     "job_id": job.job_id,
-                    "job_type": job.job_type,
+                    "pipeline_name": pipeline_name,
                 },
             )
         except Exception as e:
@@ -535,7 +569,7 @@ class PipelineExecutor:
                     "step": step.__class__.__name__,
                     "phase": phase.value,
                     "job_id": job.job_id,
-                    "job_type": job.job_type,
+                    "pipeline_name": pipeline_name,
                 },
             )
 
@@ -552,13 +586,114 @@ class PipelineExecutor:
             # `_handle_split` returns normally; without this flag the
             # split-path finalize would tag the root span as "success".
             self._mark_root_observability_failed(jctx)
-            self._finalize_job_observability(jctx, job, status="failure")
+            self._finalize_job_observability(jctx, status="failure")
             return None
         else:
             return result
 
+    async def _safe_handle_split(  # noqa: PLR0913, PLR0917
+        self,
+        result: StepResult,
+        step: Step,
+        step_phase: StepPhase,
+        next_index: int,
+        gctx: GlobalContext,
+        jctx: JobContext,
+        job: Job,
+    ) -> None:
+        """Call `_handle_split` with exception handling, mirroring `_safe_call`."""
+        try:
+            await self._handle_split(
+                result, step, step_phase, next_index, gctx, jctx, job
+            )
+        except Exception as e:
+            logger.exception(
+                "failed to handle split",
+                extra={
+                    "step": step.__class__.__name__,
+                    "phase": step_phase.value,
+                    "job_id": job.job_id,
+                    "pipeline_name": jctx.get("pipeline_name"),
+                },
+            )
+
+            # If _handle_split registered a pending-children counter for
+            # `job` itself before failing, nobody will ever complete that
+            # join now — drop it instead of leaking it forever.
+            async with self._pending_children_lock:
+                self._pending_children.pop(job.job_id, None)
+
+            # If this job is a child of a split parent, cancel the pending-children
+            # counter so that the parent is not resumed by a later join.
+            if job.parent is not None:
+                await self._cancel_pending_children_for_parent(job)
+
+            if self._exception_handler:
+                await self._exception_handler.handle_exception(e, gctx, jctx, job)
+
+            self._mark_root_observability_failed(jctx)
+            self._finalize_job_observability(jctx, status="failure")
+
+    async def _safe_handle_join(  # noqa: PLR0913, PLR0917
+        self,
+        step: Step,
+        step_phase: StepPhase,
+        next_index: int,
+        gctx: GlobalContext,
+        jctx: JobContext,
+        job: Job,
+    ) -> None:
+        """Call `_handle_join` with exception handling, mirroring `_safe_call`."""
+        try:
+            await self._handle_join(step, step_phase, next_index, gctx, jctx, job)
+        except Exception as e:
+            logger.exception(
+                "failed to handle join",
+                extra={
+                    "step": step.__class__.__name__,
+                    "phase": step_phase.value,
+                    "job_id": job.job_id,
+                    "pipeline_name": jctx.get("pipeline_name"),
+                },
+            )
+
+            # If this job is a child of a split parent, cancel the pending-children
+            # counter so that the parent is not resumed by a later join.
+            if job.parent is not None:
+                await self._cancel_pending_children_for_parent(job)
+
+            if self._exception_handler:
+                await self._exception_handler.handle_exception(e, gctx, jctx, job)
+
+            self._mark_root_observability_failed(jctx)
+            self._finalize_job_observability(jctx, status="failure")
+
+    async def _safe_buffer_put(
+        self, buffer: Buffer, gctx: GlobalContext, jctx: JobContext, job: Job
+    ) -> None:
+        """Call `buffer.put()` with exception handling, mirroring `_safe_call`."""
+        try:
+            await buffer.put(gctx, jctx, job)
+        except Exception as e:
+            logger.exception(
+                "failed to enqueue job into buffer",
+                extra={
+                    "job_id": job.job_id,
+                    "pipeline_name": jctx.get("pipeline_name"),
+                },
+            )
+
+            if job.parent is not None:
+                await self._cancel_pending_children_for_parent(job)
+
+            if self._exception_handler:
+                await self._exception_handler.handle_exception(e, gctx, jctx, job)
+
+            self._mark_root_observability_failed(jctx)
+            self._finalize_job_observability(jctx, status="failure")
+
     @staticmethod
-    def _finalize_job_observability(jctx: JobContext, job: Job, status: str) -> None:
+    def _finalize_job_observability(jctx: JobContext, status: str) -> None:
         """End the job-level root span and emit completion metrics.
 
         Safe to call multiple times for the same job; only the first call
@@ -580,15 +715,16 @@ class PipelineExecutor:
         if jctx.get("_oqtopus_obs_failed"):
             status = "failure"
 
+        pipeline_name = jctx.get("pipeline_name") or "unknown"
         start = jctx.get("_oqtopus_obs_start")
         if start is not None:
             duration_s = time.perf_counter() - start
             job_duration_histogram.record(
                 duration_s,
-                {"oqtopus.job_type": job.job_type, "oqtopus.status": status},
+                {"oqtopus.pipeline_name": pipeline_name, "oqtopus.status": status},
             )
         job_completed_counter.add(
-            1, {"oqtopus.job_type": job.job_type, "oqtopus.status": status}
+            1, {"oqtopus.pipeline_name": pipeline_name, "oqtopus.status": status}
         )
 
         root_span = jctx["_oqtopus_obs_span"]
@@ -615,7 +751,7 @@ class PipelineExecutor:
                 return
             cur = cur.parent
 
-    async def _handle_split(  # noqa: PLR0913, PLR0917
+    async def _handle_split(  # noqa: C901, PLR0912, PLR0913, PLR0917
         self,
         result: StepResult,
         step: Step,
@@ -631,29 +767,31 @@ class PipelineExecutor:
         StepResult with SPLIT_FOR_JOIN or SPLIT_WITHOUT_JOIN directive.
 
         Responsibilities:
-        - Link parent job/context with the child jobs/contexts from StepResult.
-        - Initialize pending-children counter.
-        - Start child pipelines concurrently.
+        - Link parent job/context with the child jobs/contexts from StepResult,
+          except for children that already have a `.parent` (e.g. re-emitted
+          by auto-combining) — their real `.parent` is preserved and they are
+          not counted under this job's pending-children counter.
+        - Initialize pending-children counter for the newly-linked children.
+        - Start all child pipelines concurrently.
         - Stop the parent pipeline.
 
         Raises:
-            RuntimeError: If child_jobs or child_contexts are empty.
+            RuntimeError: If child_jobs or child_contexts is None or empty.
 
         """
         child_jobs = result.child_jobs
         child_contexts = result.child_contexts
 
         # StepResult.__post_init__ guarantees these are not None for SPLIT_*.
-        assert child_jobs is not None  # noqa: S101
-        assert child_contexts is not None  # noqa: S101
+        if child_jobs is None:
+            message = "split directive requires child_jobs"
+            raise RuntimeError(message)
+        if child_contexts is None:
+            message = "split directive requires child_contexts"
+            raise RuntimeError(message)
 
         # ------------------------------------------------------------
-        # 1. Establish parent ↔ child links
-        # ------------------------------------------------------------
-        link_parent_and_children(jctx, job, child_contexts, child_jobs)
-
-        # ------------------------------------------------------------
-        # 2. Validate non-empty children
+        # 1. Validate non-empty children
         # ------------------------------------------------------------
         if not child_jobs:
             message = "split requested but child_jobs is empty"
@@ -663,32 +801,59 @@ class PipelineExecutor:
                     "step": step.__class__.__name__,
                     "phase": step_phase.value,
                     "job_id": job.job_id,
-                    "job_type": job.job_type,
+                    "pipeline_name": jctx.get("pipeline_name"),
                 },
             )
             raise RuntimeError(message)
 
         # ------------------------------------------------------------
+        # 2. Partition children, then establish parent ↔ child links for
+        # the "fresh" ones only.
+        #
+        # A child may already have a `.parent` (e.g. an estimation
+        # sub-circuit that was combined with other same-pipeline jobs by
+        # MpAutoCombiningBuffer — combining never mixes jobs across
+        # different pipeline_names, see MpAutoCombiningBuffer). Linking it
+        # to *this* job would overwrite its real parent and permanently
+        # orphan that parent's pending-children counter, so its `.parent`
+        # is left untouched and it is not counted below. It still starts
+        # locally like any other child: because combining is same-pipeline
+        # only, `self` is guaranteed to be the PipelineExecutor instance
+        # that owns its real parent's pending-children state.
+        # ------------------------------------------------------------
+        fresh_jobs: list[Job] = []
+        fresh_contexts: list[JobContext] = []
+        for c_job, c_jctx in zip(child_jobs, child_contexts, strict=True):
+            if c_job.parent is None:
+                fresh_jobs.append(c_job)
+                fresh_contexts.append(c_jctx)
+
+        if fresh_jobs:
+            link_parent_and_children(jctx, job, fresh_contexts, fresh_jobs)
+
+        # ------------------------------------------------------------
         # 3. Initialize pending-child counter for join/cleanup handling
         # ------------------------------------------------------------
         parent_id = job.job_id
-        child_count = len(child_jobs)
-        async with self._pending_children_lock:
-            # Overwrite is allowed but indicates a nested split on the same parent.
-            # For now we just log it to make debugging easier.
-            if parent_id in self._pending_children:
-                logger.warning(
-                    "overwriting pending-children counter for parent (nested split?)",
-                    extra={
-                        "parent_job_id": parent_id,
-                        "old_value": self._pending_children[parent_id],
-                        "new_value": child_count,
-                    },
-                )
-            self._pending_children[parent_id] = child_count
+        child_count = len(fresh_jobs)
+        if child_count:
+            async with self._pending_children_lock:
+                # Overwrite is allowed but indicates a nested split on the
+                # same parent. For now we just log it to make debugging easier.
+                if parent_id in self._pending_children:
+                    logger.warning(
+                        "overwriting pending-children counter for parent"
+                        " (nested split?)",
+                        extra={
+                            "parent_job_id": parent_id,
+                            "old_value": self._pending_children[parent_id],
+                            "new_value": child_count,
+                        },
+                    )
+                self._pending_children[parent_id] = child_count
 
         # ------------------------------------------------------------
-        # 3. Start child pipelines (and wait for them)
+        # 4. Start child pipelines (and wait for them)
         # ------------------------------------------------------------
         child_coroutines: list[Awaitable[None]] = []
 
@@ -697,19 +862,24 @@ class PipelineExecutor:
         # spawned in this task, but the saved context is needed so workers
         # can re-attach it after a child crosses a Buffer.
         parent_obs_ctx = jctx.get("_oqtopus_obs_ctx")
+        pipeline_name = jctx.get("pipeline_name")
 
-        for child_job, child_jctx in zip(job.children, jctx.children, strict=True):
+        for child_job, child_jctx in zip(child_jobs, child_contexts, strict=True):
             logger.info(
                 "start child pipeline",
                 extra={
                     "parent_job_id": parent_id,
                     "child_job_id": child_job.job_id,
-                    "child_job_type": child_job.job_type,
+                    "pipeline_name": pipeline_name,
                 },
             )
 
             if parent_obs_ctx is not None:
                 child_jctx["_oqtopus_obs_ctx"] = parent_obs_ctx
+            # Children stay in the same pipeline as their parent (17.3章):
+            # the shared-buffer worker routing depends on this being set.
+            if pipeline_name is not None:
+                child_jctx["pipeline_name"] = pipeline_name
 
             # Enqueue child pipelines as coroutines; they will run concurrently
             # via asyncio.gather below.
@@ -727,7 +897,7 @@ class PipelineExecutor:
             "parent pipeline stopped after split (waiting for children)",
             extra={
                 "job_id": job.job_id,
-                "job_type": job.job_type,
+                "pipeline_name": pipeline_name,
                 "phase": step_phase.value,
             },
         )
@@ -740,19 +910,19 @@ class PipelineExecutor:
             "all child pipelines completed after split",
             extra={
                 "job_id": job.job_id,
-                "job_type": job.job_type,
+                "pipeline_name": pipeline_name,
             },
         )
 
         # ------------------------------------------------------------
-        # 4. Finalize the parent's job-level span if this was a root job.
+        # 5. Finalize the parent's job-level span if this was a root job.
         # When the pipeline terminates via a split (no join resumes the
         # parent), the parent's _run_state_machine never reaches the
         # cursor<0 branch that normally calls _finalize_job_observability,
         # so it must be called here.
         # ------------------------------------------------------------
         if job.parent is None:
-            self._finalize_job_observability(jctx, job, status="success")
+            self._finalize_job_observability(jctx, status="success")
 
     def _start_child_pipeline(
         self,
@@ -932,33 +1102,25 @@ class PipelineExecutor:
 
         # ------------------------------------------------------------
         # 4-A. Execute the step-provided join function
+        #
+        # If this raises, it propagates to _safe_handle_join, which is
+        # solely responsible for logging and failure handling — the
+        # pending-children counter for `parent_id` is already removed
+        # above, so the parent will not be resumed automatically.
         # ------------------------------------------------------------
-        try:
-            logger.info(
-                "executing join_jobs on step",
-                extra={
-                    "step": step.__class__.__name__,
-                    "parent_job_id": parent_id,
-                },
-            )
-            await step.join_jobs(
-                gctx=gctx,
-                parent_jctx=parent_jctx,
-                parent_job=parent_job,
-                last_child=job,
-            )
-        except Exception:
-            logger.exception(
-                "join_jobs failed",
-                extra={
-                    "step": step.__class__.__name__,
-                    "parent_job_id": parent_id,
-                },
-            )
-            # At this point the pending counter is already removed; the parent
-            # will not be resumed automatically. The exception handler (if any)
-            # is responsible for propagating the failure state.
-            raise
+        logger.info(
+            "executing join_jobs on step",
+            extra={
+                "step": step.__class__.__name__,
+                "parent_job_id": parent_id,
+            },
+        )
+        await step.join_jobs(
+            gctx=gctx,
+            parent_jctx=parent_jctx,
+            parent_job=parent_job,
+            last_child=job,
+        )
 
         logger.info(
             "join_jobs completed → resuming parent pipeline",
@@ -992,9 +1154,7 @@ class PipelineExecutor:
                     },
                 )
                 if parent_job.parent is None:
-                    self._finalize_job_observability(
-                        parent_jctx, parent_job, status="success"
-                    )
+                    self._finalize_job_observability(parent_jctx, status="success")
         elif step_phase == StepPhase.PRE_PROCESS:
             # JoinOnPreprocess could resume pre-process here.
             if 0 <= next_index < len(self._pipeline):
