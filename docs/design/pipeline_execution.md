@@ -28,13 +28,22 @@ The PipelineExecutor orchestrates all of these behaviors.
 
 OQTOPUS Engine Core supports **configuration-driven pipeline construction**.
 A pipeline does not need to be hard-coded in Python—the engine can create a
-`PipelineExecutor` directly from the YAML configuration.
+`PipelineManager` (which owns one `PipelineExecutor` per pipeline) directly
+from the YAML configuration.
 
-The `pipeline_executor` section defines:
+The `pipeline_manager` section defines:
 
-- the ordered list of pipeline elements,
-- which component acts as the job buffer,
+- one or more named `pipelines`, each with:
+  - an `if` condition (a small boolean expression over `job.xxx` fields)
+    used to select which pipeline a job is routed to,
+  - the ordered list of pipeline elements for that pipeline;
+- which component acts as the job buffer;
 - which component handles exceptions during pipeline execution.
+
+Pipelines are evaluated top to bottom; the first one whose `if` evaluates to
+`true` is selected. A job that matches no pipeline is failed automatically
+via the exception handler (it does not need an explicit catch-all pipeline,
+though `if: true` remains valid syntax for one).
 
 A corresponding entry in `di_container.registry` supplies the concrete
 implementations for each name.
@@ -42,18 +51,25 @@ implementations for each name.
 Example:
 
 ```yaml
-pipeline_executor:
-  pipeline:
-    - job_repository_update_step
-    - multi_manual_step
-    - tranqu_step
-    - estimator_step
-    - ro_error_mitigation_step
-    - buffer
-    - sse_step
-    - device_gateway_step
+pipeline_manager:
   job_buffer: buffer
   exception_handler: pipeline_exception_handler
+  pipelines:
+    - name: sampling
+      if: job.job_type == "sampling"
+      steps:
+        - job_repository_update_step
+        - tranqu_step
+        - ro_error_mitigation_step
+        - buffer
+        - device_gateway_step
+
+    - name: sse
+      if: job.job_type == "sse"
+      steps:
+        - job_repository_update_step
+        - buffer
+        - sse_step
 
 di_container:
   registry:
@@ -65,28 +81,68 @@ di_container:
 
 ### 2.2 How the Engine Uses This Configuration
 
-The engine reads `pipeline_executor` and retrieves all components from the dependency-injection container:
+The engine reads `pipeline_manager` and retrieves all components from the dependency-injection container:
 
-- every pipeline element (steps and buffers) is retrieved from the DI registry;
-- the element order in YAML becomes the actual traversal order;
+- for each pipeline, every element (steps and buffers) is retrieved from the DI registry;
+- the element order in YAML becomes that pipeline's actual traversal order;
 - the job buffer is assigned to `job_buffer`;
 - the exception handler is assigned to `exception_handler`.
 
-Internally, the engine uses `PipelineBuilder.build()` to construct the executor:
+Internally, the engine uses `PipelineBuilder.build()` to construct the manager:
 
-- read the ordered list under `pipeline`;
-- retrieve each component via `dicon.get(name)`;
+- validate the config structure (pipeline name uniqueness, non-empty `pipelines`/`steps`);
+- compile and type-check each pipeline's `if` condition;
+- resolve each pipeline's `steps` via `dicon.get(name)`, building one `PipelineExecutor` per pipeline;
+- detect `Buffer` instances referenced by more than one pipeline (by object identity) and route their worker-spawning through the `PipelineManager` instead of the individual executors, so a job dequeued after a shared-buffer hand-off always resumes in its own pipeline;
 - retrieve `job_buffer` and `exception_handler`;
-- create a `PipelineExecutor` with these objects.
+- create a `PipelineManager` wrapping all of the above.
+
+Each pipeline's `if` condition is a small boolean expression over `job.xxx`
+fields (see `framework/pipeline_condition.py`), parsed and compiled with
+[Lark](https://github.com/lark-parser/lark) (a `parser="lalr"` grammar)
+exactly once at startup — never re-parsed while processing jobs. Parsing
+produces a small frozen-dataclass AST which is field- and type-checked
+before the Engine is allowed to start, then evaluated directly (no further
+Lark involvement) against each job at pipeline-selection time. Full syntax,
+the allowed `job.xxx` fields, and startup validation errors are documented
+in [Pipeline Selection Conditions](../usage/pipeline_conditions.md).
+
+At runtime, `PipelineManager.execute_pipeline()` evaluates each pipeline's compiled `if` condition against the incoming job (in YAML order), and delegates to the first matching `PipelineExecutor`.
 
 This allows:
 
-- fully declarative pipeline definition,
+- fully declarative pipeline definition, including job-type-based routing,
 - environment-specific override via YAML or environment variables,
 - consistent dependency management across all components,
-- a clean separation between "pipeline construction" and "pipeline execution."
+- a clean separation between "pipeline selection," "pipeline construction," and "pipeline execution."
 
-The following sections describe **how the constructed pipeline executes jobs** including two-phase traversal, buffers, workers, split/join semantics, detach, and error handling.
+The following sections describe **how a single constructed `PipelineExecutor` executes jobs** including two-phase traversal, buffers, workers, split/join semantics, detach, and error handling. This part of the model is unaffected by pipeline selection: once a job is routed to a pipeline, it runs exactly as described below.
+
+### 2.3 Buffers Shared Across Multiple Pipelines
+
+A `Buffer` instance (e.g. `${JOB_BUFFER, buffer}`) may be referenced by more
+than one pipeline's `steps` list. `PipelineBuilder` detects this sharing (by
+object identity) and has `PipelineManager` — not the individual
+`PipelineExecutor`s — spawn that buffer's worker(s) centrally, dispatching
+each dequeued job back to the `PipelineExecutor` for the pipeline it belongs
+to (via `pipeline_name`, stored on the job's `JobContext`).
+
+Sharing a `Buffer` object across pipelines is purely an implementation
+detail for avoiding duplicate workers and configuration drift; it does
+**not** mean the pipeline execution model supports a job crossing from one
+pipeline into another. A job's pipeline is fixed for its entire lifetime,
+including across any number of buffer hand-offs, splits, or joins — a job
+dequeued from a shared buffer must always resume on the `PipelineExecutor`
+for the *same* pipeline it started in, never a different one.
+
+This is a hard invariant that buffer/step implementations must uphold
+themselves when they build derived jobs and enqueue them onto a shared
+buffer. For example, `MpAutoCombiningBuffer` (see
+[Configuration](../usage/config.md)) merges several original jobs into one
+combined job before re-enqueuing it; it groups jobs by `pipeline_name`
+before combining and never merges jobs from different pipelines together,
+precisely because a combined job spanning multiple pipelines would have no
+single `PipelineExecutor` to resume on.
 
 ## 3. Pipeline Structure
 
@@ -173,7 +229,7 @@ Each worker repeatedly performs:
 
 Workers continue this loop until the executor is stopped.
 
-If a step implements `DetachOnPreprocess` or `DetachOnPostprocess`,
+If a step returns `StepResult(directive=PipelineDirective.DETACH)`,
 the caller regains control immediately while the detached coroutine continues
 in the background, but the buffer consumption pattern (get → resume pre-process)
 remains unchanged.
@@ -190,11 +246,13 @@ This design provides:
 When using `QueueBuffer`, its concurrency can be configured in `config.yaml`:
 
 ```yaml
-pipeline_executor:
-  pipeline:
-    - buffer          # refers to the entry below
-
+pipeline_manager:
   job_buffer: buffer
+  pipelines:
+    - name: default
+      if: true
+      steps:
+        - buffer          # refers to the entry below
 
 di_container:
   registry:
@@ -218,19 +276,41 @@ This enables functionalities such as:
 
 ### 6.2 How Splitting Works
 
-Depending on the type of step:
+A step triggers a split by returning a `StepResult` with one of the split directives
+from its `pre_process()` or `post_process()` method:
 
-- **SplitOnPreprocess**: splitting occurs during pre-process traversal.
-- **SplitOnPostprocess**: splitting occurs during post-process traversal.
+- **`PipelineDirective.SPLIT_FOR_JOIN`**: children run independently; parent waits until all
+  children reach the join step before resuming.
+- **`PipelineDirective.SPLIT_WITHOUT_JOIN`**: children run independently; parent does **not**
+  wait. A pending-children counter is still registered internally (so cascade
+  cleanup can detect when every child has finished), but nothing ever waits
+  on it — no join step resumes the parent.
+
+The `StepResult` carries the child jobs and child contexts:
+
+```python
+return StepResult(
+    directive=PipelineDirective.SPLIT_FOR_JOIN,
+    child_jobs=child_jobs,
+    child_contexts=child_ctxs,
+)
+```
 
 When a split occurs:
 
 1. The parent job's traversal **pauses**.
-2. New child jobs and contexts are created and placed in `job.children` and `jctx.children`.
+2. The executor calls `link_parent_and_children` to establish `job.children` /
+   `jctx.children` — the step must **not** call this function itself. A
+   child that already has a `.parent` from an earlier, unrelated split
+   (e.g. a job re-emitted by an auto-combining buffer that groups jobs from
+   multiple splits together) is left untouched instead: its real `.parent`
+   is not overwritten, and it is not counted under this job's
+   pending-children counter, since its completion will resolve its real
+   parent's counter instead.
 3. Each child job starts its own execution:
    - traversal starts from the first pipeline element,
    - workers, buffers, and phases apply independently.
-4. Parent job waits until children complete.
+4. For `SPLIT_FOR_JOIN`: the parent job waits until all children complete.
 
 The executor automatically manages:
 
@@ -291,10 +371,13 @@ This ensures:
 
 ### 7.3 Join During Forward vs Backward Traversal
 
-Join steps may live in the pipeline during pre-process or post-process phases:
+A step signals join intent by returning `StepResult(directive=PipelineDirective.JOIN)`
+from either its `pre_process()` or `post_process()` method (typically guarded by
+`if job.parent is not None`):
 
-- **JoinOnPreprocess**: parent resumes from the join point during forward traversal.
-- **JoinOnPostprocess**: parent resumes during backward traversal.
+- Returning `JOIN` from **`pre_process`**: parent resumes from the join point during
+  forward traversal.
+- Returning `JOIN` from **`post_process`**: parent resumes during backward traversal.
 
 This enables expressive control-flow patterns.
 
@@ -322,10 +405,9 @@ separate coroutine.
 This enables the worker to immediately return to its buffer loop,
 improving throughput while preserving the pipeline’s two-phase semantics.
 
-A step may detach at:
-
-- **pre-process phase** (`DetachOnPreprocess`)
-- **post-process phase** (`DetachOnPostprocess`)
+A step triggers a detach by returning
+`StepResult(directive=PipelineDirective.DETACH)` from either its
+`pre_process()` or `post_process()` method.
 
 When a detach occurs:
 

@@ -3,11 +3,13 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import Device, DeviceFetcher
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2, qpu_pb2_grpc
-from oqtopus_engine_core.interfaces.qpu_interface.v1.qpu_pb2 import ServiceStatus
+from oqtopus_engine_core.interfaces.qpu_interface.v1.qpu_pb2 import (  # type: ignore[attr-defined]
+    ServiceStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,11 +87,11 @@ class DeviceGatewayFetcher(DeviceFetcher):
 
     async def _fetch_device(self) -> Device:
         device_info_resp = await self._stub.GetDeviceInfo(
-            qpu_pb2.GetDeviceInfoRequest()
+            qpu_pb2.GetDeviceInfoRequest()  # type: ignore[attr-defined]
         )
 
         service_status_resp = await self._stub.GetServiceStatus(
-            qpu_pb2.GetServiceStatusRequest()
+            qpu_pb2.GetServiceStatusRequest()  # type: ignore[attr-defined]
         )
         logger.debug(
             "GetServiceStatus response: %d",
@@ -141,7 +143,9 @@ class DeviceGatewayFetcher(DeviceFetcher):
                 await asyncio.sleep(current_backoff)
 
             except Exception:
-                self.gctx.device.is_connected = False
+                gctx = self.gctx
+                if gctx is not None and gctx.device is not None:
+                    gctx.device.is_connected = False
                 consecutive_errors += 1
                 logger.exception(
                     "failed to fetch device, will retry with backoff",
@@ -157,23 +161,26 @@ class DeviceGatewayFetcher(DeviceFetcher):
 
     async def _run_initial_fetch_loop(self) -> None:
         """Fetch device info once at startup with exponential backoff."""
-        # fetch device info once at startup
+        gctx = self.gctx
+        if gctx is None:  # pragma: no cover
+            return
+        device_repo = gctx.device_repository
+        if device_repo is None:  # pragma: no cover
+            return
         current_backoff = self._initial_interval_seconds
         while True:
             try:
-                # update device in global context
                 device = await self._fetch_device()
                 logger.info(
                     "initial device fetched",
                     extra={"device_id": device.device_id, "device": device},
                 )
-                self.gctx.device = device
+                gctx.device = device
 
-                # update device info and status in cloud
-                await self.gctx.device_repository.update_device(device)
+                await device_repo.update_device(device)
                 if self._enable_device_info_update:
-                    await self.gctx.device_repository.update_device_info(device)
-                await self.gctx.device_repository.update_device_status(device)
+                    await device_repo.update_device_info(device)
+                await device_repo.update_device_status(device)
                 break
 
             except Exception:
@@ -188,59 +195,65 @@ class DeviceGatewayFetcher(DeviceFetcher):
 
     async def _update_if_changed(self, device: Device) -> None:
         """Compare current device state with global context and update if necessary."""
+        gctx = self.gctx
+        if gctx is None or gctx.device is None or gctx.device_repository is None:
+            return  # pragma: no cover
+        device_ctx = gctx.device
+        device_repo = gctx.device_repository
+
         # Check is_connected
-        if device.is_connected != self.gctx.device.is_connected:
+        if device.is_connected != device_ctx.is_connected:
             logger.info(
                 "device is_connected changed",
                 extra={
                     "device_id": device.device_id,
-                    "prev_is_connected": self.gctx.device.is_connected,
+                    "prev_is_connected": device_ctx.is_connected,
                     "curr_is_connected": device.is_connected,
                 },
             )
-            self.gctx.device.is_connected = device.is_connected
+            device_ctx.is_connected = device.is_connected
 
         # Check n_qubits
-        if device.n_qubits != self.gctx.device.n_qubits:
+        if device.n_qubits != device_ctx.n_qubits:
             logger.info(
                 "device n_qubits changed",
                 extra={
                     "device_id": device.device_id,
-                    "prev_n_qubits": self.gctx.device.n_qubits,
+                    "prev_n_qubits": device_ctx.n_qubits,
                     "curr_n_qubits": device.n_qubits,
                 },
             )
-            self.gctx.device.n_qubits = device.n_qubits
-            await self.gctx.device_repository.update_device(device)
+            device_ctx.n_qubits = device.n_qubits
+            await device_repo.update_device(device)
 
         # Check device_info and calibrated_at
-        if (device.device_info != self.gctx.device.device_info) or (
-            device.calibrated_at != self.gctx.device.calibrated_at
+        if (device.device_info != device_ctx.device_info) or (
+            device.calibrated_at != device_ctx.calibrated_at
         ):
-            device_info_changed = (device.device_info != self.gctx.device.device_info)
+            device_info_changed = device.device_info != device_ctx.device_info
             logger.info(
                 "device info/calibrated_at changed",
                 extra={
                     "device_id": device.device_id,
                     "device_info_changed": device_info_changed,
-                    "prev_calibrated_at": self.gctx.device.calibrated_at,
+                    "prev_calibrated_at": device_ctx.calibrated_at,
                     "curr_calibrated_at": device.calibrated_at,
                 },
             )
-            self.gctx.device.device_info = device.device_info
-            self.gctx.device.calibrated_at = device.calibrated_at
+            device_ctx.device_info = device.device_info
+            device_ctx.calibrated_at = device.calibrated_at
             if self._enable_device_info_update:
-                await self.gctx.device_repository.update_device_info(device)
+                await device_repo.update_device_info(device)
 
         # Check status
-        if device.status != self.gctx.device.status:
+        if device.status != device_ctx.status:
             logger.info(
                 "device status changed",
                 extra={
                     "device_id": device.device_id,
-                    "prev_status": self.gctx.device.status,
+                    "prev_status": device_ctx.status,
                     "curr_status": device.status,
                 },
             )
-            self.gctx.device.status = device.status
-            await self.gctx.device_repository.update_device_status(device)
+            device_ctx.status = device.status
+            await device_repo.update_device_status(device)

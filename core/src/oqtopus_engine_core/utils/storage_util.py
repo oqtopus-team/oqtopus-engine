@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Any
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
-import requests
-from requests.exceptions import RequestException
+import requests  # type: ignore[import-untyped]
+from requests.exceptions import RequestException  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     JobsJobInfoUploadPresignedURL,

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from uuid_extensions import uuid7
+from uuid_extensions import uuid7  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import Job, JobContext, JobFetcher, OperatorItem
 from oqtopus_engine_core.framework.job_fetcher import wait_until_fetchable
@@ -56,6 +56,8 @@ class MockJobFetcher(JobFetcher):
         self.validate_fetcher_ready()
         gctx = self.gctx
         pipeline = self.pipeline
+        if gctx is None or pipeline is None:  # pragma: no cover
+            return
 
         logger.info("MockJobFetcher was started")
         count = 0

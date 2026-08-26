@@ -21,10 +21,11 @@ from qiskit.transpiler.layout import (  # type: ignore[import-untyped]
     Layout,
     TranspileLayout,
 )
-from uuid_extensions import uuid7
+from uuid_extensions import uuid7  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import Buffer, GlobalContext, JobContext
-from oqtopus_engine_core.framework.model import Job, JobResult
+from oqtopus_engine_core.framework.context import HAS_ORIGINAL_JOB_CHILDREN_KEY
+from oqtopus_engine_core.framework.model import Job, TranspileResult
 from oqtopus_engine_core.interfaces.combiner_interface.v1 import (
     combiner_pb2,
     combiner_pb2_grpc,
@@ -43,6 +44,17 @@ class MpAutoCombiningBuffer(Buffer):
         the combiner gRPC service and puts the combined jobs to the output queue.
         The combination process is done in the background task.
         The uncombined jobs are passed through without modification.
+
+        Combining never mixes jobs across different `pipeline_name`s (see
+        `_group_by_pipeline_name`), even when their `job_type` would
+        otherwise make them eligible to combine together (e.g. an
+        estimation sub-circuit's `job_type` is "sampling", the same as a
+        plain sampling job, but its `pipeline_name` stays "estimation").
+        This guarantees a combined job's `pipeline_name` (set in
+        `create_combined_job`) always resolves back to the single
+        PipelineExecutor instance that owns its constituents'
+        pending-children state — see the "already-parented children" note
+        in `PipelineExecutor._handle_split`.
 
     Args:
         maxsize: Maximum number of elements allowed in the queue.
@@ -85,6 +97,7 @@ class MpAutoCombiningBuffer(Buffer):
         self._stub = combiner_pb2_grpc.CombinerServiceStub(self._channel)
 
         task = asyncio.create_task(self.start())
+        self._task: asyncio.Task | None = task
         # Keep a reference to prevent the task from being garbage-collected,
         # and remove the reference when the task is completed
         self._background_tasks: set[asyncio.Task] = set()
@@ -137,7 +150,7 @@ class MpAutoCombiningBuffer(Buffer):
             "starting multi-programming auto",
             extra={
                 "interval_seconds": self._interval_seconds,
-                "max_batch_size": self._max_batch_size
+                "max_batch_size": self._max_batch_size,
             },
         )
         await self._run()
@@ -162,17 +175,9 @@ class MpAutoCombiningBuffer(Buffer):
                 # filter combinable jobs
                 combinable_jobs, uncombinable_jobs = filter_combinable_jobs(drained)
 
-                # combine the combinable jobs if the number of jobs is more than 1
-                if len(combinable_jobs) > 1:
-                    combined_jobs, unassigned_jobs = \
-                        await self._combine_jobs(combinable_jobs)
-                else:
-                    logger.info(
-                        "not enough combinable jobs; skipping combine",
-                        extra={"num_combinable_jobs": len(combinable_jobs)}
-                    )
-                    combined_jobs = []
-                    unassigned_jobs = combinable_jobs
+                combined_jobs, unassigned_jobs = await self._combine_by_pipeline_name(
+                    combinable_jobs
+                )
 
             except Exception:
                 logger.exception("error during job combination")
@@ -190,11 +195,11 @@ class MpAutoCombiningBuffer(Buffer):
                     "auto combining complete",
                     extra={
                         "num_drained": len(drained),
-                        "num_jobs_before_combining":
-                            len([job
-                                for combined_job in combined_jobs
-                                for job in combined_job[2].children
-                            ]),
+                        "num_jobs_before_combining": len([
+                            job
+                            for combined_job in combined_jobs
+                            for job in combined_job[2].children
+                        ]),
                         "num_jobs_after_combining": len(combined_jobs),
                         "num_jobs_unassigned": len(unassigned_jobs),
                         "num_jobs_uncombinable": len(uncombinable_jobs),
@@ -227,10 +232,54 @@ class MpAutoCombiningBuffer(Buffer):
                     "multi-auto process complete",
                     extra={
                         "drained_jobs": len(drained),
-                        "total_jobs_after_processing":
-                            len(combined_jobs) + len(unassigned_jobs)
+                        "total_jobs_after_processing": len(combined_jobs)
+                        + len(unassigned_jobs),
                     },
                 )
+
+    async def _combine_by_pipeline_name(
+        self, combinable_jobs: list[tuple[GlobalContext, JobContext, Job]]
+    ) -> tuple[
+        list[tuple[GlobalContext, JobContext, Job]],
+        list[tuple[GlobalContext, JobContext, Job]],
+    ]:
+        """Combine jobs, grouped by pipeline_name so groups are never mixed.
+
+        Combining never mixes jobs across different pipeline_names, so a
+        combined job's pipeline_name (set in `create_combined_job`) always
+        resolves back to the PipelineExecutor instance that owns its
+        constituents' pending-children state (see pipeline.py's
+        `_handle_split`).
+
+        Args:
+            combinable_jobs: Jobs eligible for combination, from
+                `filter_combinable_jobs`.
+
+        Returns:
+            A tuple containing:
+            - List of combined jobs as `(GlobalContext, JobContext, Job)` tuples.
+            - List of jobs left unassigned (too few peers, or not combined by
+              the combiner service) as `(GlobalContext, JobContext, Job)` tuples.
+
+        """
+        combined_jobs: list[tuple[GlobalContext, JobContext, Job]] = []
+        unassigned_jobs: list[tuple[GlobalContext, JobContext, Job]] = []
+        for pipeline_name, group in _group_by_pipeline_name(combinable_jobs).items():
+            # combine the group's jobs if there is more than 1
+            if len(group) > 1:
+                group_combined, group_unassigned = await self._combine_jobs(group)
+                combined_jobs.extend(group_combined)
+                unassigned_jobs.extend(group_unassigned)
+            else:
+                logger.info(
+                    "not enough combinable jobs in pipeline; skipping combine",
+                    extra={
+                        "pipeline_name": pipeline_name,
+                        "num_combinable_jobs": len(group),
+                    },
+                )
+                unassigned_jobs.extend(group)
+        return combined_jobs, unassigned_jobs
 
     async def _drain_input(self) -> list[tuple[GlobalContext, JobContext, Job]]:
         """Drain jobs from input buffer up to max_batch_size.
@@ -244,9 +293,9 @@ class MpAutoCombiningBuffer(Buffer):
         items: list[tuple[GlobalContext, JobContext, Job]] = []
         # Always wait for at least one job to appear
         try:
-            first = await asyncio.wait_for(self._input_queue.get(),
-                                           timeout=self._interval_seconds
-                                           )
+            first = await asyncio.wait_for(
+                self._input_queue.get(), timeout=self._interval_seconds
+            )
         except TimeoutError:
             return items
         items.append(first)
@@ -280,12 +329,11 @@ class MpAutoCombiningBuffer(Buffer):
         return items
 
     async def _combine_jobs(
-        self,
-        jobs: list[tuple[GlobalContext, JobContext, Job]]
+        self, jobs: list[tuple[GlobalContext, JobContext, Job]]
     ) -> tuple[
-            list[tuple[GlobalContext, JobContext, Job]],
-            list[tuple[GlobalContext, JobContext, Job]]
-        ]:
+        list[tuple[GlobalContext, JobContext, Job]],
+        list[tuple[GlobalContext, JobContext, Job]],
+    ]:
         """Combine the given jobs using the combiner gRPC service.
 
         Args:
@@ -329,38 +377,22 @@ class MpAutoCombiningBuffer(Buffer):
             for assigned_job in cmb_info["assigned_group"]:
                 job_id = assigned_job["job_id"]
                 transpile_result = original_jobs[job_id][2].transpile_result
-                transpile_result = \
-                    await self._update_transpile_result(
-                        transpile_result,
-                        assigned_job["qubit_mapping"],
-                    )
+                transpile_result = await self._update_transpile_result(
+                    transpile_result,  # type: ignore[arg-type]
+                    assigned_job["qubit_mapping"],
+                )
                 original_jobs[job_id][2].transpile_result = transpile_result
+                # upload the updated transpile_result to the cloud
+                await self._upload_transpile_result(
+                    original_jobs[job_id][0], original_jobs[job_id][2]
+                )
 
-            # use the max shots among original jobs for the combined job
-            shots = max(job[2].shots for job in original_jobs.values())
             # create new job object for the combined circuit
-            combined_job = create_combined_job(
-                combined_group["combined_program"],
-                shots=shots
+            gctx, combined_jctx, combined_job = create_combined_job(
+                combined_program=combined_group["combined_program"],
+                combine_info=cmb_info,
+                original_jobs=original_jobs,
             )
-            # add context in JobContext to recover original jobs in post-process
-            mp_auto_combining_ctx = {
-                "n_total_qubits": cmb_info["n_total_qubits"],
-                "combined_qubits_list": cmb_info["combined_qubits_list"],
-            }
-
-            # create new contexts for the combined job
-            combined_jctx = JobContext()
-            combined_jctx.mp_auto_combining = mp_auto_combining_ctx
-
-            # Only link children here, not parent, to avoid overwriting the parent
-            # of the original jobs before they are combined.
-            combined_job.children = [job for _, _, job in original_jobs.values()]
-            combined_jctx.children = [jctx for _, jctx, _ in original_jobs.values()]
-            combined_jctx.has_actual_children = True
-
-            # take gctx from one of the original jobs. gctx is common among jobs.
-            gctx = next(iter(original_jobs.values()))[0]
 
             # store the combined job
             combined_jobs.append((gctx, combined_jctx, combined_job))
@@ -380,9 +412,9 @@ class MpAutoCombiningBuffer(Buffer):
 
     @staticmethod
     async def _update_transpile_result(
-        transpile_result: JobResult.TranspileResult,
-        transpiled_combined_mapping: dict[int, int]
-    ) -> JobResult.TranspileResult:
+        transpile_result: TranspileResult,
+        transpiled_combined_mapping: dict[int, int],
+    ) -> TranspileResult:
         """Update transpile_result according to the qubits assigned when combining.
 
         This method updates the `virtual_physical_mapping` and `transpiled_program`
@@ -404,15 +436,16 @@ class MpAutoCombiningBuffer(Buffer):
 
         """
         # convert the type of keys of qubit mapping from str to int
-        transpiled_combined_mapping = {int(k): v
-                                       for k, v in transpiled_combined_mapping.items()
-                                       }
+        transpiled_combined_mapping = {
+            int(k): v for k, v in transpiled_combined_mapping.items()
+        }
         qubit_mapping = transpile_result.virtual_physical_mapping["qubit_mapping"]
-        new_virtual_physical_mapping = {k: transpiled_combined_mapping[v]
-                                        for k, v in qubit_mapping.items()
-                                        }
-        transpile_result.virtual_physical_mapping["qubit_mapping"] = \
-                                                new_virtual_physical_mapping
+        new_virtual_physical_mapping = {
+            k: transpiled_combined_mapping[v] for k, v in qubit_mapping.items()
+        }
+        transpile_result.virtual_physical_mapping["qubit_mapping"] = (
+            new_virtual_physical_mapping
+        )
 
         # Update transpiled_program according to the qubits assigned when combining
         transpiled_program = transpile_result.transpiled_program
@@ -422,10 +455,10 @@ class MpAutoCombiningBuffer(Buffer):
         cr = ClassicalRegister(max(transpiled_combined_mapping.keys()) + 1, name="c")
         new_circuit = QuantumCircuit(qr, cr)
         for instr, qargs, cargs in transpiled_circuit.data:
-            new_qargs = \
-                [transpiled_combined_mapping[transpiled_circuit.find_bit(q).index]
-                 for q in qargs
-                 ]
+            new_qargs = [
+                transpiled_combined_mapping[transpiled_circuit.find_bit(q).index]
+                for q in qargs
+            ]
             new_cargs = [transpiled_circuit.find_bit(c).index for c in cargs]
             new_circuit.append(instr, new_qargs, new_cargs)
 
@@ -436,18 +469,39 @@ class MpAutoCombiningBuffer(Buffer):
         # if layout info exists, add physical qubit assign info to new circuit
         layout = dict(enumerate(new_circuit.qregs[0]))
         mapping = {qreg: i for i, qreg in enumerate(new_circuit.qregs[0])}
-        new_circuit._layout = TranspileLayout(initial_layout=Layout(layout),  # noqa: SLF001
-                                              input_qubit_mapping=mapping
-                                              )
+        new_circuit._layout = TranspileLayout(  # noqa: SLF001
+            initial_layout=Layout(layout),
+            input_qubit_mapping=mapping,
+        )
 
         transpile_result.transpiled_program = qiskit.qasm3.dumps(new_circuit)
 
         return transpile_result
 
+    @staticmethod
+    async def _upload_transpile_result(gctx: GlobalContext, job: Job) -> None:
+        """Upload the transpile_result of the job to the storage.
+
+        Args:
+            gctx: Global execution context.
+            job: The job whose transpile_result is to be uploaded.
+
+        """
+        urls = await gctx.job_repository.get_job_upload_url(  # type: ignore[union-attr]
+            job=job,
+            items=["transpile_result"],
+        )
+
+        await gctx.job_repository.upload_job_output_nowait(  # type: ignore[union-attr]
+            job=job,
+            presigned_url=urls[0],
+            data=job.transpile_result.model_dump(),  # type: ignore[union-attr]
+            arcname_ext=".json",
+        )
+
     async def _request_combine(
-        self,
-        jobs: list[tuple[GlobalContext, JobContext, Job]]
-    ) -> combiner_pb2.OptimalCombineResponse:
+        self, jobs: list[tuple[GlobalContext, JobContext, Job]]
+    ) -> combiner_pb2.OptimalCombineResponse:  # type: ignore[name-defined]
         """Send combine request to the combiner gRPC service.
 
         Args:
@@ -464,10 +518,10 @@ class MpAutoCombiningBuffer(Buffer):
             programs_dict.append({"job_id": job.job_id, "program": program})
 
         programs = json.dumps(programs_dict)
-        request = combiner_pb2.OptimalCombineRequest(
-                programs=programs,
-                device_info=jobs[0][0].device.device_info
-            )
+        request = combiner_pb2.OptimalCombineRequest(  # type: ignore[attr-defined]
+            programs=programs,
+            device_info=jobs[0][0].device.device_info,  # type: ignore[union-attr]
+        )
         logger.info(
             "OptimalCombineRequest request",
             extra={"request": request},
@@ -487,11 +541,31 @@ class MpAutoCombiningBuffer(Buffer):
         return response
 
 
+def _group_by_pipeline_name(
+    jobs: list[tuple[GlobalContext, JobContext, Job]],
+) -> dict[str | None, list[tuple[GlobalContext, JobContext, Job]]]:
+    """Group jobs by their jctx's pipeline_name.
+
+    Args:
+        jobs: List of `(GlobalContext, JobContext, Job)` tuples to group.
+
+    Returns:
+        A dict mapping each distinct pipeline_name (or None) to its jobs,
+        preserving the original relative order within each group.
+
+    """
+    groups: dict[str | None, list[tuple[GlobalContext, JobContext, Job]]] = {}
+    for item in jobs:
+        _, jctx, _ = item
+        groups.setdefault(jctx.get("pipeline_name"), []).append(item)
+    return groups
+
+
 def filter_combinable_jobs(
-    jobs: list[tuple[GlobalContext, JobContext, Job]]
+    jobs: list[tuple[GlobalContext, JobContext, Job]],
 ) -> tuple[
     list[tuple[GlobalContext, JobContext, Job]],
-    list[tuple[GlobalContext, JobContext, Job]]
+    list[tuple[GlobalContext, JobContext, Job]],
 ]:
     """Filter jobs that are eligible for combination.
 
@@ -544,18 +618,33 @@ def _is_combinable(job: Job) -> bool:
     return True
 
 
-def create_combined_job(combined_program: str, shots: int) -> Job:
+def create_combined_job(
+    combined_program: str,
+    combine_info: dict[str, Any],
+    original_jobs: dict[str, tuple[GlobalContext, JobContext, Job]],
+) -> tuple[GlobalContext, JobContext, Job]:
     """Create a combined Job object from the combined QASM.
+
+    The combined job's context inherits `pipeline_name` directly from
+    `original_jobs` (see the note below). Callers must ensure all of
+    `original_jobs` share the same `pipeline_name` — i.e. group jobs by
+    `pipeline_name` (see `_group_by_pipeline_name`) before combining them.
 
     Args:
         combined_program: The combined program QASM string.
-        shots: Number of shots for the combined job.
+        combine_info: Dictionary containing metadata obtained from combiner.
+        original_jobs: Dictionary of original jobs keyed by job ID. All
+            entries must share the same `pipeline_name`.
 
     Returns:
         A Job object containing the combined program.
 
     """
-    return Job(
+    # use the max shots among original jobs for the combined job
+    shots = max(job[2].shots for job in original_jobs.values())
+
+    # create combined job object
+    combined_job = Job(
         job_id=f"mpa-comb-{uuid7(as_type='str')}",
         device_id="",
         shots=shots,
@@ -567,6 +656,33 @@ def create_combined_job(combined_program: str, shots: int) -> Job:
         mitigation_info={},
         status="ready",
     )
+
+    # create new context for the combined job
+    combined_jctx = JobContext()
+    # add context for recovering original jobs in post-process
+    combined_jctx.mp_auto_combining = {
+        "n_total_qubits": combine_info["n_total_qubits"],
+        "combined_qubits_list": combine_info["combined_qubits_list"],
+    }
+    # All original jobs share the same pipeline_name (combining is grouped
+    # by pipeline_name before this is called), so the combined job inherits
+    # it directly rather than relying on PipelineSelector to re-derive it
+    # from job_type — which would be wrong for e.g. estimation sub-circuits
+    # whose job_type ("sampling") does not match their real pipeline_name.
+    combined_jctx["pipeline_name"] = next(iter(original_jobs.values()))[1].get(
+        "pipeline_name"
+    )
+
+    # only link children here, not parent, to avoid overwriting the parent
+    # of the original jobs before they are combined.
+    combined_job.children = [job for _, _, job in original_jobs.values()]
+    combined_jctx.children = [jctx for _, jctx, _ in original_jobs.values()]
+    combined_jctx[HAS_ORIGINAL_JOB_CHILDREN_KEY] = True
+
+    # take gctx from one of the original jobs. gctx is common among jobs.
+    gctx = next(iter(original_jobs.values()))[0]
+
+    return gctx, combined_jctx, combined_job
 
 
 def extract_target_program(job: Job) -> str:
@@ -581,4 +697,4 @@ def extract_target_program(job: Job) -> str:
     """
     # For now, we assume jobs with no transpiler are filtered out in advance.
     # Thus, we always extract transpiled_program
-    return job.transpile_result.transpiled_program
+    return job.transpile_result.transpiled_program  # type: ignore[union-attr]

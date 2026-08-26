@@ -32,6 +32,7 @@ class OqtopusCloudJobRepository(JobRepository):
         api_key: str = "",
         proxy: str | None = None,
         workers: int = 5,
+        api_request_timeout_seconds: int = 10,
         file_op_timeout_seconds: int = 60,
         max_file_size: int = 10485760,
     ) -> None:
@@ -42,6 +43,7 @@ class OqtopusCloudJobRepository(JobRepository):
             api_key: The API key for authentication.
             proxy: The proxy URL for the API request.
             workers: The number of concurrent workers to use for API requests.
+            api_request_timeout_seconds: Timeout for Jobs API HTTP requests.
             file_op_timeout_seconds: Timeout for file upload and download.
             max_file_size: Maximum allowed size for uploaded ZIP payloads.
 
@@ -69,6 +71,7 @@ class OqtopusCloudJobRepository(JobRepository):
         self._job_tails_lock = asyncio.Lock()
 
         self._proxy = proxy
+        self._api_request_timeout_seconds = api_request_timeout_seconds
         self._file_op_timeout_seconds = file_op_timeout_seconds
         self._max_file_size = max_file_size
 
@@ -78,6 +81,7 @@ class OqtopusCloudJobRepository(JobRepository):
                 "url": url,
                 "proxy": proxy,
                 "workers": workers,
+                "api_request_timeout_seconds": api_request_timeout_seconds,
                 "file_op_timeout_seconds": file_op_timeout_seconds,
             },
         )
@@ -87,7 +91,7 @@ class OqtopusCloudJobRepository(JobRepository):
         call: Callable[[], T],
         label: str,
         extra: dict[str, Any],
-    ) -> T | None:
+    ) -> T:
         """Call an API in a worker thread with logging and error handling.
 
         Args:
@@ -97,7 +101,7 @@ class OqtopusCloudJobRepository(JobRepository):
             extra: Extra fields to log on error.
 
         Returns:
-            The data returned by the call, or None if an error occurred.
+            The data returned by the call.
 
         Raises:
             ApiException: If an API error occurs.
@@ -254,11 +258,11 @@ class OqtopusCloudJobRepository(JobRepository):
         call: Callable[[], T],
         label: str,
         extra: dict[str, Any],
-    ) -> T | None:
+    ) -> T:
         """Call a storage request in a worker thread.
 
         Returns:
-            The value returned by the storage call, or `None` on failure.
+            The value returned by the storage call.
 
         Raises:
             OqtopusStorageError: If a storage-specific error occurs.
@@ -305,6 +309,7 @@ class OqtopusCloudJobRepository(JobRepository):
                 device_id=device_id,
                 status=status,
                 limit=limit,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -318,11 +323,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "GET /jobs",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -330,12 +336,12 @@ class OqtopusCloudJobRepository(JobRepository):
             extra={
                 "status_code": status_code,
                 "elapsed_ms": round(elapsed_ms, 3),
-                "len(body)": len(response) if response is not None else 0,
+                "len(body)": len(response) if response is not None else 0,  # type: ignore[arg-type]
             },
         )
 
         jobs: list[Job] = []
-        for job_oas in response:
+        for job_oas in response:  # type: ignore[attr-defined]
             job = Job(**job_oas.to_dict())  # type: ignore[call-arg]
             jobs.append(job)
         return jobs
@@ -358,7 +364,9 @@ class OqtopusCloudJobRepository(JobRepository):
 
         def _call() -> tuple[list[JobsJobInfoUploadPresignedURL], int, dict]:
             return self._jobs_api.get_upload_with_http_info(
-                job_id=job.job_id, items=",".join(items)
+                job_id=job.job_id,
+                items=",".join(items),
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -372,11 +380,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "GET /jobs/{job_id}/upload",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -564,6 +573,7 @@ class OqtopusCloudJobRepository(JobRepository):
             return self._jobs_api.patch_job_with_http_info(
                 job_id=job.job_id,
                 body=body,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -577,11 +587,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "PATCH /jobs/{job_id}/status",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -648,6 +659,7 @@ class OqtopusCloudJobRepository(JobRepository):
             return self._jobs_api.update_job_transpiler_info_with_http_info(
                 job_id=job.job_id,
                 body=body,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -664,11 +676,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "PUT /jobs/{job_id}/transpiler_info",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(

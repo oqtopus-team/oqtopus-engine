@@ -269,6 +269,31 @@ async def test_enqueue_and_run_continues_after_coroutine_failure():
 
 
 # ---------------------------------------------------------------------------
+# get_jobs – api_request_timeout_seconds is passed to the generated client
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_jobs_passes_api_request_timeout_seconds():
+    """get_jobs must forward api_request_timeout_seconds as _request_timeout."""
+    with patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.JobsApi"
+    ) as mock_jobs_api_cls, patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.ApiClient"
+    ), patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.Configuration"
+    ):
+        mock_jobs_api = mock_jobs_api_cls.return_value
+        mock_jobs_api.get_jobs_with_http_info.return_value = ([], 200, {})
+
+        repo = OqtopusCloudJobRepository(workers=2, api_request_timeout_seconds=15)
+        await repo.get_jobs(device_id="test-device")
+
+        _, kwargs = mock_jobs_api.get_jobs_with_http_info.call_args
+        assert kwargs["_request_timeout"] == 15
+
+
+# ---------------------------------------------------------------------------
 # _enqueue_and_run – failed coroutine is logged
 # ---------------------------------------------------------------------------
 
