@@ -27,7 +27,6 @@ from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
     mitigator_pb2,
     mitigator_pb2_grpc,
 )
-
 from oqtopus_engine_core.interfaces.mitigator_interface.v1.mitigator_pb2 import (  # type: ignore[attr-defined]
     DESCRIPTOR,
     ReqMitigationRequest,
@@ -139,14 +138,13 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-# response
 class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
     """Mitigator service implementation for gRPC."""
 
-    def ReqMitigation(  # noqa: N802
+    def ReqMitigation(  # ruff: ignore[invalid-function-name]
         self,
         request: ReqMitigationRequest,
-        context: grpc.ServicerContext,  # noqa: ARG002
+        context: grpc.ServicerContext,  # ruff: ignore[unused-method-argument]
     ) -> ReqMitigationResponse:
         """Handle gRPC request for processing ro_error_mitigation error mitigation.
 
@@ -165,7 +163,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
 
         """
         with tracer.start_as_current_span("mitigator.ReqMitigation") as span:
-            try:
+            try:  # ruff: ignore[too-many-statements-in-try-clause]
                 logger.info("start ro_error_mitigation-error mitigation process")
                 logger.debug(
                     "device_topology:%s, counts:%s, program:%s",
@@ -379,10 +377,6 @@ def get_measured_qubits(program: str) -> list[int]:
     Returns:
         list[int]: A list of measured qubit indices, ordered by classical bit index.
 
-    Raises:
-        ValueError: If the program is not a valid QASM 3 program, or if a
-            measured qubit or classical bit cannot be found in the circuit.
-
     """
     return _get_measurement_layout(program).qubits
 
@@ -427,9 +421,9 @@ def _get_measurement_layout(
             sum(gate_counts.values()),
             gate_counts,
         )
-    except Exception as e:
-        msg = f"Invalid QASM 3 program: {e}"
-        raise ValueError(msg) from e
+    except Exception as error:
+        message = f"Invalid QASM 3 program: {error}"
+        raise ValueError(message) from error
 
     measurements: list[tuple[int, int]] = []
 

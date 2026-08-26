@@ -24,7 +24,10 @@ from qiskit.primitives.containers.estimator_pub import (  # type: ignore[import-
 from qiskit.providers.fake_provider import (  # type: ignore[import-untyped]
     GenericBackendV2,
 )
-from qiskit.quantum_info import PauliList, SparsePauliOp  # type: ignore[import-untyped]
+from qiskit.quantum_info import (  # type: ignore[import-untyped]
+    PauliList,
+    SparsePauliOp,
+)
 from qiskit.result import Counts  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
@@ -76,7 +79,6 @@ class ParameterValueError(ValueError):
         return self.args[0]
 
 
-# response
 class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
     """Estimator service implementation for gRPC."""
 
