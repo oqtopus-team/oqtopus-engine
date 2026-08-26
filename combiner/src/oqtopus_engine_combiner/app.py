@@ -127,9 +127,7 @@ class CircuitCombiner(CombinerService):
                 # e.g.
                 # For combined circuits [c1 (3-qubit), c2 (2-qubit), c3 (1-qubit)]
                 # in total 6 qubits, combined_qubits_list is [3, 2, 1].
-                span.set_attribute(
-                    "combiner.total_qubits", sum(combined_qubits_list)
-                )
+                span.set_attribute("combiner.total_qubits", sum(combined_qubits_list))
 
                 response = CombineResponse(
                     combined_status=combined_status,

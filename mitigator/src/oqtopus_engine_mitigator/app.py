@@ -98,9 +98,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
         qubits = device_topology.qubits
         shots = sum(counts.values())
 
-        with tracer.start_as_current_span(
-            "mitigator.extract_measured_qubits"
-        ) as span:
+        with tracer.start_as_current_span("mitigator.extract_measured_qubits") as span:
             measured_qubits = get_measured_qubits(program)
             n_qubits = len(measured_qubits)
             span.set_attribute("mitigator.num_measured_qubits", n_qubits)
@@ -138,7 +136,9 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
             quasi_dist = local_mitigator.quasi_probabilities(
                 Counts(bin_counts, memory_slots=n_qubits)
             )
-            nearest_prob: ProbDistribution = quasi_dist.nearest_probability_distribution()  # type: ignore
+            nearest_prob: ProbDistribution = (
+                quasi_dist.nearest_probability_distribution()  # type: ignore
+            )
             bin_prob = nearest_prob.binary_probabilities(num_bits=n_qubits)
             mitigated_counts = {k: int(v * shots) for k, v in bin_prob.items()}
         logger.debug("finish error mitigation")
