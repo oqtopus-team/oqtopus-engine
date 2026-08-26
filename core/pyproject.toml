@@ -20,6 +20,7 @@ classifiers = [
 requires-python = ">=3.13,<4.0"
 dependencies = [
   "certifi>=2025.11.12",
+  "oqtopus-auth[client]>=0.2.0",
   "oqtopus-util>=1.0.1",
   "docker>=7.1.0",
   "grpcio>=1.76.0",
@@ -56,6 +57,12 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# Local dev source for the shared auth library. For container builds, replace
+# with a published (PyPI) or git ref — a relative path is outside the build
+# context.
+[tool.uv.sources]
+oqtopus-auth = { path = "../../oqtopus-auth", editable = true }
 
 [tool.ruff]
 preview = true

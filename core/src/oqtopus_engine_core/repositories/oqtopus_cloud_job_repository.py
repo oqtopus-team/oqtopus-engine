@@ -1,10 +1,15 @@
 import asyncio
 import copy
 import logging
+import os
 import time
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
+from oqtopus_engine_core.auth import (
+    BearerAuthApiClient,
+    ClientCredentialsTokenProvider,
+)
 from oqtopus_engine_core.framework import Job, JobRepository
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     ApiClient,
@@ -21,6 +26,56 @@ from oqtopus_engine_core.utils.storage_util import OqtopusStorage, OqtopusStorag
 logger = logging.getLogger(__name__)
 
 
+def _build_api_client(  # noqa: PLR0913
+    rest_config: Configuration,
+    *,
+    api_key: str,
+    auth_mode: str,
+    oidc_token_url: str,
+    oidc_client_id: str,
+    oidc_client_secret: str,
+    oidc_scope: str,
+    oidc_expiry_skew_seconds: int,
+) -> ApiClient:
+    """Build the generated ApiClient for the configured auth mode.
+
+    Args:
+        rest_config: The generated-client configuration (host, proxy, ...).
+        api_key: Static API key for ``auth_mode="api_key"``.
+        auth_mode: ``"api_key"`` or ``"oidc"``. Empty falls back to the
+            ``AUTH_MODE`` env var, then to ``"api_key"``.
+        oidc_token_url: IdP token endpoint for ``auth_mode="oidc"``.
+        oidc_client_id: Confidential client id for ``auth_mode="oidc"``.
+        oidc_client_secret: Confidential client secret for ``auth_mode="oidc"``.
+        oidc_scope: Space-delimited scopes to request.
+        oidc_expiry_skew_seconds: Refresh the token this many seconds early.
+
+    Returns:
+        A ``BearerAuthApiClient`` for ``oidc`` mode, else a plain ``ApiClient``
+        carrying the static ``x-api-key`` header.
+
+    """
+    # Precedence: explicit per-repository auth_mode > AUTH_MODE env > "api_key".
+    mode = (auth_mode or os.getenv("AUTH_MODE", "")).strip().lower() or "api_key"
+    if mode == "oidc":
+        token_provider = ClientCredentialsTokenProvider(
+            token_url=oidc_token_url,
+            client_id=oidc_client_id,
+            client_secret=oidc_client_secret,
+            scope=oidc_scope,
+            expiry_skew_seconds=oidc_expiry_skew_seconds,
+        )
+        return BearerAuthApiClient(
+            configuration=rest_config,
+            token_provider=token_provider,
+        )
+    return ApiClient(
+        configuration=rest_config,
+        header_name="x-api-key",
+        header_value=api_key,
+    )
+
+
 class OqtopusCloudJobRepository(JobRepository):
     """Job repository implementation for Oqtopus Cloud."""
 
@@ -35,17 +90,32 @@ class OqtopusCloudJobRepository(JobRepository):
         api_request_timeout_seconds: int = 10,
         file_op_timeout_seconds: int = 60,
         max_file_size: int = 10485760,
+        auth_mode: str = "",
+        oidc_token_url: str = "",
+        oidc_client_id: str = "",
+        oidc_client_secret: str = "",
+        oidc_scope: str = "",
+        oidc_expiry_skew_seconds: int = 60,
     ) -> None:
         """Initialize the job repository with the API URL and interval.
 
         Args:
             url: The endpoint URL to fetch jobs from.
-            api_key: The API key for authentication.
+            api_key: The API key for authentication (``auth_mode="api_key"``).
             proxy: The proxy URL for the API request.
             workers: The number of concurrent workers to use for API requests.
             api_request_timeout_seconds: Timeout for Jobs API HTTP requests.
             file_op_timeout_seconds: Timeout for file upload and download.
             max_file_size: Maximum allowed size for uploaded ZIP payloads.
+            auth_mode: ``"api_key"`` (static ``x-api-key`` header) or ``"oidc"``
+                (OAuth2 client-credentials bearer token). Empty (default) falls
+                back to the ``AUTH_MODE`` env var, then to ``"api_key"``.
+            oidc_token_url: IdP token endpoint (``auth_mode="oidc"``).
+            oidc_client_id: Confidential client id (``auth_mode="oidc"``).
+            oidc_client_secret: Confidential client secret (``auth_mode="oidc"``).
+            oidc_scope: Space-delimited scopes to request, e.g. ``provider.write``.
+            oidc_expiry_skew_seconds: Refresh the token this many seconds before
+                it expires.
 
         """
         super().__init__()
@@ -54,10 +124,15 @@ class OqtopusCloudJobRepository(JobRepository):
         rest_config.host = url
         if proxy:
             rest_config.proxy = proxy
-        api_client = ApiClient(
-            configuration=rest_config,
-            header_name="x-api-key",
-            header_value=api_key,
+        api_client = _build_api_client(
+            rest_config,
+            api_key=api_key,
+            auth_mode=auth_mode,
+            oidc_token_url=oidc_token_url,
+            oidc_client_id=oidc_client_id,
+            oidc_client_secret=oidc_client_secret,
+            oidc_scope=oidc_scope,
+            oidc_expiry_skew_seconds=oidc_expiry_skew_seconds,
         )
         self._jobs_api = JobsApi(api_client=api_client)
         self._sem = asyncio.Semaphore(workers)

@@ -86,3 +86,47 @@ async def test_update_device_info_passes_api_request_timeout_seconds():
 
         _, kwargs = mock_devices_api.patch_device_info_with_http_info.call_args
         assert kwargs["_request_timeout"] == 15
+
+
+# ---------------------------------------------------------------------------
+# auth_mode resolution precedence:
+#   explicit auth_mode  >  AUTH_MODE env  >  "api_key"
+# ---------------------------------------------------------------------------
+
+
+def test_auth_mode_falls_back_to_env(monkeypatch):
+    """With no per-repo auth_mode, the AUTH_MODE env var selects the mode."""
+    monkeypatch.setenv("AUTH_MODE", "oidc")
+    with patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.DevicesApi"
+    ), patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.Configuration"
+    ), patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.ApiClient"
+    ) as api_client_cls, patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.BearerAuthApiClient"
+    ) as bearer_cls, patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.ClientCredentialsTokenProvider"
+    ):
+        OqtopusCloudDeviceRepository(workers=1)
+
+    bearer_cls.assert_called_once()
+    api_client_cls.assert_not_called()
+
+
+def test_explicit_auth_mode_beats_env(monkeypatch):
+    """An explicit auth_mode overrides the AUTH_MODE env var."""
+    monkeypatch.setenv("AUTH_MODE", "oidc")
+    with patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.DevicesApi"
+    ), patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.Configuration"
+    ), patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.ApiClient"
+    ) as api_client_cls, patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.BearerAuthApiClient"
+    ) as bearer_cls:
+        OqtopusCloudDeviceRepository(workers=1, auth_mode="api_key")
+
+    api_client_cls.assert_called_once()
+    bearer_cls.assert_not_called()
