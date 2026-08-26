@@ -1,7 +1,7 @@
 import argparse
 import logging
 import typing
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent import futures
 from typing import TYPE_CHECKING
 
@@ -14,6 +14,13 @@ from qiskit import qasm3  # type: ignore[import-untyped]
 from qiskit.result import Counts, ProbDistribution  # type: ignore[import-untyped]
 from qiskit_experiments.data_processing import (  # type: ignore[import-untyped]
     LocalReadoutMitigator,
+)
+from qiskit_experiments.data_processing.mitigation import (  # type: ignore[import-untyped]
+    counts_probability_vector,
+    str2diag,
+)
+from qiskit_experiments.data_processing.mitigation.utils import (  # type: ignore[import-untyped]
+    z_diagonal,
 )
 
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
@@ -60,6 +67,55 @@ class _MeasurementLayout(typing.NamedTuple):
     qubits: list[int]
     clbits: list[int]
     memory_slots: int
+
+
+class _OptimizedLocalReadoutMitigator(LocalReadoutMitigator):
+    """Use an optimized contraction for mitigated expectation values."""
+
+    def expectation_value(
+        self,
+        data: Counts,
+        diagonal: Callable | dict | str | np.ndarray | None = None,
+        qubits: Iterable[int] | None = None,
+        clbits: list[int] | None = None,
+        shots: int | None = None,
+    ) -> tuple[float, float]:
+        if qubits is None:
+            qubits = self.qubits
+        qubits = list(qubits)
+        num_qubits = len(qubits)
+        probs_vec, shots = counts_probability_vector(
+            data,
+            qubit_index=self._qubit_index,
+            clbits=clbits,
+            qubits=qubits,
+        )
+
+        qubit_indices = [self._qubit_index[qubit] for qubit in qubits]
+        inverse_matrices = self._mitigation_mats[qubit_indices]
+
+        if diagonal is None:
+            diagonal = z_diagonal(2**num_qubits)
+        elif isinstance(diagonal, str):
+            diagonal = str2diag(diagonal)
+
+        diagonal_array = typing.cast("np.ndarray", diagonal)
+        coefficients = np.reshape(diagonal_array, num_qubits * [2])
+        einsum_args: list[typing.Any] = [
+            coefficients,
+            list(range(num_qubits)),
+        ]
+        for index, inverse_matrix in enumerate(reversed(inverse_matrices)):
+            einsum_args += [
+                inverse_matrix.T,
+                [num_qubits + index, index],
+            ]
+        einsum_args += [list(range(num_qubits, 2 * num_qubits))]
+        coefficients = np.einsum(*einsum_args, optimize="greedy").ravel()
+
+        expectation_value = coefficients.dot(probs_vec)
+        standard_deviation = self.stddev_upper_bound(shots, qubits)
+        return float(expectation_value), float(standard_deviation)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -307,7 +363,7 @@ def create_local_readout_mitigator(
                 )
             )
 
-    return LocalReadoutMitigator(assignment_matrices), layout
+    return _OptimizedLocalReadoutMitigator(assignment_matrices), layout
 
 
 def get_measured_qubits(program: str) -> list[int]:

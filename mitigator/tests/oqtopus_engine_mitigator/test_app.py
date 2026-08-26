@@ -1,4 +1,5 @@
 import random
+from typing import Any
 
 import numpy as np
 import pytest
@@ -92,6 +93,45 @@ def test_ro_error_mitigation_expectation_values(error_mitigator):
     assert expectation_values == pytest.approx([1.0, -1.0, -1.0, 1.0])
     assert all(value > 0 for value in standard_deviations[:3])
     assert standard_deviations[3] == 0.0
+
+
+def test_expectation_value_uses_optimized_contraction(
+    error_mitigator: ErrorMitigator,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    device_topology = DeviceTopology(
+        name="sc",
+        qubits=[
+            Qubit(
+                id=index,
+                t1=100e-6,
+                t2=100e-6,
+                gate_error=1e-2,
+                mes_error=MesError(p0m1=0.0, p1m0=0.0),
+            )
+            for index in range(2)
+        ],
+    )
+    circuit = QuantumCircuit(2, 2)
+    circuit.measure(range(2), range(2))
+    einsum_options = []
+    original_einsum = np.einsum
+
+    def tracked_einsum(*args: Any, **kwargs: Any) -> np.ndarray:
+        einsum_options.append(kwargs.get("optimize"))
+        return original_einsum(*args, **kwargs)
+
+    monkeypatch.setattr(np, "einsum", tracked_einsum)
+
+    expectation_values, _ = error_mitigator.ro_error_mitigation_expectation_values(
+        device_topology,
+        {"00": 1000},
+        qasm3.dumps(circuit),
+        ["ZZ"],
+    )
+
+    assert expectation_values == pytest.approx([1.0])
+    assert einsum_options == ["greedy"]
 
 
 def test_ro_error_mitigation_uses_expectation_register(error_mitigator):
