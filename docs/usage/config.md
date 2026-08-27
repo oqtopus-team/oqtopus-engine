@@ -97,6 +97,7 @@ di_container:
       api_key: ${DEVICE_REPOSITORY_API_KEY, ""}
       workers: ${DEVICE_REPOSITORY_WORKERS, 1}
       api_request_timeout_seconds: ${DEVICE_REPOSITORY_API_REQUEST_TIMEOUT_SECONDS, 10}
+      max_file_size: ${MAX_FILE_SIZE, 10485760}
 
     # buffer configurations
     buffer:

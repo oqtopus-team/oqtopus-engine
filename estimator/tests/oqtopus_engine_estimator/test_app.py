@@ -7,15 +7,23 @@ import json
 
 import numpy as np
 import pytest
-from qiskit import qasm3
-from qiskit.circuit import QuantumCircuit
-from qiskit.circuit.random import random_circuit
-from qiskit.primitives import StatevectorSampler
-from qiskit.providers.fake_provider import GenericBackendV2
-from qiskit.quantum_info import Statevector
-from qiskit.quantum_info.operators import SparsePauliOp
-from qiskit.quantum_info.operators.random import random_hermitian
-from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+from qiskit import qasm3  # type: ignore[import-untyped]
+from qiskit.circuit import QuantumCircuit  # type: ignore[import-untyped]
+from qiskit.circuit.random import random_circuit  # type: ignore[import-untyped]
+from qiskit.primitives import StatevectorSampler  # type: ignore[import-untyped]
+from qiskit.providers.fake_provider import (  # type: ignore[import-untyped]
+    GenericBackendV2,
+)
+from qiskit.quantum_info import Statevector  # type: ignore[import-untyped]
+from qiskit.quantum_info.operators import (  # type: ignore[import-untyped]
+    SparsePauliOp,
+)
+from qiskit.quantum_info.operators.random import (  # type: ignore[import-untyped]
+    random_hermitian,
+)
+from qiskit.transpiler.preset_passmanagers import (  # type: ignore[import-untyped]
+    generate_preset_pass_manager,
+)
 
 from oqtopus_engine_estimator.app import Estimator, create_qiskit_operator
 

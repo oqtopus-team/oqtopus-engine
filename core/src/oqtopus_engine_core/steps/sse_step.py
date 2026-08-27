@@ -187,15 +187,16 @@ class SseStep(Step):
 
             if job.transpile_result is not None:
                 # Upload to storage
-                urls = await gctx.job_repository.get_job_upload_url(  # type: ignore[union-attr]
+                await gctx.job_repository.upload_job_outputs_nowait(  # type: ignore[union-attr]
                     job=job,
-                    items=["transpile_result"],
-                )
-                await gctx.job_repository.upload_job_output(  # type: ignore[union-attr]
-                    job=job,
-                    presigned_url=urls[0],
-                    data=job.transpile_result.model_dump(),
-                    arcname_ext=".json",
+                    outputs=[
+                        (
+                            "transpile_result",
+                            job.transpile_result.model_dump(),
+                            ".json",
+                            None,
+                        )
+                    ],
                 )
 
     @staticmethod

@@ -487,16 +487,16 @@ class MpAutoCombiningBuffer(Buffer):
             job: The job whose transpile_result is to be uploaded.
 
         """
-        urls = await gctx.job_repository.get_job_upload_url(  # type: ignore[union-attr]
+        await gctx.job_repository.upload_job_outputs_nowait(  # type: ignore[union-attr]
             job=job,
-            items=["transpile_result"],
-        )
-
-        await gctx.job_repository.upload_job_output_nowait(  # type: ignore[union-attr]
-            job=job,
-            presigned_url=urls[0],
-            data=job.transpile_result.model_dump(),  # type: ignore[union-attr]
-            arcname_ext=".json",
+            outputs=[
+                (
+                    "transpile_result",
+                    job.transpile_result.model_dump(),  # type: ignore[union-attr]
+                    ".json",
+                    None,
+                )
+            ],
         )
 
     async def _request_combine(

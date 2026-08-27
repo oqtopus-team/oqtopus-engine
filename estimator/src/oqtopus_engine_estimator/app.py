@@ -5,25 +5,37 @@ import logging
 import re
 from concurrent import futures
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 import numpy as np
 from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
 from opentelemetry import trace
 from oqtopus_util.config import load_config, setup_logging
-from qiskit import QuantumCircuit, qasm3
-from qiskit.exceptions import QiskitError
-from qiskit.primitives import BackendEstimatorV2 as BackendEstimator
-from qiskit.primitives.backend_estimator import (
+from qiskit import QuantumCircuit, qasm3  # type: ignore[import-untyped]
+from qiskit.exceptions import QiskitError  # type: ignore[import-untyped]
+from qiskit.primitives import (  # type: ignore[import-untyped]
+    BackendEstimatorV2 as BackendEstimator,
+)
+from qiskit.primitives.backend_estimator import (  # type: ignore[import-untyped]
     _pauli_expval_with_variance,  # noqa: PLC2701
 )
-from qiskit.primitives.containers.estimator_pub import EstimatorPub
-from qiskit.providers.fake_provider import GenericBackendV2
-from qiskit.quantum_info import PauliList, SparsePauliOp
-from qiskit.result import Counts
+from qiskit.primitives.containers.estimator_pub import (  # type: ignore[import-untyped]
+    EstimatorPub,
+)
+from qiskit.providers.fake_provider import (  # type: ignore[import-untyped]
+    GenericBackendV2,
+)
+from qiskit.quantum_info import PauliList, SparsePauliOp  # type: ignore[import-untyped]
+from qiskit.result import Counts  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
-    estimator_pb2,
     estimator_pb2_grpc,
+)
+from oqtopus_engine_core.interfaces.estimator_interface.v1.estimator_pb2 import (  # type: ignore[attr-defined]
+    DESCRIPTOR,
+    ReqEstimationPostProcessRequest,
+    ReqEstimationPostProcessResponse,
+    ReqEstimationPreProcessRequest,
+    ReqEstimationPreProcessResponse,
 )
 from oqtopus_engine_estimator.observability import setup_observability
 
@@ -65,14 +77,14 @@ class ParameterValueError(ValueError):
 
 
 # response
-class Estimator(estimator_pb2_grpc.EstimatorService):
+class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
     """Estimator service implementation for gRPC."""
 
     def ReqEstimationPreProcess(  # noqa: N802
         self,
-        request: estimator_pb2.ReqEstimationPreProcessRequest,
+        request: ReqEstimationPreProcessRequest,
         context: grpc.ServicerContext,  # noqa: ARG002
-    ) -> estimator_pb2.ReqEstimationPreProcessResponse:
+    ) -> ReqEstimationPreProcessResponse:
         """Handle gRPC request for preprocessing estimation job.
 
         This method returns QASM codes with an operator based measurement
@@ -106,7 +118,7 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
                 preprocessed_qasm_codes, grouped_operators = self._preprocess(
                     qasm_code, operators, basis_gates, mapping_list
                 )
-                return estimator_pb2.ReqEstimationPreProcessResponse(
+                return ReqEstimationPreProcessResponse(
                     qasm_codes=preprocessed_qasm_codes,
                     grouped_operators=grouped_operators,
                 )
@@ -118,9 +130,9 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
 
     def ReqEstimationPostProcess(  # noqa: N802
         self,
-        request: estimator_pb2.ReqEstimationPostProcessRequest,
+        request: ReqEstimationPostProcessRequest,
         context: grpc.ServicerContext,  # noqa: ARG002
-    ) -> estimator_pb2.ReqEstimationPostProcessResponse:
+    ) -> ReqEstimationPostProcessResponse:
         """Handle gRPC request for postprocessing estimation job.
 
         This method returns the expected value and standard deviation from the
@@ -152,9 +164,7 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
                     expval,
                     stds,
                 )
-                return estimator_pb2.ReqEstimationPostProcessResponse(
-                    expval=expval, stds=stds
-                )
+                return ReqEstimationPostProcessResponse(expval=expval, stds=stds)
             except Exception as e:
                 logger.exception(
                     "Estimation job postprocess failed. Exception occurred"
@@ -357,7 +367,7 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     estimator_pb2_grpc.add_EstimatorServiceServicer_to_server(Estimator(), server)
 
     service_names = (
-        estimator_pb2.DESCRIPTOR.services_by_name["EstimatorService"].full_name,
+        DESCRIPTOR.services_by_name["EstimatorService"].full_name,
         reflection.SERVICE_NAME,
     )
     reflection.enable_server_reflection(service_names, server)

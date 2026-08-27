@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
-from oqtopus_engine_core.framework import Job, JobRepository
+from oqtopus_engine_core.framework import Job, JobOutput, JobRepository
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     ApiClient,
     Configuration,
@@ -346,7 +346,7 @@ class OqtopusCloudJobRepository(JobRepository):
             jobs.append(job)
         return jobs
 
-    async def get_job_upload_url(
+    async def get_job_upload_urls(
         self, job: Job, items: list[str]
     ) -> list[JobsJobInfoUploadPresignedURL]:
         """Fetch presigned URLs for job information item uploads.
@@ -453,7 +453,65 @@ class OqtopusCloudJobRepository(JobRepository):
 
         return response
 
-    async def upload_job_output(
+    async def upload_job_outputs(
+        self,
+        job: Job,
+        outputs: list[JobOutput],
+    ) -> None:
+        """Fetch presigned URLs and upload a group of job output files.
+
+        Each output is represented as ``(item, data, arcname_ext, arcname)``.
+        The order of ``outputs`` is preserved for both URL allocation and upload.
+
+        Raises:
+            ValueError: If the number of returned URLs does not match ``outputs``.
+
+        """
+        urls = await self.get_job_upload_urls(
+            job=job,
+            items=[item for item, _, _, _ in outputs],
+        )
+        if len(urls) != len(outputs):
+            msg = (
+                "Job repository returned a different number of upload URLs "
+                "than requested"
+            )
+            raise ValueError(msg)
+
+        for url, (_, data, arcname_ext, arcname) in zip(urls, outputs, strict=True):
+            await self._upload_one_output(
+                job=job,
+                presigned_url=url,
+                data=data,
+                arcname_ext=arcname_ext,
+                arcname=arcname,
+            )
+
+    async def upload_job_outputs_nowait(
+        self,
+        job: Job,
+        outputs: list[JobOutput],
+        *,
+        preserve_order: bool = True,
+    ) -> None:
+        """Upload a group of job output files without waiting."""
+        if preserve_order:
+            task = asyncio.create_task(
+                self._enqueue_and_run(
+                    job.job_id,
+                    self.upload_job_outputs(job, outputs),
+                )
+            )
+        else:
+            task = asyncio.create_task(self.upload_job_outputs(job, outputs))
+
+        self._track_background_request(
+            task,
+            label="job outputs upload",
+            extra={"job_id": job.job_id, "job_type": job.job_type},
+        )
+
+    async def _upload_one_output(
         self,
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
@@ -510,47 +568,6 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         job.output_files.append(presigned_url.fields.key)
-
-    async def upload_job_output_nowait(  # noqa: PLR0913
-        self,
-        job: Job,
-        presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any] | str,
-        arcname_ext: str = "",
-        arcname: str | None = None,
-        *,
-        preserve_order: bool = True,
-    ) -> None:
-        """Upload job output data to cloud storage without waiting."""
-        if preserve_order:
-            task = asyncio.create_task(
-                self._enqueue_and_run(
-                    job.job_id,
-                    self.upload_job_output(
-                        job,
-                        presigned_url,
-                        data,
-                        arcname_ext,
-                        arcname,
-                    ),
-                )
-            )
-        else:
-            task = asyncio.create_task(
-                self.upload_job_output(
-                    job,
-                    presigned_url,
-                    data,
-                    arcname_ext,
-                    arcname,
-                )
-            )
-
-        self._track_background_request(
-            task,
-            label="job output upload",
-            extra={"job_id": job.job_id, "job_type": job.job_type},
-        )
 
     async def update_job_status(
         self,

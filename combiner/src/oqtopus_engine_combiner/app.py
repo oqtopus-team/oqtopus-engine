@@ -27,7 +27,7 @@ from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2 import ( 
     Status,
 )
 from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2_grpc import (
-    CombinerService,
+    CombinerServiceServicer,
     add_CombinerServiceServicer_to_server,
 )
 
@@ -75,7 +75,7 @@ class InvalidQubitsError(Exception):
 
 
 # response
-class CircuitCombiner(CombinerService):
+class CircuitCombiner(CombinerServiceServicer):
     """Combine quantum circuits.
 
     This class combines quantum circuits and returns the combined circuit program.
@@ -443,6 +443,23 @@ class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
         return f"{self.log_dir}/circuit_combiner-{current_time}.log"
 
 
+def create_server(max_workers: int, grpc_options: list) -> grpc.Server:
+    """Create a gRPC server with the given thread pool size and options.
+
+    Args:
+        max_workers: Maximum number of worker threads for the server.
+        grpc_options: gRPC channel options to configure the server with.
+
+    Returns:
+        The created gRPC server.
+
+    """
+    return grpc.server(
+        futures.ThreadPoolExecutor(max_workers),
+        options=grpc_options,
+    )
+
+
 # boot server
 def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     """Start the gRPC server with the specified configuration and logging settings.
@@ -472,12 +489,10 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
         config_yaml["combiner"].get("idle_qubits_insertion_enabled") or "false"
     )
     idle_qubits_insertion_enabled = str_idle_qubits_insertion_enabled.lower() == "true"
+    grpc_options = config_yaml["proto"].get("grpc_options") or []
 
     # create the gRPC server
-    server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers),
-        options=config_yaml["proto"]["grpc_options"],
-    )
+    server = create_server(max_workers, grpc_options)
     add_CombinerServiceServicer_to_server(
         CircuitCombiner(idle_qubits_insertion_enabled=idle_qubits_insertion_enabled),
         server,

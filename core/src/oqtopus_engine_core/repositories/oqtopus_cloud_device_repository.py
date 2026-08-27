@@ -2,7 +2,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from oqtopus_engine_core.framework import Device, DeviceRepository
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
@@ -12,10 +12,12 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud import (
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
     DevicesDeviceInfoUpdate,
+    DevicesDeviceInfoUploadResponse,
     DevicesDeviceStatusUpdate,
     DevicesUpdateDeviceRequest,
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
+from oqtopus_engine_core.utils.storage_util import OqtopusStorage, OqtopusStorageError
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +42,15 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
 
     T = TypeVar("T")
 
-    def __init__(
+    def __init__(  # noqa: PLR0913, PLR0917
         self,
         url: str = "http://localhost:8888",
         api_key: str = "",
         proxy: str | None = None,
         workers: int = 5,
         api_request_timeout_seconds: int = 10,
+        file_op_timeout_seconds: int = 60,
+        max_file_size: int = 10485760,
     ) -> None:
         """Initialize the device repository with the API URL and interval.
 
@@ -56,6 +60,8 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
             proxy: The proxy URL for the API request.
             workers: The number of concurrent workers to use for API requests.
             api_request_timeout_seconds: Timeout for Devices API HTTP requests.
+            file_op_timeout_seconds: Timeout for file upload requests.
+            max_file_size: Maximum allowed size for uploaded ZIP payloads.
 
         """
         super().__init__()
@@ -72,6 +78,9 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         self._devices_api = DevicesApi(api_client=api_client)
         self._sem = asyncio.Semaphore(workers)
         self._api_request_timeout_seconds = api_request_timeout_seconds
+        self._proxy = proxy
+        self._file_op_timeout_seconds = file_op_timeout_seconds
+        self._max_file_size = max_file_size
 
         logger.info(
             "OqtopusCloudDeviceRepository was initialized",
@@ -80,6 +89,8 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
                 "proxy": proxy,
                 "workers": workers,
                 "api_request_timeout_seconds": api_request_timeout_seconds,
+                "file_op_timeout_seconds": file_op_timeout_seconds,
+                "max_file_size": max_file_size,
             },
         )
 
@@ -98,7 +109,7 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
             extra: Extra fields to log on error.
 
         Returns:
-            The data returned by the call.
+            The data returned by the call, or None if an error occurred.
 
         Raises:
             ApiException: If an API error occurs.
@@ -132,6 +143,39 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
                 )
                 raise
 
+    async def _storage_request_with_error_logging(
+        self,
+        call: Callable[[], T],
+        label: str,
+        extra: dict[str, Any],
+    ) -> T:
+        """Call a storage operation in a worker thread with error logging.
+
+        Returns:
+            The value returned by the storage call.
+
+        Raises:
+            OqtopusStorageError: If a storage-specific error occurs.
+
+        """
+        async with self._sem:
+            try:
+                return await asyncio.to_thread(call)
+            except OqtopusStorageError as ex:
+                logger.info(
+                    "%s: storage error",
+                    label,
+                    extra={"error": str(ex), **extra},
+                )
+                raise
+            except Exception:
+                logger.info(
+                    "%s: unexpected error",
+                    label,
+                    extra=extra,
+                )
+                raise
+
     async def update_device(self, device: Device) -> None:
         """Update device in Oqtopus Cloud.
 
@@ -158,12 +202,11 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         )
 
         start = time.perf_counter()
-        result = await self._request_with_error_logging(
+        response, status_code, _ = await self._request_with_error_logging(
             _call,
             "PATCH /devices/{device_id}",
             extra,
         )
-        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -202,12 +245,11 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         )
 
         start = time.perf_counter()
-        result = await self._request_with_error_logging(
+        response, status_code, _ = await self._request_with_error_logging(
             _call,
             "PATCH /devices/{device_id}/status",
             extra,
         )
-        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -226,20 +268,100 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         Args:
             device: The device to update
 
+        Raises:
+            ValueError: If `device.device_info` is missing.
+
         """
-        body = DevicesDeviceInfoUpdate(
-            device_info=device.device_info,
-            calibrated_at=device.calibrated_at,
+        if device.device_info is None:
+            msg = "device.device_info is required"
+            raise ValueError(msg)
+
+        extra: dict[str, Any] = {"device_id": device.device_id}
+
+        def _get_upload_url_call() -> tuple[object, int, dict]:
+            return self._devices_api.get_device_info_upload_url_with_http_info(
+                device_id=device.device_id,
+                _request_timeout=self._api_request_timeout_seconds,
+            )
+
+        logger.info(
+            "GET /devices/{device_id}/device_info/upload: request",
+            extra=extra,
         )
 
-        def _call() -> tuple[object, int, dict]:
+        start = time.perf_counter()
+        upload_response_obj, status_code, _ = await self._request_with_error_logging(
+            _get_upload_url_call,
+            "GET /devices/{device_id}/device_info/upload",
+            extra,
+        )
+        upload_response = cast("DevicesDeviceInfoUploadResponse", upload_response_obj)
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        logger.info(
+            "GET /devices/{device_id}/device_info/upload: response",
+            extra={
+                "status_code": status_code,
+                "elapsed_ms": round(elapsed_ms, 3),
+                **extra,
+                "body": upload_response,
+            },
+        )
+
+        presigned_url = upload_response.presigned_url
+
+        def _upload_call() -> None:
+            proxies = (
+                {"http": self._proxy, "https": self._proxy} if self._proxy else None
+            )
+            return OqtopusStorage.upload(
+                presigned_url=presigned_url,
+                data=device.device_info or "",
+                arcname="device_info.json",
+                max_size=self._max_file_size,
+                proxies=proxies,
+                timeout_s=self._file_op_timeout_seconds,
+            )
+
+        logger.info(
+            "device_info upload started",
+            extra={
+                **extra,
+                "url": presigned_url.url,
+                "key": presigned_url.fields.get("key")
+                if isinstance(presigned_url.fields, dict)
+                else None,
+            },
+        )
+
+        start = time.perf_counter()
+        await self._storage_request_with_error_logging(
+            _upload_call,
+            "device_info upload",
+            extra,
+        )
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+        logger.info(
+            "device_info upload completed",
+            extra={
+                "elapsed_ms": round(elapsed_ms, 3),
+                **extra,
+                "url": presigned_url.url,
+                "key": presigned_url.fields.get("key")
+                if isinstance(presigned_url.fields, dict)
+                else None,
+            },
+        )
+
+        body = DevicesDeviceInfoUpdate(calibrated_at=device.calibrated_at)
+
+        def _patch_call() -> tuple[object, int, dict]:
             return self._devices_api.patch_device_info_with_http_info(
                 device_id=device.device_id,
                 body=body,
                 _request_timeout=self._api_request_timeout_seconds,
             )
-
-        extra: dict[str, Any] = {"device_id": device.device_id}
 
         logger.info(
             "PATCH /devices/{device_id}/device_info: request",
@@ -247,12 +369,11 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         )
 
         start = time.perf_counter()
-        result = await self._request_with_error_logging(
-            _call,
+        response, status_code, _ = await self._request_with_error_logging(
+            _patch_call,
             "PATCH /devices/{device_id}/device_info",
             extra,
         )
-        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(

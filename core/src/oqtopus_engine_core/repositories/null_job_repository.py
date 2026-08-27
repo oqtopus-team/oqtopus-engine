@@ -1,7 +1,7 @@
 import logging
 from typing import Any
 
-from oqtopus_engine_core.framework import Job, JobRepository
+from oqtopus_engine_core.framework import Job, JobOutput, JobRepository
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     JobsJobInfoUploadPresignedURL,
     JobsJobInfoUploadPresignedURLFields,
@@ -51,7 +51,7 @@ class NullJobRepository(JobRepository):
         )
         return []
 
-    async def get_job_upload_url(
+    async def get_job_upload_urls(
         self, job: Job, items: list[str]
     ) -> list[JobsJobInfoUploadPresignedURL]:
         """Return placeholder upload URLs.
@@ -60,7 +60,7 @@ class NullJobRepository(JobRepository):
             Placeholder upload URLs so callers can stay storage-agnostic.
 
         """
-        self._log_noop("get_job_upload_url", job_id=job.job_id, items=items)
+        self._log_noop("get_job_upload_urls", job_id=job.job_id, items=items)
         return [
             JobsJobInfoUploadPresignedURL(
                 url="null://upload",
@@ -84,45 +84,33 @@ class NullJobRepository(JobRepository):
         self._log_noop("download_job_input", job_id=job.job_id)
         return {}
 
-    async def upload_job_output(
+    async def upload_job_outputs(
         self,
         job: Job,
-        presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any] | str,
-        arcname_ext: str = "",
-        arcname: str | None = None,
+        outputs: list[JobOutput],
     ) -> None:
-        """Log and discard the upload request."""
+        """Log and discard a group of job output upload requests."""
         self._log_noop(
-            "upload_job_output",
+            "upload_job_outputs",
             job_id=job.job_id,
             job_type=job.job_type,
-            key=getattr(getattr(presigned_url, "fields", None), "key", None),
-            arcname_ext=arcname_ext,
-            arcname=arcname,
-            data_type=type(data).__name__,
+            items=[item for item, _, _, _ in outputs],
         )
 
-    async def upload_job_output_nowait(  # noqa: PLR0913
+    async def upload_job_outputs_nowait(
         self,
         job: Job,
-        presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any] | str,
-        arcname_ext: str = "",
-        arcname: str | None = None,
+        outputs: list[JobOutput],
         *,
         preserve_order: bool = True,
     ) -> None:
-        """Log and discard the asynchronous upload request."""
+        """Log and discard asynchronous job output upload requests."""
         self._log_noop(
-            "upload_job_output_nowait",
+            "upload_job_outputs_nowait",
             job_id=job.job_id,
             job_type=job.job_type,
-            key=getattr(getattr(presigned_url, "fields", None), "key", None),
-            arcname_ext=arcname_ext,
-            arcname=arcname,
+            items=[item for item, _, _, _ in outputs],
             preserve_order=preserve_order,
-            data_type=type(data).__name__,
         )
 
     async def update_job_status(

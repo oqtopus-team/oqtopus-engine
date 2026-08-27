@@ -54,7 +54,6 @@ def _make_transpile_result() -> dict[str, Any]:
 
 def _make_gctx() -> GlobalContext:
     mock_repo = AsyncMock(spec=JobRepository)
-    mock_repo.get_job_upload_url.return_value = ["https://invalid.example.com/upload"]
     return GlobalContext(config={}, job_repository=mock_repo)
 
 
@@ -367,7 +366,6 @@ class TestRunSse:
             await sse_step._run_sse(
                 sample_job, mock_gctx, sse_step._settings, temp_dirs
             )
-
         assert sample_job.status == "succeeded"
         mock_gctx.job_repository.update_job_transpiler_info.assert_awaited_once()
 
