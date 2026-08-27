@@ -29,6 +29,13 @@ class MpAutoCombiningStep(Step):
 
     This step divides the results of auto-combined job back to original jobs.
     The automatic combining process is done in `MpAutoCombiningBuffer` class.
+
+    A divided-back child may already have a `.parent` from an earlier,
+    unrelated split (e.g. an estimation sub-circuit combined with other
+    same-pipeline jobs — `MpAutoCombiningBuffer` never combines jobs across
+    different `pipeline_name`s). This step returns such children as-is;
+    `PipelineExecutor._handle_split` is responsible for not overwriting
+    their real `.parent`.
     """
 
     async def pre_process(  # noqa: PLR6301

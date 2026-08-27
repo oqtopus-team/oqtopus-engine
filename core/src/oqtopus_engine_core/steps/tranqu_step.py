@@ -72,13 +72,6 @@ class TranquStep(Step):
             StepResult: NONE directive — the pipeline continues normally.
 
         """
-        # Skip SSE job
-        if job.job_type == "sse":
-            logger.debug(
-                "job_type is sse, skipping",
-                extra={"job_id": job.job_id, "job_type": job.job_type},
-            )
-            return StepResult()
         # Skip if the transpiler is disabled
         if job.transpiler_info.get("transpiler_lib", {}) is None:
             logger.debug(
@@ -114,7 +107,7 @@ class TranquStep(Step):
         else:
             program_to_transpile = job.program[0]  # type: ignore[index]
         request = tranqu_pb2.TranspileRequest(  # type: ignore[attr-defined]
-            request_id="id",
+            request_id=job.job_id,
             program=program_to_transpile,
             program_lib="openqasm3",
             transpiler_lib=job.transpiler_info["transpiler_lib"],

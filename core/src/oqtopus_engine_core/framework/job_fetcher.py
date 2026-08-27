@@ -3,14 +3,14 @@ import logging
 from abc import ABC, abstractmethod
 
 from .context import GlobalContext
-from .pipeline import PipelineExecutor
+from .pipeline_manager import PipelineManager
 
 logger = logging.getLogger(__name__)
 
 
 async def wait_until_fetchable(
     gctx: GlobalContext,
-    pipeline: PipelineExecutor,
+    pipeline: PipelineManager,
     interval_seconds: float,
     job_fetch_threshold: int,
 ) -> None:
@@ -73,7 +73,7 @@ class JobFetcher(ABC):
     """Abstract base class for fetching jobs and feeding them into the pipeline."""
 
     def __init__(self) -> None:
-        self._pipeline: PipelineExecutor | None = None
+        self._pipeline: PipelineManager | None = None
         self._gctx: GlobalContext | None = None
 
     @property
@@ -97,21 +97,21 @@ class JobFetcher(ABC):
         self._gctx = gctx
 
     @property
-    def pipeline(self) -> PipelineExecutor | None:
+    def pipeline(self) -> PipelineManager | None:
         """Get the currently set pipeline executor.
 
         Returns:
-            The PipelineExecutor instance or None.
+            The PipelineManager instance or None.
 
         """
         return self._pipeline
 
     @pipeline.setter
-    def pipeline(self, pipeline: PipelineExecutor) -> None:
+    def pipeline(self, pipeline: PipelineManager) -> None:
         """Set the pipeline executor to handle job processing.
 
         Args:
-            pipeline: An instance of PipelineExecutor.
+            pipeline: An instance of PipelineManager.
 
         """
         self._pipeline = pipeline
@@ -141,7 +141,7 @@ class JobFetcher(ABC):
         """
         pipeline = self.pipeline
         if pipeline is None:
-            message = "PipelineExecutor must be set before starting the fetcher."
+            message = "PipelineManager must be set before starting the fetcher."
             raise RuntimeError(message)
         gctx = self.gctx
         if gctx is None:

@@ -45,6 +45,17 @@ class MpAutoCombiningBuffer(Buffer):
         The combination process is done in the background task.
         The uncombined jobs are passed through without modification.
 
+        Combining never mixes jobs across different `pipeline_name`s (see
+        `_group_by_pipeline_name`), even when their `job_type` would
+        otherwise make them eligible to combine together (e.g. an
+        estimation sub-circuit's `job_type` is "sampling", the same as a
+        plain sampling job, but its `pipeline_name` stays "estimation").
+        This guarantees a combined job's `pipeline_name` (set in
+        `create_combined_job`) always resolves back to the single
+        PipelineExecutor instance that owns its constituents'
+        pending-children state — see the "already-parented children" note
+        in `PipelineExecutor._handle_split`.
+
     Args:
         maxsize: Maximum number of elements allowed in the queue.
             A value of 0 indicates unlimited capacity.
@@ -164,18 +175,9 @@ class MpAutoCombiningBuffer(Buffer):
                 # filter combinable jobs
                 combinable_jobs, uncombinable_jobs = filter_combinable_jobs(drained)
 
-                # combine the combinable jobs if the number of jobs is more than 1
-                if len(combinable_jobs) > 1:
-                    combined_jobs, unassigned_jobs = await self._combine_jobs(
-                        combinable_jobs
-                    )
-                else:
-                    logger.info(
-                        "not enough combinable jobs; skipping combine",
-                        extra={"num_combinable_jobs": len(combinable_jobs)},
-                    )
-                    combined_jobs = []
-                    unassigned_jobs = combinable_jobs
+                combined_jobs, unassigned_jobs = await self._combine_by_pipeline_name(
+                    combinable_jobs
+                )
 
             except Exception:
                 logger.exception("error during job combination")
@@ -234,6 +236,50 @@ class MpAutoCombiningBuffer(Buffer):
                         + len(unassigned_jobs),
                     },
                 )
+
+    async def _combine_by_pipeline_name(
+        self, combinable_jobs: list[tuple[GlobalContext, JobContext, Job]]
+    ) -> tuple[
+        list[tuple[GlobalContext, JobContext, Job]],
+        list[tuple[GlobalContext, JobContext, Job]],
+    ]:
+        """Combine jobs, grouped by pipeline_name so groups are never mixed.
+
+        Combining never mixes jobs across different pipeline_names, so a
+        combined job's pipeline_name (set in `create_combined_job`) always
+        resolves back to the PipelineExecutor instance that owns its
+        constituents' pending-children state (see pipeline.py's
+        `_handle_split`).
+
+        Args:
+            combinable_jobs: Jobs eligible for combination, from
+                `filter_combinable_jobs`.
+
+        Returns:
+            A tuple containing:
+            - List of combined jobs as `(GlobalContext, JobContext, Job)` tuples.
+            - List of jobs left unassigned (too few peers, or not combined by
+              the combiner service) as `(GlobalContext, JobContext, Job)` tuples.
+
+        """
+        combined_jobs: list[tuple[GlobalContext, JobContext, Job]] = []
+        unassigned_jobs: list[tuple[GlobalContext, JobContext, Job]] = []
+        for pipeline_name, group in _group_by_pipeline_name(combinable_jobs).items():
+            # combine the group's jobs if there is more than 1
+            if len(group) > 1:
+                group_combined, group_unassigned = await self._combine_jobs(group)
+                combined_jobs.extend(group_combined)
+                unassigned_jobs.extend(group_unassigned)
+            else:
+                logger.info(
+                    "not enough combinable jobs in pipeline; skipping combine",
+                    extra={
+                        "pipeline_name": pipeline_name,
+                        "num_combinable_jobs": len(group),
+                    },
+                )
+                unassigned_jobs.extend(group)
+        return combined_jobs, unassigned_jobs
 
     async def _drain_input(self) -> list[tuple[GlobalContext, JobContext, Job]]:
         """Drain jobs from input buffer up to max_batch_size.
@@ -495,6 +541,26 @@ class MpAutoCombiningBuffer(Buffer):
         return response
 
 
+def _group_by_pipeline_name(
+    jobs: list[tuple[GlobalContext, JobContext, Job]],
+) -> dict[str | None, list[tuple[GlobalContext, JobContext, Job]]]:
+    """Group jobs by their jctx's pipeline_name.
+
+    Args:
+        jobs: List of `(GlobalContext, JobContext, Job)` tuples to group.
+
+    Returns:
+        A dict mapping each distinct pipeline_name (or None) to its jobs,
+        preserving the original relative order within each group.
+
+    """
+    groups: dict[str | None, list[tuple[GlobalContext, JobContext, Job]]] = {}
+    for item in jobs:
+        _, jctx, _ = item
+        groups.setdefault(jctx.get("pipeline_name"), []).append(item)
+    return groups
+
+
 def filter_combinable_jobs(
     jobs: list[tuple[GlobalContext, JobContext, Job]],
 ) -> tuple[
@@ -559,10 +625,16 @@ def create_combined_job(
 ) -> tuple[GlobalContext, JobContext, Job]:
     """Create a combined Job object from the combined QASM.
 
+    The combined job's context inherits `pipeline_name` directly from
+    `original_jobs` (see the note below). Callers must ensure all of
+    `original_jobs` share the same `pipeline_name` — i.e. group jobs by
+    `pipeline_name` (see `_group_by_pipeline_name`) before combining them.
+
     Args:
         combined_program: The combined program QASM string.
         combine_info: Dictionary containing metadata obtained from combiner.
-        original_jobs: Dictionary of original jobs keyed by job ID.
+        original_jobs: Dictionary of original jobs keyed by job ID. All
+            entries must share the same `pipeline_name`.
 
     Returns:
         A Job object containing the combined program.
@@ -592,6 +664,14 @@ def create_combined_job(
         "n_total_qubits": combine_info["n_total_qubits"],
         "combined_qubits_list": combine_info["combined_qubits_list"],
     }
+    # All original jobs share the same pipeline_name (combining is grouped
+    # by pipeline_name before this is called), so the combined job inherits
+    # it directly rather than relying on PipelineSelector to re-derive it
+    # from job_type — which would be wrong for e.g. estimation sub-circuits
+    # whose job_type ("sampling") does not match their real pipeline_name.
+    combined_jctx["pipeline_name"] = next(iter(original_jobs.values()))[1].get(
+        "pipeline_name"
+    )
 
     # only link children here, not parent, to avoid overwriting the parent
     # of the original jobs before they are combined.
