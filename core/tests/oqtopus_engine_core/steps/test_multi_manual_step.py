@@ -284,8 +284,7 @@ class TestMultiManualStepPreProcess:
     @pytest.fixture
     def step_and_stub(self) -> tuple[MultiManualStep, AsyncMock]:
         patch_channel = patch(
-            "oqtopus_engine_core.steps.multi_manual_step"
-            ".grpc.aio.insecure_channel",
+            "oqtopus_engine_core.steps.multi_manual_step.grpc.aio.insecure_channel",
         )
         patch_stub = patch(
             "oqtopus_engine_core.steps.multi_manual_step"
@@ -336,14 +335,9 @@ class TestMultiManualStepPreProcess:
         assert jctx[COMBINED_QUBITS_LIST_KEY] == [1, 3]
         assert jctx["max_qubits"] == 5
         assert jctx["combined_program"] == "combined_qasm_result"
-        gctx.job_repository.get_job_upload_url.assert_awaited_once_with(
+        gctx.job_repository.upload_job_outputs_nowait.assert_awaited_once_with(
             job=job,
-            items=["combined_program"],
-        )
-        gctx.job_repository.upload_job_output.assert_awaited_once_with(
-            job=job,
-            presigned_url=gctx.job_repository.get_job_upload_url.return_value[0],
-            data="combined_qasm_result",
+            outputs=[("combined_program", "combined_qasm_result", "", None)],
         )
 
     @pytest.mark.asyncio
@@ -403,8 +397,7 @@ class TestMultiManualStepPostProcess:
     @pytest.fixture
     def step(self) -> MultiManualStep:
         patch_channel = patch(
-            "oqtopus_engine_core.steps.multi_manual_step"
-            ".grpc.aio.insecure_channel",
+            "oqtopus_engine_core.steps.multi_manual_step.grpc.aio.insecure_channel",
         )
         patch_stub = patch(
             "oqtopus_engine_core.steps.multi_manual_step"

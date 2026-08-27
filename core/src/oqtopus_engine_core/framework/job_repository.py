@@ -4,6 +4,8 @@ from typing import Any
 from oqtopus_engine_core.framework.model import Job
 from oqtopus_engine_core.interfaces.oqtopus_cloud import JobsJobInfoUploadPresignedURL
 
+JobOutput = tuple[str, dict[str, Any] | str, str, str | None]
+
 
 class JobRepository(ABC):
     """Abstract base class for job repository implementations."""
@@ -30,7 +32,7 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def get_job_upload_url(
+    async def get_job_upload_urls(
         self, job: Job, items: list[str]
     ) -> list[JobsJobInfoUploadPresignedURL]:
         """Fetch presigned URLs for job information item uploads.
@@ -49,7 +51,7 @@ class JobRepository(ABC):
 
         """
         message = (
-            "`get_job_upload_url` must be implemented in subclasses of JobRepository."
+            "`get_job_upload_urls` must be implemented in subclasses of JobRepository."
         )
         raise NotImplementedError(message)
 
@@ -76,51 +78,41 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def upload_job_output(
+    async def upload_job_outputs(
         self,
         job: Job,
-        presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any] | str,
-        arcname_ext: str = "",
-        arcname: str | None = None,
+        outputs: list[JobOutput],
     ) -> None:
-        """Upload job output data to the backing storage.
+        """Upload a group of job output files.
 
         Args:
             job: The job for output upload.
-            presigned_url: Presigned URL for upload.
-            data: Data to be uploaded.
-            arcname_ext: Data file extension to be zipped, e.g. `.json`.
-            arcname: Override filename to store inside the uploaded zip archive.
+            outputs: Output items represented as
+                ``(item, data, arcname_ext, arcname)``.
 
         Raises:
             NotImplementedError: If not implemented in subclass.
 
         """
         message = (
-            "`upload_job_output` must be implemented in subclasses of JobRepository."
+            "`upload_job_outputs` must be implemented in subclasses of JobRepository."
         )
         raise NotImplementedError(message)
 
     @abstractmethod
-    async def upload_job_output_nowait(  # noqa: PLR0913
+    async def upload_job_outputs_nowait(
         self,
         job: Job,
-        presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any] | str,
-        arcname_ext: str = "",
-        arcname: str | None = None,
+        outputs: list[JobOutput],
         *,
         preserve_order: bool = True,
     ) -> None:
-        """Upload job output data to the backing storage without waiting.
+        """Upload a group of job output files without waiting.
 
         Args:
             job: The job for output upload.
-            presigned_url: Presigned URL for upload.
-            data: Data to be uploaded.
-            arcname_ext: Data file extension to be zipped, e.g. `.json`.
-            arcname: Override filename to store inside the uploaded zip archive.
+            outputs: Output items represented as
+                ``(item, data, arcname_ext, arcname)``.
             preserve_order:
                 If ``True`` (default), operations targeting the same ``job_id``
                 are executed sequentially so that updates cannot overtake each
@@ -132,7 +124,7 @@ class JobRepository(ABC):
 
         """
         message = (
-            "`upload_job_output_nowait` must be implemented in subclasses of "
+            "`upload_job_outputs_nowait` must be implemented in subclasses of "
             "JobRepository."
         )
         raise NotImplementedError(message)
