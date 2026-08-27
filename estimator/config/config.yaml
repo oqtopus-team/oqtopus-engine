@@ -1,3 +1,6 @@
+monitoring:
+  enabled: ${MONITORING_ENABLED, false}
+
 proto: # Settings for gRPC server
   max_workers: ${ESTIMATOR_WORKERS, 10} # Maximum number of workers
   address: ${ESTIMATOR_ADDRESS, "localhost:51012"} # Address and port for RPCs
