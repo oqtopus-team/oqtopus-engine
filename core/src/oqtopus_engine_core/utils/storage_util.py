@@ -119,8 +119,7 @@ class OqtopusStorage:
                 # and changes fields names e.g. AWSAccessKeyId -> aws_access_key_id
                 # we get the true field names
                 original_fields = {
-                    fields.attribute_map[k]: v
-                    for (k, v) in fields.to_dict().items()
+                    fields.attribute_map[k]: v for (k, v) in fields.to_dict().items()
                 }
                 storage_key = str(fields.key)
 
