@@ -25,7 +25,7 @@ from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2 import ( 
     Status,
 )
 from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2_grpc import (
-    CombinerService,
+    CombinerServiceServicer,
     add_CombinerServiceServicer_to_server,
 )
 
@@ -68,11 +68,11 @@ class InvalidQubitsError(Exception):
             str: error message.
 
         """
-        return f"total qubits must be less than {self.limit_qubits}. current qubits: {self.total_qubits}"   # noqa: E501
+        return f"total qubits must be less than {self.limit_qubits}. current qubits: {self.total_qubits}"  # noqa: E501
 
 
 # response
-class CircuitCombiner(CombinerService):
+class CircuitCombiner(CombinerServiceServicer):
     """Combine quantum circuits.
 
     This class combines quantum circuits and returns the combined circuit program.
@@ -141,12 +141,12 @@ class CircuitCombiner(CombinerService):
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
-                "finish combine_circuit",
-                extra={
-                    "elapsed_ms": round(elapsed_ms, 3),
-                    "response": response,
-                },
-            )
+            "finish combine_circuit",
+            extra={
+                "elapsed_ms": round(elapsed_ms, 3),
+                "response": response,
+            },
+        )
         return response
 
     @staticmethod
@@ -284,9 +284,9 @@ class CircuitCombiner(CombinerService):
                 idle_qubits_insertion_enabled=self._idle_qubits_insertion_enabled
             )
             # assign qubits to each circuit and create groups to be combined
-            assigned_ids, assigned_groups = combiner.assign_circuits(jobs=jobs,
-                                                                     device_info=device_info
-                                                                     )
+            assigned_ids, assigned_groups = combiner.assign_circuits(
+                jobs=jobs, device_info=device_info
+            )
             # create combined circuits for each group
             combined_groups = combiner.combine_circuits_for_groups(assigned_groups)
 
@@ -406,6 +406,23 @@ class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
         return f"{self.log_dir}/circuit_combiner-{current_time}.log"
 
 
+def create_server(max_workers: int, grpc_options: list) -> grpc.Server:
+    """Create a gRPC server with the given thread pool size and options.
+
+    Args:
+        max_workers: Maximum number of worker threads for the server.
+        grpc_options: gRPC channel options to configure the server with.
+
+    Returns:
+        The created gRPC server.
+
+    """
+    return grpc.server(
+        futures.ThreadPoolExecutor(max_workers),
+        options=grpc_options,
+    )
+
+
 # boot server
 def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     """Start the gRPC server with the specified configuration and logging settings.
@@ -429,15 +446,14 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
 
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
     address = str(config_yaml["proto"].get("address") or "[::]:51013")
-    str_idle_qubits_insertion_enabled = \
-        str(config_yaml["combiner"].get("idle_qubits_insertion_enabled") or "false")
+    str_idle_qubits_insertion_enabled = str(
+        config_yaml["combiner"].get("idle_qubits_insertion_enabled") or "false"
+    )
     idle_qubits_insertion_enabled = str_idle_qubits_insertion_enabled.lower() == "true"
+    grpc_options = config_yaml["proto"].get("grpc_options") or []
 
     # create the gRPC server
-    server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers),
-        options=config_yaml["proto"]["grpc_options"],
-    )
+    server = create_server(max_workers, grpc_options)
     add_CombinerServiceServicer_to_server(
         CircuitCombiner(idle_qubits_insertion_enabled=idle_qubits_insertion_enabled),
         server,

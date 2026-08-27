@@ -3,8 +3,8 @@ import random
 import numpy as np
 import pytest
 from pydantic.dataclasses import dataclass
-from qiskit import QuantumCircuit, qasm3
-from qiskit.result import QuasiDistribution
+from qiskit import QuantumCircuit, qasm3  # type: ignore[import-untyped]
+from qiskit.result import QuasiDistribution  # type: ignore[import-untyped]
 
 from oqtopus_engine_mitigator.app import ErrorMitigator, get_measured_qubits
 
