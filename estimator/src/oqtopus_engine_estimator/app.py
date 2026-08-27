@@ -124,7 +124,8 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                 )
             except Exception as e:
                 logger.exception("Estimation job preprocess failed. Exception occurred")
-                span.set_status(trace.StatusCode.ERROR, str(e))
+                if span.is_recording():
+                    span.set_status(trace.StatusCode.ERROR, str(e))
             finally:
                 logger.info("finish estimation preprocess")
 
@@ -169,7 +170,8 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                 logger.exception(
                     "Estimation job postprocess failed. Exception occurred"
                 )
-                span.set_status(trace.StatusCode.ERROR, str(e))
+                if span.is_recording():
+                    span.set_status(trace.StatusCode.ERROR, str(e))
             finally:
                 logger.info("finish estimation postprocess")
 

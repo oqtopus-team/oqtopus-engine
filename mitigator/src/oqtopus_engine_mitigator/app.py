@@ -109,7 +109,8 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                 return ReqMitigationResponse(counts=mitigated_counts)
             except Exception as e:
                 logger.exception("mitigation process failed. Exception occurred")
-                span.set_status(trace.StatusCode.ERROR, str(e))
+                if span.is_recording():
+                    span.set_status(trace.StatusCode.ERROR, str(e))
             finally:
                 logger.info("finish ro_error_mitigation-error mitigation process")
 
