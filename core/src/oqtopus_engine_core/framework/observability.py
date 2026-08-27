@@ -3,12 +3,11 @@
 Provides:
 - A SpanProcessor that copies ``oqtopus.*`` baggage entries onto every span,
   so any span created inside a job context (including auto-instrumented
-  HTTP/DB spans) carries ``oqtopus.job_id`` and ``oqtopus.job_type``,
+  HTTP/DB spans) carries ``oqtopus.job_id`` and ``oqtopus.pipeline_name``,
   enabling TraceQL lookups like ``{ .oqtopus.job_id = "..." }``. The baggage
   itself is attached by the pipeline when the job-level root span is opened.
-- A logging.Filter with the same job_id/job_type baggage-mirroring for log
-  records, so job-related log lines can be filtered in Loki via LogQL
-  (``| json | job_id = "..."``).
+- A logging.Filter mirroring the same entries onto log records, so job-related
+  log lines can be filtered in Loki via LogQL (``| json | job_id = "..."``).
 - Meter instruments for job-level business metrics (counters + duration
   histogram) used by the pipeline to emit SLO-relevant signals.
 """
@@ -40,9 +39,13 @@ _BAGGAGE_PREFIX = "oqtopus."
 # setattr target from one could land on a dunder or a reserved LogRecord
 # attribute (msg, levelname, asctime, ...) and corrupt the record; this map
 # only ever writes the two names below, both known non-reserved.
+#
+# The keys must match what the pipeline actually puts in the baggage. It sets
+# oqtopus.job_id and oqtopus.pipeline_name; the pipeline is selected by the
+# job type, so pipeline_name is what identifies the kind of job here.
 _BAGGAGE_TO_LOG_ATTR = {
     "oqtopus.job_id": "job_id",
-    "oqtopus.job_type": "job_type",
+    "oqtopus.pipeline_name": "pipeline_name",
 }
 
 _meter = metrics.get_meter(__name__)
@@ -106,7 +109,7 @@ class JobBaggageLogFilter(logging.Filter):
 
     python-json-logger includes any non-reserved LogRecord attribute in the
     emitted JSON automatically, so the mirrored fields (``job_id``,
-    ``job_type``) show up in log output without touching the formatter.
+    ``pipeline_name``) show up in log output without touching the formatter.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:  # noqa: PLR6301
