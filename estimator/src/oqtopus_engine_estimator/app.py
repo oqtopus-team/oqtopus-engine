@@ -28,7 +28,7 @@ from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
 from oqtopus_engine_estimator.observability import setup_observability
 
 logger = logging.getLogger("oqtopus_engine_estimator")
-tracer = trace.get_tracer(__name__)
+tracer = trace.get_tracer("oqtopus_engine_estimator")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -88,7 +88,7 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
             grouped_operators for estimation job.
 
         """
-        with tracer.start_as_current_span("estimator.preprocess") as span:
+        with tracer.start_as_current_span("estimator.ReqEstimationPreProcess") as span:
             try:
                 logger.info("start estimation preprocess")
                 logger.debug(
@@ -110,9 +110,9 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
                     qasm_codes=preprocessed_qasm_codes,
                     grouped_operators=grouped_operators,
                 )
-            except Exception:
+            except Exception as e:
                 logger.exception("Estimation job preprocess failed. Exception occurred")
-                span.set_status(trace.StatusCode.ERROR, "preprocess failed")
+                span.set_status(trace.StatusCode.ERROR, str(e))
             finally:
                 logger.info("finish estimation preprocess")
 
@@ -136,7 +136,7 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
             estimation job.
 
         """
-        with tracer.start_as_current_span("estimator.postprocess") as span:
+        with tracer.start_as_current_span("estimator.ReqEstimationPostProcess") as span:
             try:
                 logger.info("start estimation postprocess")
                 logger.debug(
@@ -155,11 +155,11 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
                 return estimator_pb2.ReqEstimationPostProcessResponse(
                     expval=expval, stds=stds
                 )
-            except Exception:
+            except Exception as e:
                 logger.exception(
                     "Estimation job postprocess failed. Exception occurred"
                 )
-                span.set_status(trace.StatusCode.ERROR, "postprocess failed")
+                span.set_status(trace.StatusCode.ERROR, str(e))
             finally:
                 logger.info("finish estimation postprocess")
 
@@ -170,16 +170,17 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
         basis_gates: list[str],
         mapping_list: list[int],
     ) -> tuple[list[str], str]:
-        with tracer.start_as_current_span("estimator.preprocess.qasm_parse") as span:
+        with tracer.start_as_current_span("estimator._preprocess.qasm_parse") as span:
             qc: QuantumCircuit = qasm3.loads(qasm_code)
             qc.remove_final_measurements()
             gate_counts = qc.count_ops()
-            span.set_attribute("estimator.circuit.num_qubits", qc.num_qubits)
-            span.set_attribute("estimator.circuit.num_clbits", qc.num_clbits)
-            span.set_attribute("estimator.circuit.depth", qc.depth())
-            span.set_attribute(
-                "estimator.circuit.gate_count", sum(gate_counts.values())
-            )
+            if span.is_recording():
+                span.set_attribute("estimator.circuit.num_qubits", qc.num_qubits)
+                span.set_attribute("estimator.circuit.num_clbits", qc.num_clbits)
+                span.set_attribute("estimator.circuit.depth", qc.depth())
+                span.set_attribute(
+                    "estimator.circuit.gate_count", sum(gate_counts.values())
+                )
             logger.debug(
                 "input QASM code is successfully transformed to QuantumCircuit. "
                 "Stats: qubits=%d, clbits=%d, depth=%d, total_gates=%d, gate_counts=%s",
@@ -190,9 +191,10 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
                 gate_counts,
             )
 
-        with tracer.start_as_current_span("estimator.preprocess.operator") as span:
+        with tracer.start_as_current_span("estimator._preprocess.operator") as span:
             op = create_qiskit_operator(operators, qc.num_qubits)
-            span.set_attribute("estimator.operator.num_terms", len(op))
+            if span.is_recording():
+                span.set_attribute("estimator.operator.num_terms", len(op))
             logger.debug(
                 "input operator is successfully transformed to SparsePauliOp %s.", op
             )
@@ -209,7 +211,7 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
             )
 
         with tracer.start_as_current_span(
-            "estimator.preprocess.qiskit_preprocess"
+            "estimator._preprocess.qiskit_preprocess"
         ) as span:
             backend = GenericBackendV2(
                 num_qubits=qc.num_qubits, basis_gates=basis_gates
@@ -219,9 +221,11 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
             coerced_pub = EstimatorPub.coerce(pub)
             preprocessed_data = estimator._preprocess_pub(coerced_pub)  # noqa: SLF001
             preprocessed_qasm = [qasm3.dumps(qc) for qc in preprocessed_data.circuits]
-            span.set_attribute(
-                "estimator.num_measurement_groups", len(preprocessed_data.circuits)
-            )
+            if span.is_recording():
+                span.set_attribute(
+                    "estimator.num_measurement_groups",
+                    len(preprocessed_data.circuits),
+                )
         pauli_coeff_map = dict(preprocessed_data.observables.tolist())
         grouped_meas_paulis = [
             qc.metadata["meas_paulis"].to_labels() for qc in preprocessed_data.circuits
@@ -243,12 +247,13 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
         counts_list: list,
         grouped_operators: str,
     ) -> tuple[np.float64 | np.complex64, np.float64 | np.complex64]:
-        with tracer.start_as_current_span("estimator.postprocess.compute") as span:
+        with tracer.start_as_current_span("estimator._postprocess.compute") as span:
             exp_value: np.float64 | np.complex64 = np.float64(0.0)
             stds: np.float64 | np.complex64 = np.float64(0.0)
 
             operators = json.loads(grouped_operators)
-            span.set_attribute("estimator.num_measurement_groups", len(counts_list))
+            if span.is_recording():
+                span.set_attribute("estimator.num_measurement_groups", len(counts_list))
             for counts, pauli_list, coeff_list in zip(
                 counts_list, operators[0], operators[1], strict=True
             ):
@@ -260,7 +265,8 @@ class Estimator(estimator_pb2_grpc.EstimatorService):
                 exp_value += np.dot(exp_values, coeffs)
                 stds += np.dot(variances**0.5, np.abs(coeffs))
             shots = sum(counts_list[0].counts.values())
-            span.set_attribute("estimator.shots", shots)
+            if span.is_recording():
+                span.set_attribute("estimator.shots", shots)
             stds /= np.sqrt(shots)
 
             return np.real_if_close([exp_value])[0], stds

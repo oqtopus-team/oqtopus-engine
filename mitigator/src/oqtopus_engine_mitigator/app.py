@@ -19,7 +19,7 @@ from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
 from oqtopus_engine_mitigator.observability import setup_observability
 
 logger = logging.getLogger("oqtopus_engine_mitigator")
-tracer = trace.get_tracer(__name__)
+tracer = trace.get_tracer("oqtopus_engine_mitigator")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -62,7 +62,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
                 mitigated counts.
 
         """
-        with tracer.start_as_current_span("mitigator.ro_error_mitigation") as span:
+        with tracer.start_as_current_span("mitigator.ReqMitigation") as span:
             try:
                 logger.info("start ro_error_mitigation-error mitigation process")
                 logger.debug(
@@ -84,7 +84,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
                 return mitigator_pb2.ReqMitigationResponse(counts=mitigated_counts)
             except Exception as e:
                 logger.exception("mitigation process failed. Exception occurred:%s", e)
-                span.set_status(trace.StatusCode.ERROR, "mitigation failed")
+                span.set_status(trace.StatusCode.ERROR, str(e))
             finally:
                 logger.info("finish ro_error_mitigation-error mitigation process")
 
@@ -98,11 +98,14 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
         qubits = device_topology.qubits
         shots = sum(counts.values())
 
-        with tracer.start_as_current_span("mitigator.extract_measured_qubits") as span:
+        with tracer.start_as_current_span(
+            "mitigator.ro_error_mitigation.extract_measured_qubits"
+        ) as span:
             measured_qubits = get_measured_qubits(program)
             n_qubits = len(measured_qubits)
-            span.set_attribute("mitigator.num_measured_qubits", n_qubits)
-            span.set_attribute("mitigator.shots", shots)
+            if span.is_recording():
+                span.set_attribute("mitigator.num_measured_qubits", n_qubits)
+                span.set_attribute("mitigator.shots", shots)
 
         # LocalReadoutMitigator (used below) creates a vector of length 2^(#qubits).
         if n_qubits > 32:  # If #qubits is 32, it requires a memory of 32GB.
@@ -111,7 +114,9 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
                 "input measured_qubits is too large, it requires a memory of over 32GB"
             )
 
-        with tracer.start_as_current_span("mitigator.build_calibration"):
+        with tracer.start_as_current_span(
+            "mitigator.ro_error_mitigation.build_calibration"
+        ):
             for id in measured_qubits:
                 mes_error = qubits[id].mes_error
                 amat = np.array(
@@ -126,7 +131,9 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorService):
             bin_counts = {f"0b{k}": v for k, v in counts.items()}
             logger.debug("bin counts is %s", bin_counts)
 
-        with tracer.start_as_current_span("mitigator.quasi_probabilities"):
+        with tracer.start_as_current_span(
+            "mitigator.ro_error_mitigation.quasi_probabilities"
+        ):
             # TODO The Web API data type for count is unsigned int.
             # So after getting the nearest_prob, the count count is cast to an int. This reduces the accuracy.
             # As the data returned to the user, it should be selectable not only counts (int) but also quasi-distribution (float).
