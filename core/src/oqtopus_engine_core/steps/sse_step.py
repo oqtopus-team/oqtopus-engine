@@ -182,6 +182,8 @@ class SseStep(Step):
                 raise RuntimeError(msg)
         finally:
             elapsed_sec = time.perf_counter() - start
+            # Release the Docker client before anything that may raise below
+            sse_runner.close()
             self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)  # type: ignore[arg-type]
             await gctx.job_repository.update_job_transpiler_info(job)  # type: ignore[union-attr]
 
@@ -301,6 +303,24 @@ class SseRunner:
                 "config": self._config,
             },
         )
+
+    def close(self) -> None:
+        """Release the Docker client held by this runner.
+
+        A SseRunner is created per SSE job, so the unix socket to the Docker
+        daemon must be released explicitly instead of relying on GC.
+
+        Args:
+            None
+
+        """
+        try:
+            self._docker_client.close()
+        except Exception:
+            logger.exception(
+                "failed to close docker client",
+                extra={"job_id": self._job_id},
+            )
 
     async def run_sse(self) -> None:
         """Run a user's program inside a Docker container.
@@ -685,31 +705,28 @@ class SseRunner:
 
         # Receive data from standard output and write it to a file on the host side
         cmd = f"tar -C {container_path} -c -f - {filename}"
-        _, chunks = self._container.exec_run(
+        # NOTE: stream=False is intentional. The generator returned by stream=True
+        # holds the HTTP response over the unix socket to the Docker daemon and is
+        # never closed, so its file descriptor leaks on every SSE job. The chunks
+        # were fully buffered in memory anyway, so streaming brought no benefit.
+        _, output = self._container.exec_run(
             ["sh", "-c", cmd],
             user=user,
             stdout=True,
             stderr=True,
-            stream=True,
+            stream=False,
             demux=True,
         )
-
-        # read tar data from chunks
-        tar_data = io.BytesIO()
-        error_msg = ""
-        for stdout, stderr in chunks:
-            if stderr:
-                error_msg += stderr.decode("utf-8", errors="ignore")
-            if stdout:
-                tar_data.write(stdout)
+        stdout_data, stderr_data = output
 
         # if there is any error message
-        if error_msg:
+        if stderr_data:
+            error_msg = stderr_data.decode("utf-8", errors="ignore")
             msg = f"error when getting file from container: {error_msg}"
             raise RuntimeError(msg)
 
         # if no error, save the file
-        tar_data.seek(0)
+        tar_data = io.BytesIO(stdout_data or b"")
         # extract tar file and save to out_path
         with tarfile.open(fileobj=tar_data, mode="r") as tar:
             member = tar.getmember(filename)
