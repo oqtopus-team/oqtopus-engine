@@ -7,7 +7,7 @@ import pytest
 from oqtopus_engine_core.steps.estimator_step import (
     ESTIMATION_EXPECTATION_VALUES_KEY,
     ESTIMATION_PAULIS_KEY,
-    ESTIMATION_STANDARD_DEVIATIONS_KEY,
+    ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY,
 )
 from oqtopus_engine_core.steps.ro_error_mitigation_step import ReadoutErrorMitigationStep
 
@@ -41,6 +41,7 @@ def mitigation_step() -> ReadoutErrorMitigationStep:
     step = ReadoutErrorMitigationStep("localhost:52011")
     step._stub = MagicMock()
     step._stub.ReqMitigation = AsyncMock()
+    step._stub.ReqExpectationValueMitigation = AsyncMock()
     return step
 
 
@@ -57,6 +58,7 @@ async def test_post_process_sampling_calls_grpc_and_updates_counts(
     await mitigation_step.post_process(gctx, jctx, job)
 
     mitigation_step._stub.ReqMitigation.assert_awaited_once()
+    mitigation_step._stub.ReqExpectationValueMitigation.assert_not_awaited()
     request = mitigation_step._stub.ReqMitigation.call_args.args[0]
 
     assert dict(request.counts) == {"00": 500, "01": 300, "10": 150, "11": 50}
@@ -101,42 +103,36 @@ async def test_post_process_estimation_child_updates_expectation_values(
     gctx, _, job = setup_sampling_job
     jctx = {ESTIMATION_PAULIS_KEY: ["XX", "II"]}
     original_counts = dict(job.result.sampling.counts)
-    mitigation_step._stub.ReqMitigation.return_value = SimpleNamespace(
-        counts={},
+    mitigation_step._stub.ReqExpectationValueMitigation.return_value = SimpleNamespace(
         expectation_values=[0.8, 1.0],
-        standard_deviations=[0.03, 0.0],
+        standard_deviation_upper_bounds=[0.03, 0.0],
     )
 
     await mitigation_step.post_process(gctx, jctx, job)
 
-    request = mitigation_step._stub.ReqMitigation.call_args.args[0]
+    mitigation_step._stub.ReqMitigation.assert_not_awaited()
+    mitigation_step._stub.ReqExpectationValueMitigation.assert_awaited_once()
+    request = mitigation_step._stub.ReqExpectationValueMitigation.call_args.args[0]
     assert list(request.paulis) == ["XX", "II"]
     assert job.result.sampling.counts == original_counts
     assert jctx[ESTIMATION_EXPECTATION_VALUES_KEY] == [0.8, 1.0]
-    assert jctx[ESTIMATION_STANDARD_DEVIATIONS_KEY] == [0.03, 0.0]
+    assert jctx[ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY] == [0.03, 0.0]
 
 
 @pytest.mark.asyncio
-async def test_post_process_estimation_child_accepts_legacy_mitigated_counts(
+async def test_post_process_estimation_child_rejects_mismatched_response(
     setup_sampling_job,
     mitigation_step: ReadoutErrorMitigationStep,
 ) -> None:
     gctx, _, job = setup_sampling_job
     jctx = {ESTIMATION_PAULIS_KEY: ["XX"]}
-    mitigation_step._stub.ReqMitigation.return_value = SimpleNamespace(
-        counts={"00": 480, "01": 320, "10": 140, "11": 60},
-        expectation_values=[],
-        standard_deviations=[],
+    mitigation_step._stub.ReqExpectationValueMitigation.return_value = SimpleNamespace(
+        expectation_values=[0.8],
+        standard_deviation_upper_bounds=[],
     )
 
-    await mitigation_step.post_process(gctx, jctx, job)
-
-    assert job.result.sampling.counts == {
-        "00": 480,
-        "01": 320,
-        "10": 140,
-        "11": 60,
-    }
+    with pytest.raises(RuntimeError, match="must have equal lengths"):
+        await mitigation_step.post_process(gctx, jctx, job)
 
 
 @pytest.mark.asyncio
@@ -155,3 +151,4 @@ async def test_post_process_non_sampling_job_is_skipped(
     await mitigation_step.post_process(gctx, {}, job)
 
     mitigation_step._stub.ReqMitigation.assert_not_awaited()
+    mitigation_step._stub.ReqExpectationValueMitigation.assert_not_awaited()

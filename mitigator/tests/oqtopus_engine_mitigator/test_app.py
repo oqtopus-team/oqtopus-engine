@@ -163,10 +163,12 @@ def test_ro_error_mitigation_uses_expectation_register(error_mitigator):
     assert expectation_values == pytest.approx([-1.0])
 
 
-def test_req_mitigation_returns_expectation_values(error_mitigator):
+def test_req_expectation_value_mitigation_returns_expectation_values(
+    error_mitigator,
+):
     circuit = QuantumCircuit(1, 1)
     circuit.measure(0, 0)
-    request = mitigator_pb2.ReqMitigationRequest(
+    request = mitigator_pb2.ReqExpectationValueMitigationRequest(
         device_topology=mitigator_pb2.DeviceTopology(
             qubits=[
                 mitigator_pb2.Qubit(
@@ -179,11 +181,10 @@ def test_req_mitigation_returns_expectation_values(error_mitigator):
         paulis=["Z"],
     )
 
-    response = error_mitigator.ReqMitigation(request, None)
+    response = error_mitigator.ReqExpectationValueMitigation(request, None)
 
     assert list(response.expectation_values) == pytest.approx([1.0])
-    assert list(response.standard_deviations)[0] > 0
-    assert dict(response.counts) == {}
+    assert list(response.standard_deviation_upper_bounds)[0] > 0
 
 
 def test_ro_error_mitigation(error_mitigator):

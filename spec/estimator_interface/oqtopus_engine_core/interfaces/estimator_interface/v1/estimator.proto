@@ -6,6 +6,7 @@ package estimator_interface.v1;
 service EstimatorService {
   rpc ReqEstimationPreProcess(ReqEstimationPreProcessRequest) returns (ReqEstimationPreProcessResponse);
   rpc ReqEstimationPostProcess(ReqEstimationPostProcessRequest) returns (ReqEstimationPostProcessResponse);
+  rpc ReqEstimationPostProcessFromExpectationValues(ReqEstimationPostProcessFromExpectationValuesRequest) returns (ReqEstimationPostProcessFromExpectationValuesResponse);
 }
 
 message ReqEstimationPreProcessRequest {
@@ -34,23 +35,32 @@ message Counts {
   map<string, uint32> counts = 1;
 }
 
-message ExpectationValues {
-  repeated double values = 1;
-  repeated double standard_deviations = 2;
-}
-
 message ReqEstimationPostProcessRequest {
   repeated Counts counts = 1;
   // e.g. [{"00" : 100, "11" : 200}, {"00" : 200, "11" : 100}]
 
   string grouped_operators = 2;
   // e.g. '[[["XX", "ZY"], ["YX"]], [[1.5, -0.5], [1.2]]]' means operator 1.5XX and -0.5ZY coresspond to circuit1, operator 1.2YX coressponds to circuit2
+}
 
-  repeated ExpectationValues expectation_values = 3;
-  // Each entry corresponds to the Counts entry at the same index. Empty when post-processing raw counts.
+message ExpectationValues {
+  repeated double values = 1;
+  repeated double standard_deviation_upper_bounds = 2;
+}
+
+message ReqEstimationPostProcessFromExpectationValuesRequest {
+  repeated ExpectationValues expectation_value_groups = 1;
+
+  string grouped_operators = 2;
+  // e.g. '[[["XX", "ZY"], ["YX"]], [[1.5, -0.5], [1.2]]]' means operator 1.5XX and -0.5ZY coresspond to circuit1, operator 1.2YX coressponds to circuit2
 }
 
 message ReqEstimationPostProcessResponse {
   float expval = 1;
   float stds = 2;
+}
+
+message ReqEstimationPostProcessFromExpectationValuesResponse {
+  double expectation_value = 1;
+  double standard_deviation_upper_bound = 2;
 }

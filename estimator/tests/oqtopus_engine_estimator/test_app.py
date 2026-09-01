@@ -26,6 +26,7 @@ from qiskit.transpiler.preset_passmanagers import (  # type: ignore[import-untyp
 )
 
 from oqtopus_engine_estimator.app import Estimator, create_qiskit_operator
+from oqtopus_engine_core.interfaces.estimator_interface.v1 import estimator_pb2
 
 
 @pytest.fixture(scope="session")
@@ -94,7 +95,7 @@ class counts_test:
 
 class ExpectationValuesTest:
     values: list[float]
-    standard_deviations: list[float]
+    standard_deviation_upper_bounds: list[float]
 
 
 def test_postprocess(estimator):
@@ -122,26 +123,42 @@ def test_postprocess(estimator):
 
 
 def test_postprocess_uses_mitigated_expectation_values(estimator):
-    counts1 = counts_test()
-    counts1.counts = {"00": 500, "11": 500}
-    counts2 = counts_test()
-    counts2.counts = {"00": 500, "11": 500}
     expectation_values1 = ExpectationValuesTest()
     expectation_values1.values = [0.8, 1.0]
-    expectation_values1.standard_deviations = [0.03, 0.0]
+    expectation_values1.standard_deviation_upper_bounds = [0.03, 0.0]
     expectation_values2 = ExpectationValuesTest()
     expectation_values2.values = [0.5]
-    expectation_values2.standard_deviations = [0.04]
+    expectation_values2.standard_deviation_upper_bounds = [0.04]
     grouped_operators = '[[["XX", "II"], ["ZY"]], [[1.5, -0.5], [1.2]]]'
 
-    actual_expval, actual_stds = estimator._postprocess(
-        [counts1, counts2],
-        grouped_operators,
+    actual_expval, actual_stds = estimator._postprocess_from_expectation_values(
         [expectation_values1, expectation_values2],
+        grouped_operators,
     )
 
     assert actual_expval == pytest.approx(1.3)
     assert actual_stds == pytest.approx(0.093)
+
+
+def test_req_postprocess_from_expectation_values(estimator):
+    request = estimator_pb2.ReqEstimationPostProcessFromExpectationValuesRequest(
+        expectation_value_groups=[
+            estimator_pb2.ExpectationValues(
+                values=[0.8, 1.0],
+                standard_deviation_upper_bounds=[0.03, 0.0],
+            ),
+            estimator_pb2.ExpectationValues(
+                values=[0.5],
+                standard_deviation_upper_bounds=[0.04],
+            ),
+        ],
+        grouped_operators='[[["XX", "II"], ["ZY"]], [[1.5, -0.5], [1.2]]]',
+    )
+
+    response = estimator.ReqEstimationPostProcessFromExpectationValues(request, None)
+
+    assert response.expectation_value == pytest.approx(1.3)
+    assert response.standard_deviation_upper_bound == pytest.approx(0.093)
 
 
 def test_simple_circuits_with_random_op(estimator):

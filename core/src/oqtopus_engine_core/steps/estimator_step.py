@@ -30,7 +30,9 @@ ESTIMATION_JOIN_INFO_KEY = "estimation_join_info"
 ESTIMATION_CHILD_INDEX_KEY = "estimation_child_index"
 ESTIMATION_PAULIS_KEY = "estimation_paulis"
 ESTIMATION_EXPECTATION_VALUES_KEY = "estimation_expectation_values"
-ESTIMATION_STANDARD_DEVIATIONS_KEY = "estimation_standard_deviations"
+ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY = (
+    "estimation_standard_deviation_upper_bounds"
+)
 
 
 class EstimationJoinInfo:
@@ -101,6 +103,90 @@ def _build_child_job(
         ready_at=parent_job.ready_at,
         running_at=parent_job.running_at,
     )
+
+
+def _get_ordered_join_children(
+    parent_jctx: JobContext,
+    parent_job: Job,
+    child_order: list[str],
+) -> tuple[list[Job], list[JobContext]]:
+    child_by_id = {child.job_id: child for child in parent_job.children}
+    child_context_by_index = {
+        child_jctx[ESTIMATION_CHILD_INDEX_KEY]: child_jctx
+        for child_jctx in parent_jctx.children
+    }
+    ordered_children = []
+    ordered_contexts = []
+    corrected_state: bool | None = None
+    for index, child_id in enumerate(child_order):
+        child = child_by_id.get(child_id)
+        if child is None:
+            message = f"child job not found during join: {child_id}"
+            raise RuntimeError(message)
+        child_jctx = child_context_by_index.get(index)
+        if child_jctx is None:
+            message = f"child context not found during join: {child_id}"
+            raise RuntimeError(message)
+        has_expectation_values = ESTIMATION_EXPECTATION_VALUES_KEY in child_jctx
+        has_standard_deviation_upper_bounds = (
+            ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY in child_jctx
+        )
+        if has_expectation_values != has_standard_deviation_upper_bounds:
+            message = (
+                "child context must contain both expectation values and "
+                f"standard-deviation upper bounds: {child_id}"
+            )
+            raise RuntimeError(message)
+        if corrected_state is not None and corrected_state != has_expectation_values:
+            message = (
+                "corrected expectation values and raw counts cannot be mixed "
+                "during estimation join"
+            )
+            raise RuntimeError(message)
+        corrected_state = has_expectation_values
+        ordered_children.append(child)
+        ordered_contexts.append(child_jctx)
+
+    return ordered_children, ordered_contexts
+
+
+def _build_estimation_postprocess_request(
+    ordered_children: list[Job],
+    child_contexts: list[JobContext],
+    grouped_operators: str,
+) -> tuple[str, Any]:
+    if child_contexts and ESTIMATION_EXPECTATION_VALUES_KEY in child_contexts[0]:
+        expectation_value_groups = [
+            estimator_pb2.ExpectationValues(  # type: ignore[attr-defined]
+                values=child_jctx[ESTIMATION_EXPECTATION_VALUES_KEY],
+                standard_deviation_upper_bounds=child_jctx[
+                    ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY
+                ],
+            )
+            for child_jctx in child_contexts
+        ]
+        request = estimator_pb2.ReqEstimationPostProcessFromExpectationValuesRequest(  # type: ignore[attr-defined]
+            expectation_value_groups=expectation_value_groups,
+            grouped_operators=grouped_operators,
+        )
+        return "ReqEstimationPostProcessFromExpectationValues", request
+
+    counts_pb_list = []
+    for child in ordered_children:
+        sampling = child.result.sampling if child.result else None
+        if sampling is None or sampling.counts is None:
+            message = f"child job counts are missing during join: {child.job_id}"
+            raise RuntimeError(message)
+        counts_pb_list.append(
+            estimator_pb2.Counts(  # type: ignore[attr-defined]
+                counts=sampling.counts,
+            )
+        )
+    request = estimator_pb2.ReqEstimationPostProcessRequest(  # type: ignore[attr-defined]
+        counts=counts_pb_list,
+        grouped_operators=grouped_operators,
+    )
+    return "ReqEstimationPostProcess", request
 
 
 class EstimatorStep(Step):
@@ -269,49 +355,21 @@ class EstimatorStep(Step):
         child_order = join_info.child_order or [
             child.job_id for child in parent_job.children
         ]
-        child_by_id = {child.job_id: child for child in parent_job.children}
-        child_context_by_index = {
-            child_jctx[ESTIMATION_CHILD_INDEX_KEY]: child_jctx
-            for child_jctx in parent_jctx.children
-        }
-
-        counts_pb_list = []
-        expectation_values_pb_list = []
-        for index, child_id in enumerate(child_order):
-            child = child_by_id.get(child_id)
-            if child is None:
-                message = f"child job not found during join: {child_id}"
-                raise RuntimeError(message)
-            sampling = child.result.sampling if child.result else None
-            if sampling is None or sampling.counts is None:
-                message = f"child job counts are missing during join: {child_id}"
-                raise RuntimeError(message)
-            counts = sampling.counts
-            child_jctx = child_context_by_index.get(index)
-            if child_jctx is None:
-                message = f"child context not found during join: {child_id}"
-                raise RuntimeError(message)
-            counts_pb_list.append(
-                estimator_pb2.Counts(  # type: ignore[attr-defined]
-                    counts=counts,
-                )
-            )
-            expectation_values_pb_list.append(
-                estimator_pb2.ExpectationValues(  # type: ignore[attr-defined]
-                    values=child_jctx.get(ESTIMATION_EXPECTATION_VALUES_KEY, []),
-                    standard_deviations=child_jctx.get(
-                        ESTIMATION_STANDARD_DEVIATIONS_KEY, []
-                    ),
-                )
-            )
-
-        request = estimator_pb2.ReqEstimationPostProcessRequest(  # type: ignore[attr-defined]
-            counts=counts_pb_list,
-            grouped_operators=json.dumps(join_info.grouped_operators),
-            expectation_values=expectation_values_pb_list,
+        ordered_children, child_contexts = _get_ordered_join_children(
+            parent_jctx,
+            parent_job,
+            child_order,
         )
+        rpc_name, request = _build_estimation_postprocess_request(
+            ordered_children,
+            child_contexts,
+            json.dumps(join_info.grouped_operators),
+        )
+        rpc = getattr(self._stub, rpc_name)
+
         logger.info(
-            "ReqEstimationPostProcess request",
+            "%s request",
+            rpc_name,
             extra={
                 "job_id": parent_job.job_id,
                 "job_type": parent_job.job_type,
@@ -321,10 +379,11 @@ class EstimatorStep(Step):
         )
 
         start = time.perf_counter()
-        response = await self._stub.ReqEstimationPostProcess(request)
+        response = await rpc(request)
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
-            "ReqEstimationPostProcess response",
+            "%s response",
+            rpc_name,
             extra={
                 "elapsed_ms": round(elapsed_ms, 3),
                 "job_id": parent_job.job_id,
@@ -333,12 +392,19 @@ class EstimatorStep(Step):
             },
         )
 
+        if rpc_name == "ReqEstimationPostProcessFromExpectationValues":
+            expectation_value = response.expectation_value
+            standard_deviation = response.standard_deviation_upper_bound
+        else:
+            expectation_value = response.expval
+            standard_deviation = response.stds
+
         if parent_job.result is None:
             parent_job.result = JobResult()
         if parent_job.result.estimation is None:
             parent_job.result.estimation = EstimationResult()
-        parent_job.result.estimation.exp_value = float(response.expval)
-        parent_job.result.estimation.stds = float(response.stds)
+        parent_job.result.estimation.exp_value = float(expectation_value)
+        parent_job.result.estimation.stds = float(standard_deviation)
         parent_job.execution_time = float(
             f"{sum(child.execution_time or 0.0 for child in parent_job.children):.3f}"
         )

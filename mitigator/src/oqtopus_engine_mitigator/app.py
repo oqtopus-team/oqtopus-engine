@@ -29,6 +29,8 @@ from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
 )
 from oqtopus_engine_core.interfaces.mitigator_interface.v1.mitigator_pb2 import (  # type: ignore[attr-defined]
     DESCRIPTOR,
+    ReqExpectationValueMitigationRequest,
+    ReqExpectationValueMitigationResponse,
     ReqMitigationRequest,
     ReqMitigationResponse,
 )
@@ -174,25 +176,6 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                 device_topology = request.device_topology
                 counts = request.counts
                 program = request.program
-                if request.paulis:
-                    expectation_values, standard_deviations = (
-                        self.ro_error_mitigation_expectation_values(
-                            device_topology,
-                            counts,
-                            program,
-                            request.paulis,
-                        )
-                    )
-                    logger.debug(
-                        "mitigated expectation values:%s, standard deviations:%s",
-                        expectation_values,
-                        standard_deviations,
-                    )
-                    return mitigator_pb2.ReqMitigationResponse(
-                        expectation_values=expectation_values,
-                        standard_deviations=standard_deviations,
-                    )
-
                 mitigated_counts = self.ro_error_mitigation(
                     device_topology, counts, program
                 )
@@ -207,6 +190,58 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                     span.set_status(trace.StatusCode.ERROR, str(e))
             finally:
                 logger.info("finish ro_error_mitigation-error mitigation process")
+
+    def ReqExpectationValueMitigation(  # ruff: ignore[invalid-function-name]
+        self,
+        request: ReqExpectationValueMitigationRequest,
+        context: grpc.ServicerContext,  # ruff: ignore[unused-method-argument]
+    ) -> ReqExpectationValueMitigationResponse:
+        """Return mitigated expectation values and uncertainty upper bounds.
+
+        Returns:
+            The expectation-value mitigation gRPC response, or None on failure.
+
+        """
+        with tracer.start_as_current_span(
+            "mitigator.ReqExpectationValueMitigation"
+        ) as span:
+            try:  # ruff: ignore[too-many-statements-in-try-clause]
+                logger.info("start expectation-value readout-error mitigation process")
+                logger.debug(
+                    "device_topology:%s, counts:%s, program:%s, paulis:%s",
+                    request.device_topology,
+                    request.counts,
+                    request.program,
+                    request.paulis,
+                )
+                expectation_values, standard_deviation_upper_bounds = (
+                    self.ro_error_mitigation_expectation_values(
+                        request.device_topology,
+                        request.counts,
+                        request.program,
+                        request.paulis,
+                    )
+                )
+                logger.debug(
+                    "mitigated expectation values:%s, "
+                    "standard-deviation upper bounds:%s",
+                    expectation_values,
+                    standard_deviation_upper_bounds,
+                )
+                return ReqExpectationValueMitigationResponse(
+                    expectation_values=expectation_values,
+                    standard_deviation_upper_bounds=standard_deviation_upper_bounds,
+                )
+            except Exception as e:
+                logger.exception(
+                    "expectation-value mitigation process failed. Exception occurred"
+                )
+                if span.is_recording():
+                    span.set_status(trace.StatusCode.ERROR, str(e))
+            finally:
+                logger.info(
+                    "finish expectation-value readout-error mitigation process"
+                )
 
     @staticmethod
     def ro_error_mitigation(

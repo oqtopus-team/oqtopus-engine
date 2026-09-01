@@ -35,6 +35,8 @@ from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
 )
 from oqtopus_engine_core.interfaces.estimator_interface.v1.estimator_pb2 import (  # type: ignore[attr-defined]
     DESCRIPTOR,
+    ReqEstimationPostProcessFromExpectationValuesRequest,
+    ReqEstimationPostProcessFromExpectationValuesResponse,
     ReqEstimationPostProcessRequest,
     ReqEstimationPostProcessResponse,
     ReqEstimationPreProcessRequest,
@@ -155,18 +157,13 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             try:
                 logger.info("start estimation postprocess")
                 logger.debug(
-                    "counts:%s, grouped_operators:%s, expectation_values:%s",
+                    "counts:%s, grouped_operators:%s",
                     request.counts,
                     request.grouped_operators,
-                    request.expectation_values,
                 )
                 counts_list = request.counts
                 grouped_operators = request.grouped_operators
-                expval, stds = self._postprocess(
-                    counts_list,
-                    grouped_operators,
-                    request.expectation_values,
-                )
+                expval, stds = self._postprocess(counts_list, grouped_operators)
                 logger.debug(
                     "expval:%f, stds:%f",
                     expval,
@@ -181,6 +178,46 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                     span.set_status(trace.StatusCode.ERROR, str(e))
             finally:
                 logger.info("finish estimation postprocess")
+
+    def ReqEstimationPostProcessFromExpectationValues(  # noqa: N802
+        self,
+        request: ReqEstimationPostProcessFromExpectationValuesRequest,
+        context: grpc.ServicerContext,  # noqa: ARG002
+    ) -> ReqEstimationPostProcessFromExpectationValuesResponse:
+        """Aggregate precomputed expectation values into an estimation result.
+
+        Returns:
+            The gRPC response containing the aggregated value and uncertainty.
+
+        """
+        with tracer.start_as_current_span(
+            "estimator.ReqEstimationPostProcessFromExpectationValues"
+        ) as span:
+            try:
+                logger.info("start estimation postprocess from expectation values")
+                logger.debug(
+                    "expectation_value_groups:%s, grouped_operators:%s",
+                    request.expectation_value_groups,
+                    request.grouped_operators,
+                )
+                expval, stds = self._postprocess_from_expectation_values(
+                    request.expectation_value_groups,
+                    request.grouped_operators,
+                )
+                logger.debug("expval:%f, stds:%f", expval, stds)
+                return ReqEstimationPostProcessFromExpectationValuesResponse(
+                    expectation_value=expval,
+                    standard_deviation_upper_bound=stds,
+                )
+            except Exception as e:
+                logger.exception(
+                    "Estimation job postprocess from expectation values failed. "
+                    "Exception occurred"
+                )
+                if span.is_recording():
+                    span.set_status(trace.StatusCode.ERROR, str(e))
+            finally:
+                logger.info("finish estimation postprocess from expectation values")
 
     def _preprocess(  # noqa: PLR6301, PLR0914
         self,
@@ -265,7 +302,6 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
         self,
         counts_list: list,
         grouped_operators: str,
-        expectation_values_list: list | None = None,
     ) -> tuple[np.float64 | np.complex64, np.float64 | np.complex64]:
         with tracer.start_as_current_span("estimator._postprocess.compute") as span:
             exp_value: np.float64 | np.complex64 = np.float64(0.0)
@@ -280,44 +316,13 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                         sum(counts_list[0].counts.values()),
                     )
 
-            if expectation_values_list:
-                if len(expectation_values_list) != len(counts_list):
-                    message = (
-                        "Counts and expectation value groups must have equal lengths"
-                    )
-                    raise ValueError(message)
-                expectation_value_groups = expectation_values_list
-            else:
-                expectation_value_groups = [None] * len(counts_list)
-
-            for counts, expectation_values, pauli_list, coeff_list in zip(
+            for counts, pauli_list, coeff_list in zip(
                 counts_list,
-                expectation_value_groups,
                 operators[0],
                 operators[1],
                 strict=True,
             ):
                 coeffs = np.array(coeff_list)
-                mitigated_exp_values = np.array(
-                    getattr(expectation_values, "values", [])
-                )
-                mitigated_stds = np.array(
-                    getattr(expectation_values, "standard_deviations", [])
-                )
-                if mitigated_exp_values.size:
-                    if (
-                        mitigated_exp_values.size != coeffs.size
-                        or mitigated_stds.size != coeffs.size
-                    ):
-                        message = (
-                            "Mitigated expectation values, standard deviations, and "
-                            "operator coefficients must have equal lengths"
-                        )
-                        raise ValueError(message)
-                    exp_value += np.dot(mitigated_exp_values, coeffs)
-                    stds += np.dot(mitigated_stds, np.abs(coeffs))
-                    continue
-
                 paulis = PauliList(pauli_list)
                 exp_values, variances = _pauli_expval_with_variance(
                     Counts(counts.counts), paulis
@@ -327,6 +332,42 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                 stds += np.dot(variances**0.5, np.abs(coeffs)) / np.sqrt(shots)
 
             return np.real_if_close([exp_value])[0], stds
+
+    def _postprocess_from_expectation_values(  # noqa: PLR6301
+        self,
+        expectation_value_groups: list,
+        grouped_operators: str,
+    ) -> tuple[np.float64 | np.complex64, np.float64 | np.complex64]:
+        exp_value: np.float64 | np.complex64 = np.float64(0.0)
+        stds: np.float64 | np.complex64 = np.float64(0.0)
+
+        operators = json.loads(grouped_operators)
+        for expectation_values, pauli_list, coeff_list in zip(
+            expectation_value_groups,
+            operators[0],
+            operators[1],
+            strict=True,
+        ):
+            values = np.array(expectation_values.values)
+            standard_deviation_upper_bounds = np.array(
+                expectation_values.standard_deviation_upper_bounds
+            )
+            coeffs = np.array(coeff_list)
+            if not (
+                values.size
+                == standard_deviation_upper_bounds.size
+                == coeffs.size
+                == len(pauli_list)
+            ):
+                message = (
+                    "Expectation values, standard-deviation upper bounds, Pauli "
+                    "labels, and operator coefficients must have equal lengths"
+                )
+                raise ValueError(message)
+            exp_value += np.dot(values, coeffs)
+            stds += np.dot(standard_deviation_upper_bounds, np.abs(coeffs))
+
+        return np.real_if_close([exp_value])[0], stds
 
 
 def create_qiskit_operator(op_string: str, n_qubits: int) -> SparsePauliOp:
