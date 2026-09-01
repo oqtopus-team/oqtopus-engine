@@ -15,7 +15,7 @@ from qiskit.exceptions import QiskitError  # type: ignore[import-untyped]
 from qiskit.primitives import (  # type: ignore[import-untyped]
     BackendEstimatorV2 as BackendEstimator,
 )
-from qiskit.primitives.backend_estimator import (  # type: ignore[import-untyped]
+from qiskit.primitives.backend_estimator_v2 import (  # type: ignore[import-untyped]
     _pauli_expval_with_variance,  # noqa: PLC2701
 )
 from qiskit.primitives.containers.estimator_pub import (  # type: ignore[import-untyped]
