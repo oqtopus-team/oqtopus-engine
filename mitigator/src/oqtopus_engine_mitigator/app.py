@@ -24,7 +24,6 @@ from qiskit_experiments.data_processing.mitigation.utils import (  # type: ignor
 )
 
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
-    mitigator_pb2,
     mitigator_pb2_grpc,
 )
 from oqtopus_engine_core.interfaces.mitigator_interface.v1.mitigator_pb2 import (  # type: ignore[attr-defined]
@@ -185,7 +184,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                     "Readout-error mitigation result",
                     extra={"mitigated_counts": mitigated_counts},
                 )
-                return mitigator_pb2.ReqMitigationResponse(counts=mitigated_counts)
+                return ReqMitigationResponse(counts=mitigated_counts)
             except Exception as e:
                 logger.exception("mitigation process failed. Exception occurred")
                 if span.is_recording():
@@ -246,9 +245,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                 if span.is_recording():
                     span.set_status(trace.StatusCode.ERROR, str(e))
             finally:
-                logger.info(
-                    "finish expectation-value readout-error mitigation process"
-                )
+                logger.info("finish expectation-value readout-error mitigation process")
 
     @staticmethod
     def ro_error_mitigation(

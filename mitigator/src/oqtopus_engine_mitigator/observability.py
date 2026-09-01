@@ -32,7 +32,7 @@ _BAGGAGE_PREFIX = "oqtopus."
 class JobBaggageSpanProcessor(SpanProcessor):
     """Copy ``oqtopus.*`` baggage keys onto span attributes on span start."""
 
-    def on_start(  # noqa: PLR6301
+    def on_start(  # ruff: ignore[no-self-use]
         self, span: Span, parent_context: Context | None = None
     ) -> None:
         """Mirror ``oqtopus.*`` baggage entries onto the starting span."""
