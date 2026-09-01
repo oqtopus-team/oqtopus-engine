@@ -368,12 +368,12 @@ class EstimatorStep(Step):
         rpc = getattr(self._stub, rpc_name)
 
         logger.info(
-            "%s request",
-            rpc_name,
+            "Estimator post-process request",
             extra={
                 "job_id": parent_job.job_id,
                 "job_type": parent_job.job_type,
                 "last_child_job_id": last_child.job_id,
+                "rpc_name": rpc_name,
                 "request": request,
             },
         )
@@ -382,12 +382,12 @@ class EstimatorStep(Step):
         response = await rpc(request)
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
-            "%s response",
-            rpc_name,
+            "Estimator post-process response",
             extra={
                 "elapsed_ms": round(elapsed_ms, 3),
                 "job_id": parent_job.job_id,
                 "job_type": parent_job.job_type,
+                "rpc_name": rpc_name,
                 "response": response,
             },
         )

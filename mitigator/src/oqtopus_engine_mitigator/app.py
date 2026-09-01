@@ -168,10 +168,12 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
             try:  # ruff: ignore[too-many-statements-in-try-clause]
                 logger.info("start ro_error_mitigation-error mitigation process")
                 logger.debug(
-                    "device_topology:%s, counts:%s, program:%s",
-                    request.device_topology,
-                    request.counts,
-                    request.program,
+                    "Readout-error mitigation request",
+                    extra={
+                        "device_topology": request.device_topology,
+                        "counts": request.counts,
+                        "program": request.program,
+                    },
                 )
                 device_topology = request.device_topology
                 counts = request.counts
@@ -180,8 +182,8 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                     device_topology, counts, program
                 )
                 logger.debug(
-                    "mitigated_counts:%s",
-                    mitigated_counts,
+                    "Readout-error mitigation result",
+                    extra={"mitigated_counts": mitigated_counts},
                 )
                 return mitigator_pb2.ReqMitigationResponse(counts=mitigated_counts)
             except Exception as e:
@@ -205,14 +207,16 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
         with tracer.start_as_current_span(
             "mitigator.ReqExpectationValueMitigation"
         ) as span:
-            try:  # ruff: ignore[too-many-statements-in-try-clause]
+            try:
                 logger.info("start expectation-value readout-error mitigation process")
                 logger.debug(
-                    "device_topology:%s, counts:%s, program:%s, paulis:%s",
-                    request.device_topology,
-                    request.counts,
-                    request.program,
-                    request.paulis,
+                    "Expectation-value readout-error mitigation request",
+                    extra={
+                        "device_topology": request.device_topology,
+                        "counts": request.counts,
+                        "program": request.program,
+                        "paulis": request.paulis,
+                    },
                 )
                 expectation_values, standard_deviation_upper_bounds = (
                     self.ro_error_mitigation_expectation_values(
@@ -223,10 +227,13 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                     )
                 )
                 logger.debug(
-                    "mitigated expectation values:%s, "
-                    "standard-deviation upper bounds:%s",
-                    expectation_values,
-                    standard_deviation_upper_bounds,
+                    "Expectation-value readout-error mitigation result",
+                    extra={
+                        "expectation_values": expectation_values,
+                        "standard_deviation_upper_bounds": (
+                            standard_deviation_upper_bounds
+                        ),
+                    },
                 )
                 return ReqExpectationValueMitigationResponse(
                     expectation_values=expectation_values,
@@ -267,7 +274,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
         )
         n_qubits = len(layout.qubits)
         qiskit_counts = Counts(dict(counts), memory_slots=layout.memory_slots)
-        logger.debug("Qiskit counts is %s", qiskit_counts)
+        logger.debug("Qiskit counts created", extra={"counts": qiskit_counts})
         # The Web API count is an unsigned integer, so projecting the quasi
         # distribution and casting it to counts reduces sampling-job accuracy.
         with tracer.start_as_current_span(
@@ -448,13 +455,14 @@ def _get_measurement_layout(
         qc = qasm3.loads(program)
         gate_counts = qc.count_ops()
         logger.debug(
-            "QASM program successfully loaded. "
-            "Stats: qubits=%d, clbits=%d, depth=%d, total_gates=%d, gate_counts=%s",
-            qc.num_qubits,
-            qc.num_clbits,
-            qc.depth(),
-            sum(gate_counts.values()),
-            gate_counts,
+            "QASM program successfully loaded",
+            extra={
+                "qubits": qc.num_qubits,
+                "clbits": qc.num_clbits,
+                "depth": qc.depth(),
+                "total_gates": sum(gate_counts.values()),
+                "gate_counts": gate_counts,
+            },
         )
     except Exception as error:
         message = f"Invalid QASM 3 program: {error}"
@@ -530,7 +538,10 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     )
     reflection.enable_server_reflection(service_names, server)
     server.add_insecure_port(address)
-    logger.info("Server is running on %s. max_workers=%d", address, max_workers)
+    logger.info(
+        "Server is running",
+        extra={"address": address, "max_workers": max_workers},
+    )
 
     # start the server
     server.start()

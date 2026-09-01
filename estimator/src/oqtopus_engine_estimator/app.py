@@ -108,11 +108,13 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             try:
                 logger.info("start estimation preprocess")
                 logger.debug(
-                    "qasm_code:%s, operators:%s, basis_gates:%s, mapping_list:%s",
-                    request.qasm_code,
-                    request.operators,
-                    request.basis_gates,
-                    request.mapping_list,
+                    "Estimation preprocess request",
+                    extra={
+                        "qasm_code": request.qasm_code,
+                        "operators": request.operators,
+                        "basis_gates": request.basis_gates,
+                        "mapping_list": request.mapping_list,
+                    },
                 )
                 qasm_code = request.qasm_code
                 operators = request.operators
@@ -157,17 +159,18 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             try:
                 logger.info("start estimation postprocess")
                 logger.debug(
-                    "counts:%s, grouped_operators:%s",
-                    request.counts,
-                    request.grouped_operators,
+                    "Estimation post-process request",
+                    extra={
+                        "counts": request.counts,
+                        "grouped_operators": request.grouped_operators,
+                    },
                 )
                 counts_list = request.counts
                 grouped_operators = request.grouped_operators
                 expval, stds = self._postprocess(counts_list, grouped_operators)
                 logger.debug(
-                    "expval:%f, stds:%f",
-                    expval,
-                    stds,
+                    "Estimation post-process result",
+                    extra={"expectation_value": expval, "standard_deviation": stds},
                 )
                 return ReqEstimationPostProcessResponse(expval=expval, stds=stds)
             except Exception as e:
@@ -196,15 +199,23 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             try:
                 logger.info("start estimation postprocess from expectation values")
                 logger.debug(
-                    "expectation_value_groups:%s, grouped_operators:%s",
-                    request.expectation_value_groups,
-                    request.grouped_operators,
+                    "Expectation-value post-process request",
+                    extra={
+                        "expectation_value_groups": request.expectation_value_groups,
+                        "grouped_operators": request.grouped_operators,
+                    },
                 )
                 expval, stds = self._postprocess_from_expectation_values(
                     request.expectation_value_groups,
                     request.grouped_operators,
                 )
-                logger.debug("expval:%f, stds:%f", expval, stds)
+                logger.debug(
+                    "Expectation-value post-process result",
+                    extra={
+                        "expectation_value": expval,
+                        "standard_deviation_upper_bound": stds,
+                    },
+                )
                 return ReqEstimationPostProcessFromExpectationValuesResponse(
                     expectation_value=expval,
                     standard_deviation_upper_bound=stds,
@@ -238,13 +249,14 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                     "estimator.circuit.gate_count", sum(gate_counts.values())
                 )
             logger.debug(
-                "input QASM code is successfully transformed to QuantumCircuit. "
-                "Stats: qubits=%d, clbits=%d, depth=%d, total_gates=%d, gate_counts=%s",
-                qc.num_qubits,
-                qc.num_clbits,
-                qc.depth(),
-                sum(gate_counts.values()),
-                gate_counts,
+                "Input QASM transformed to QuantumCircuit",
+                extra={
+                    "qubits": qc.num_qubits,
+                    "clbits": qc.num_clbits,
+                    "depth": qc.depth(),
+                    "total_gates": sum(gate_counts.values()),
+                    "gate_counts": gate_counts,
+                },
             )
 
         with tracer.start_as_current_span("estimator._preprocess.operator") as span:
@@ -252,7 +264,8 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             if span.is_recording():
                 span.set_attribute("estimator.operator.num_terms", len(op))
             logger.debug(
-                "input operator is successfully transformed to SparsePauliOp %s.", op
+                "Input operator transformed to SparsePauliOp",
+                extra={"operator": op},
             )
             if len(mapping_list) == 0:
                 mapping_list = list(range(qc.num_qubits))
@@ -262,8 +275,8 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                 mapping_list = list(mapping_list) + missing_list
             mapped_observable = op.apply_layout(mapping_list, num_qubits=qc.num_qubits)
             logger.debug(
-                "input mapping_list is successfully applied to observable %s.",
-                mapped_observable,
+                "Qubit mapping applied to observable",
+                extra={"mapped_observable": mapped_observable},
             )
 
         with tracer.start_as_current_span(
@@ -294,7 +307,13 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             for pauli_list in grouped_orig_paulis
         ]
         grouped_operators = json.dumps([grouped_meas_paulis, grouped_coeffs])
-        logger.debug("qasms:%s, operators:%s", preprocessed_qasm, grouped_operators)
+        logger.debug(
+            "Estimation preprocess result",
+            extra={
+                "qasm_codes": preprocessed_qasm,
+                "grouped_operators": grouped_operators,
+            },
+        )
 
         return preprocessed_qasm, grouped_operators
 
@@ -460,7 +479,10 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     )
     reflection.enable_server_reflection(service_names, server)
     server.add_insecure_port(address)
-    logger.info("Server is running on %s. max_workers=%d", address, max_workers)
+    logger.info(
+        "Server is running",
+        extra={"address": address, "max_workers": max_workers},
+    )
 
     # start the server
     server.start()

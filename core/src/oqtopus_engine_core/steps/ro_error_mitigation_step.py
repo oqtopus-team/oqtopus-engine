@@ -56,10 +56,11 @@ def _apply_expectation_value_mitigation_response(
         standard_deviation_upper_bounds
     )
     logger.debug(
-        "ro_error_mitigated expectation_values is %s, "
-        "standard_deviation_upper_bounds is %s",
-        expectation_values,
-        standard_deviation_upper_bounds,
+        "Readout-error-mitigated expectation values",
+        extra={
+            "expectation_values": expectation_values,
+            "standard_deviation_upper_bounds": standard_deviation_upper_bounds,
+        },
     )
 
 
@@ -278,9 +279,11 @@ class ReadoutErrorMitigationStep(Step):
                 mitigated_counts = dict(response.counts)
                 sampling.counts = mitigated_counts
                 logger.debug(
-                    "ro_error_mitigated_counts is %s, original_counts is %s",
-                    mitigated_counts,
-                    orig_counts,
+                    "Readout-error-mitigated counts",
+                    extra={
+                        "mitigated_counts": mitigated_counts,
+                        "original_counts": orig_counts,
+                    },
                 )
 
             return StepResult()
