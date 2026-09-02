@@ -4,7 +4,9 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 import cmath
 import json
+from unittest.mock import Mock
 
+import grpc  # type: ignore[import-untyped]
 import numpy as np
 import pytest
 from qiskit import qasm3  # type: ignore[import-untyped]
@@ -25,7 +27,11 @@ from qiskit.transpiler.preset_passmanagers import (  # type: ignore[import-untyp
     generate_preset_pass_manager,
 )
 
-from oqtopus_engine_estimator.app import Estimator, create_qiskit_operator
+from oqtopus_engine_estimator.app import (
+    Estimator,
+    ParameterValueError,
+    create_qiskit_operator,
+)
 from oqtopus_engine_core.interfaces.estimator_interface.v1 import estimator_pb2
 
 
@@ -62,6 +68,32 @@ def test_create_qiskit_operator():
     print(pauli_op)
     assert pauli_op.to_list()[0] == ("XX", complex(1.5, 0.0))
     assert pauli_op.to_list()[1] == ("ZY", complex(1.2, 0.0))
+
+
+@pytest.mark.parametrize("pauli", ["XX", "X", "A0", "X-1", "X0junk"])
+def test_create_qiskit_operator_rejects_invalid_pauli_format(pauli):
+    operators = str([(pauli, 1.0)])
+
+    with pytest.raises(ParameterValueError, match="The specified operator is invalid"):
+        create_qiskit_operator(operators, 2)
+
+
+def test_req_estimation_preprocess_aborts_invalid_pauli(estimator):
+    request = estimator_pb2.ReqEstimationPreProcessRequest(
+        qasm_code=(
+            'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[2] q;\nh q[0];\n'
+        ),
+        operators='[["XX", 1.0]]',
+        basis_gates=["rz", "sx", "measure"],
+    )
+    context = Mock(spec=grpc.ServicerContext)
+
+    estimator.ReqEstimationPreProcess(request, context)
+
+    context.abort.assert_called_once()
+    status, message = context.abort.call_args.args
+    assert status == grpc.StatusCode.INVALID_ARGUMENT
+    assert "The specified operator is invalid" in message
 
 
 def test_preprocess(estimator):

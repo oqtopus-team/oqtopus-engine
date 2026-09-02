@@ -87,7 +87,7 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
     def ReqEstimationPreProcess(  # noqa: N802
         self,
         request: ReqEstimationPreProcessRequest,
-        context: grpc.ServicerContext,  # noqa: ARG002
+        context: grpc.ServicerContext,
     ) -> ReqEstimationPreProcessResponse:
         """Handle gRPC request for preprocessing estimation job.
 
@@ -128,6 +128,14 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                     qasm_codes=preprocessed_qasm_codes,
                     grouped_operators=grouped_operators,
                 )
+            except ParameterValueError as e:
+                logger.warning(
+                    "Estimation job preprocess rejected",
+                    extra={"error": str(e)},
+                )
+                if span.is_recording():
+                    span.set_status(trace.StatusCode.ERROR, str(e))
+                context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
             except Exception as e:
                 logger.exception("Estimation job preprocess failed. Exception occurred")
                 if span.is_recording():
@@ -407,24 +415,26 @@ def create_qiskit_operator(op_string: str, n_qubits: int) -> SparsePauliOp:
     # Parse op_params
     op_params = ast.literal_eval(op_string)
 
-    # There is no need to validate the value of op_params
-    # because it has already been validated in the cloud.
+    # The Cloud validates the request shape; the Estimator owns Pauli syntax.
     pauli_terms = []
     for op_param in op_params:
+        compact_pauli = op_param[0].replace(" ", "")
+        if compact_pauli == "I":
+            compact_pauli = "I0"
+        elif re.fullmatch(r"(?:[IXYZ]\d+)+", compact_pauli) is None:
+            message = (
+                "The specified operator is invalid. Each Pauli label must be "
+                "I, X, Y, or Z followed by a non-negative qubit index; only "
+                f"the identity 'I' may omit its index: {op_param[0]!r}"
+            )
+            raise ParameterValueError(message)
+
         # insert a space between label and index
         # Handle cases like "X 0X 1" or "X0X1" -> "X 0 X 1"
-        # First remove all spaces, then add spaces between pauli and index
+        # Add spaces between Pauli labels and indices.
         pauli_and_index_str: str = re.sub(
-            r"([IXYZ])(\d+)", r"\1 \2 ", op_param[0].replace(" ", "")
+            r"([IXYZ])(\d+)", r"\1 \2 ", compact_pauli
         ).strip()
-
-        # I-label can be used with no index;
-        # it can appear as an independent term.
-        if pauli_and_index_str == "I":
-            # Complement an index;
-            # Via SparsePauliOp.from_sparse_list(...),
-            # this is interpreted as 'I 0 I 1 I 2 ...'
-            pauli_and_index_str = "I 0"
 
         pauli_and_index_list = pauli_and_index_str.split()  # e.g., ['X', '0', 'Z', '1']
         pauli_label_str = "".join(pauli_and_index_list[0::2])  # e.g., 'XZ'
