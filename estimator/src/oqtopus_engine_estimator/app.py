@@ -15,7 +15,7 @@ from qiskit.exceptions import QiskitError  # type: ignore[import-untyped]
 from qiskit.primitives import (  # type: ignore[import-untyped]
     BackendEstimatorV2 as BackendEstimator,
 )
-from qiskit.primitives.backend_estimator import (  # type: ignore[import-untyped]
+from qiskit.primitives.backend_estimator_v2 import (  # type: ignore[import-untyped]
     _pauli_expval_with_variance,  # noqa: PLC2701
 )
 from qiskit.primitives.containers.estimator_pub import (  # type: ignore[import-untyped]
@@ -24,7 +24,10 @@ from qiskit.primitives.containers.estimator_pub import (  # type: ignore[import-
 from qiskit.providers.fake_provider import (  # type: ignore[import-untyped]
     GenericBackendV2,
 )
-from qiskit.quantum_info import PauliList, SparsePauliOp  # type: ignore[import-untyped]
+from qiskit.quantum_info import (  # type: ignore[import-untyped]
+    PauliList,
+    SparsePauliOp,
+)
 from qiskit.result import Counts  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
@@ -32,6 +35,8 @@ from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
 )
 from oqtopus_engine_core.interfaces.estimator_interface.v1.estimator_pb2 import (  # type: ignore[attr-defined]
     DESCRIPTOR,
+    ReqEstimationPostProcessFromExpectationValuesRequest,
+    ReqEstimationPostProcessFromExpectationValuesResponse,
     ReqEstimationPostProcessRequest,
     ReqEstimationPostProcessResponse,
     ReqEstimationPreProcessRequest,
@@ -76,14 +81,13 @@ class ParameterValueError(ValueError):
         return self.args[0]
 
 
-# response
 class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
     """Estimator service implementation for gRPC."""
 
     def ReqEstimationPreProcess(  # noqa: N802
         self,
         request: ReqEstimationPreProcessRequest,
-        context: grpc.ServicerContext,  # noqa: ARG002
+        context: grpc.ServicerContext,
     ) -> ReqEstimationPreProcessResponse:
         """Handle gRPC request for preprocessing estimation job.
 
@@ -104,11 +108,13 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             try:
                 logger.info("start estimation preprocess")
                 logger.debug(
-                    "qasm_code:%s, operators:%s, basis_gates:%s, mapping_list:%s",
-                    request.qasm_code,
-                    request.operators,
-                    request.basis_gates,
-                    request.mapping_list,
+                    "Estimation preprocess request",
+                    extra={
+                        "qasm_code": request.qasm_code,
+                        "operators": request.operators,
+                        "basis_gates": request.basis_gates,
+                        "mapping_list": request.mapping_list,
+                    },
                 )
                 qasm_code = request.qasm_code
                 operators = request.operators
@@ -122,6 +128,14 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                     qasm_codes=preprocessed_qasm_codes,
                     grouped_operators=grouped_operators,
                 )
+            except ParameterValueError as e:
+                logger.warning(
+                    "Estimation job preprocess rejected",
+                    extra={"error": str(e)},
+                )
+                if span.is_recording():
+                    span.set_status(trace.StatusCode.ERROR, str(e))
+                context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
             except Exception as e:
                 logger.exception("Estimation job preprocess failed. Exception occurred")
                 if span.is_recording():
@@ -153,17 +167,18 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             try:
                 logger.info("start estimation postprocess")
                 logger.debug(
-                    "counts:%s, grouped_operators:%s",
-                    request.counts,
-                    request.grouped_operators,
+                    "Estimation post-process request",
+                    extra={
+                        "counts": request.counts,
+                        "grouped_operators": request.grouped_operators,
+                    },
                 )
                 counts_list = request.counts
                 grouped_operators = request.grouped_operators
                 expval, stds = self._postprocess(counts_list, grouped_operators)
                 logger.debug(
-                    "expval:%f, stds:%f",
-                    expval,
-                    stds,
+                    "Estimation post-process result",
+                    extra={"expectation_value": expval, "standard_deviation": stds},
                 )
                 return ReqEstimationPostProcessResponse(expval=expval, stds=stds)
             except Exception as e:
@@ -174,6 +189,54 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                     span.set_status(trace.StatusCode.ERROR, str(e))
             finally:
                 logger.info("finish estimation postprocess")
+
+    def ReqEstimationPostProcessFromExpectationValues(  # noqa: N802
+        self,
+        request: ReqEstimationPostProcessFromExpectationValuesRequest,
+        context: grpc.ServicerContext,  # noqa: ARG002
+    ) -> ReqEstimationPostProcessFromExpectationValuesResponse:
+        """Aggregate precomputed expectation values into an estimation result.
+
+        Returns:
+            The gRPC response containing the aggregated value and uncertainty.
+
+        """
+        with tracer.start_as_current_span(
+            "estimator.ReqEstimationPostProcessFromExpectationValues"
+        ) as span:
+            try:
+                logger.info("start estimation postprocess from expectation values")
+                logger.debug(
+                    "Expectation-value post-process request",
+                    extra={
+                        "expectation_value_groups": request.expectation_value_groups,
+                        "grouped_operators": request.grouped_operators,
+                    },
+                )
+                expval, stds = self._postprocess_from_expectation_values(
+                    request.expectation_value_groups,
+                    request.grouped_operators,
+                )
+                logger.debug(
+                    "Expectation-value post-process result",
+                    extra={
+                        "expectation_value": expval,
+                        "standard_deviation_upper_bound": stds,
+                    },
+                )
+                return ReqEstimationPostProcessFromExpectationValuesResponse(
+                    expectation_value=expval,
+                    standard_deviation_upper_bound=stds,
+                )
+            except Exception as e:
+                logger.exception(
+                    "Estimation job postprocess from expectation values failed. "
+                    "Exception occurred"
+                )
+                if span.is_recording():
+                    span.set_status(trace.StatusCode.ERROR, str(e))
+            finally:
+                logger.info("finish estimation postprocess from expectation values")
 
     def _preprocess(  # noqa: PLR6301, PLR0914
         self,
@@ -194,13 +257,14 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                     "estimator.circuit.gate_count", sum(gate_counts.values())
                 )
             logger.debug(
-                "input QASM code is successfully transformed to QuantumCircuit. "
-                "Stats: qubits=%d, clbits=%d, depth=%d, total_gates=%d, gate_counts=%s",
-                qc.num_qubits,
-                qc.num_clbits,
-                qc.depth(),
-                sum(gate_counts.values()),
-                gate_counts,
+                "Input QASM transformed to QuantumCircuit",
+                extra={
+                    "qubits": qc.num_qubits,
+                    "clbits": qc.num_clbits,
+                    "depth": qc.depth(),
+                    "total_gates": sum(gate_counts.values()),
+                    "gate_counts": gate_counts,
+                },
             )
 
         with tracer.start_as_current_span("estimator._preprocess.operator") as span:
@@ -208,7 +272,8 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             if span.is_recording():
                 span.set_attribute("estimator.operator.num_terms", len(op))
             logger.debug(
-                "input operator is successfully transformed to SparsePauliOp %s.", op
+                "Input operator transformed to SparsePauliOp",
+                extra={"operator": op},
             )
             if len(mapping_list) == 0:
                 mapping_list = list(range(qc.num_qubits))
@@ -218,8 +283,8 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                 mapping_list = list(mapping_list) + missing_list
             mapped_observable = op.apply_layout(mapping_list, num_qubits=qc.num_qubits)
             logger.debug(
-                "input mapping_list is successfully applied to observable %s.",
-                mapped_observable,
+                "Qubit mapping applied to observable",
+                extra={"mapped_observable": mapped_observable},
             )
 
         with tracer.start_as_current_span(
@@ -250,7 +315,13 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             for pauli_list in grouped_orig_paulis
         ]
         grouped_operators = json.dumps([grouped_meas_paulis, grouped_coeffs])
-        logger.debug("qasms:%s, operators:%s", preprocessed_qasm, grouped_operators)
+        logger.debug(
+            "Estimation preprocess result",
+            extra={
+                "qasm_codes": preprocessed_qasm,
+                "grouped_operators": grouped_operators,
+            },
+        )
 
         return preprocessed_qasm, grouped_operators
 
@@ -266,22 +337,64 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             operators = json.loads(grouped_operators)
             if span.is_recording():
                 span.set_attribute("estimator.num_measurement_groups", len(counts_list))
+                if counts_list:
+                    span.set_attribute(
+                        "estimator.shots",
+                        sum(counts_list[0].counts.values()),
+                    )
+
             for counts, pauli_list, coeff_list in zip(
-                counts_list, operators[0], operators[1], strict=True
+                counts_list,
+                operators[0],
+                operators[1],
+                strict=True,
             ):
-                paulis = PauliList(pauli_list)
                 coeffs = np.array(coeff_list)
+                paulis = PauliList(pauli_list)
                 exp_values, variances = _pauli_expval_with_variance(
                     Counts(counts.counts), paulis
                 )
                 exp_value += np.dot(exp_values, coeffs)
-                stds += np.dot(variances**0.5, np.abs(coeffs))
-            shots = sum(counts_list[0].counts.values())
-            if span.is_recording():
-                span.set_attribute("estimator.shots", shots)
-            stds /= np.sqrt(shots)
+                shots = sum(counts.counts.values())
+                stds += np.dot(variances**0.5, np.abs(coeffs)) / np.sqrt(shots)
 
             return np.real_if_close([exp_value])[0], stds
+
+    def _postprocess_from_expectation_values(  # noqa: PLR6301
+        self,
+        expectation_value_groups: list,
+        grouped_operators: str,
+    ) -> tuple[np.float64 | np.complex64, np.float64 | np.complex64]:
+        exp_value: np.float64 | np.complex64 = np.float64(0.0)
+        stds: np.float64 | np.complex64 = np.float64(0.0)
+
+        operators = json.loads(grouped_operators)
+        for expectation_values, pauli_list, coeff_list in zip(
+            expectation_value_groups,
+            operators[0],
+            operators[1],
+            strict=True,
+        ):
+            values = np.array(expectation_values.values)
+            standard_deviation_upper_bounds = np.array(
+                expectation_values.standard_deviation_upper_bounds
+            )
+            coeffs = np.array(coeff_list)
+            if not (
+                values.size
+                == standard_deviation_upper_bounds.size
+                == coeffs.size
+                == len(pauli_list)
+            ):
+                message = (
+                    "Expectation values, standard-deviation upper bounds, Pauli "
+                    "labels, and operator coefficients must have equal lengths"
+                )
+                raise ValueError(message)
+            exp_value += np.dot(values, coeffs)
+            stds += np.dot(standard_deviation_upper_bounds, np.abs(coeffs))
+
+        return np.real_if_close([exp_value])[0], stds
 
 
 def create_qiskit_operator(op_string: str, n_qubits: int) -> SparsePauliOp:
@@ -302,24 +415,26 @@ def create_qiskit_operator(op_string: str, n_qubits: int) -> SparsePauliOp:
     # Parse op_params
     op_params = ast.literal_eval(op_string)
 
-    # There is no need to validate the value of op_params
-    # because it has already been validated in the cloud.
+    # The Cloud validates the request shape; the Estimator owns Pauli syntax.
     pauli_terms = []
     for op_param in op_params:
+        compact_pauli = op_param[0].replace(" ", "")
+        if compact_pauli == "I":
+            compact_pauli = "I0"
+        elif re.fullmatch(r"(?:[IXYZ]\d+)+", compact_pauli) is None:
+            message = (
+                "The specified operator is invalid. Each Pauli label must be "
+                "I, X, Y, or Z followed by a non-negative qubit index; only "
+                f"the identity 'I' may omit its index: {op_param[0]!r}"
+            )
+            raise ParameterValueError(message)
+
         # insert a space between label and index
         # Handle cases like "X 0X 1" or "X0X1" -> "X 0 X 1"
-        # First remove all spaces, then add spaces between pauli and index
+        # Add spaces between Pauli labels and indices.
         pauli_and_index_str: str = re.sub(
-            r"([IXYZ])(\d+)", r"\1 \2 ", op_param[0].replace(" ", "")
+            r"([IXYZ])(\d+)", r"\1 \2 ", compact_pauli
         ).strip()
-
-        # I-label can be used with no index;
-        # it can appear as an independent term.
-        if pauli_and_index_str == "I":
-            # Complement an index;
-            # Via SparsePauliOp.from_sparse_list(...),
-            # this is interpreted as 'I 0 I 1 I 2 ...'
-            pauli_and_index_str = "I 0"
 
         pauli_and_index_list = pauli_and_index_str.split()  # e.g., ['X', '0', 'Z', '1']
         pauli_label_str = "".join(pauli_and_index_list[0::2])  # e.g., 'XZ'
@@ -374,7 +489,10 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     )
     reflection.enable_server_reflection(service_names, server)
     server.add_insecure_port(address)
-    logger.info("Server is running on %s. max_workers=%d", address, max_workers)
+    logger.info(
+        "Server is running",
+        extra={"address": address, "max_workers": max_workers},
+    )
 
     # start the server
     server.start()

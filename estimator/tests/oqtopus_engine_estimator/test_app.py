@@ -4,7 +4,9 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 import cmath
 import json
+from unittest.mock import Mock
 
+import grpc  # type: ignore[import-untyped]
 import numpy as np
 import pytest
 from qiskit import qasm3  # type: ignore[import-untyped]
@@ -25,7 +27,12 @@ from qiskit.transpiler.preset_passmanagers import (  # type: ignore[import-untyp
     generate_preset_pass_manager,
 )
 
-from oqtopus_engine_estimator.app import Estimator, create_qiskit_operator
+from oqtopus_engine_estimator.app import (
+    Estimator,
+    ParameterValueError,
+    create_qiskit_operator,
+)
+from oqtopus_engine_core.interfaces.estimator_interface.v1 import estimator_pb2
 
 
 @pytest.fixture(scope="session")
@@ -63,6 +70,32 @@ def test_create_qiskit_operator():
     assert pauli_op.to_list()[1] == ("ZY", complex(1.2, 0.0))
 
 
+@pytest.mark.parametrize("pauli", ["XX", "X", "A0", "X-1", "X0junk"])
+def test_create_qiskit_operator_rejects_invalid_pauli_format(pauli):
+    operators = str([(pauli, 1.0)])
+
+    with pytest.raises(ParameterValueError, match="The specified operator is invalid"):
+        create_qiskit_operator(operators, 2)
+
+
+def test_req_estimation_preprocess_aborts_invalid_pauli(estimator):
+    request = estimator_pb2.ReqEstimationPreProcessRequest(
+        qasm_code=(
+            'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[2] q;\nh q[0];\n'
+        ),
+        operators='[["XX", 1.0]]',
+        basis_gates=["rz", "sx", "measure"],
+    )
+    context = Mock(spec=grpc.ServicerContext)
+
+    estimator.ReqEstimationPreProcess(request, context)
+
+    context.abort.assert_called_once()
+    status, message = context.abort.call_args.args
+    assert status == grpc.StatusCode.INVALID_ARGUMENT
+    assert "The specified operator is invalid" in message
+
+
 def test_preprocess(estimator):
     qasm_code = (
         'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[2] q;\nh q[0];\ncx q[0], q[1];\n'
@@ -92,6 +125,11 @@ class counts_test:
     counts: counts
 
 
+class ExpectationValuesTest:
+    values: list[float]
+    standard_deviation_upper_bounds: list[float]
+
+
 def test_postprocess(estimator):
     # counts_list= [
     #    {"00": 425, "01": 75, "10": 85, "11": 415},
@@ -114,6 +152,45 @@ def test_postprocess(estimator):
     expect_stds = np.float64(0.0348)
     assert cmath.isclose(actual_expval, expect_expval, abs_tol=1e-1)
     assert cmath.isclose(actual_stds, expect_stds, abs_tol=1e-2)
+
+
+def test_postprocess_uses_mitigated_expectation_values(estimator):
+    expectation_values1 = ExpectationValuesTest()
+    expectation_values1.values = [0.8, 1.0]
+    expectation_values1.standard_deviation_upper_bounds = [0.03, 0.0]
+    expectation_values2 = ExpectationValuesTest()
+    expectation_values2.values = [0.5]
+    expectation_values2.standard_deviation_upper_bounds = [0.04]
+    grouped_operators = '[[["XX", "II"], ["ZY"]], [[1.5, -0.5], [1.2]]]'
+
+    actual_expval, actual_stds = estimator._postprocess_from_expectation_values(
+        [expectation_values1, expectation_values2],
+        grouped_operators,
+    )
+
+    assert actual_expval == pytest.approx(1.3)
+    assert actual_stds == pytest.approx(0.093)
+
+
+def test_req_postprocess_from_expectation_values(estimator):
+    request = estimator_pb2.ReqEstimationPostProcessFromExpectationValuesRequest(
+        expectation_value_groups=[
+            estimator_pb2.ExpectationValues(
+                values=[0.8, 1.0],
+                standard_deviation_upper_bounds=[0.03, 0.0],
+            ),
+            estimator_pb2.ExpectationValues(
+                values=[0.5],
+                standard_deviation_upper_bounds=[0.04],
+            ),
+        ],
+        grouped_operators='[[["XX", "II"], ["ZY"]], [[1.5, -0.5], [1.2]]]',
+    )
+
+    response = estimator.ReqEstimationPostProcessFromExpectationValues(request, None)
+
+    assert response.expectation_value == pytest.approx(1.3)
+    assert response.standard_deviation_upper_bound == pytest.approx(0.093)
 
 
 def test_simple_circuits_with_random_op(estimator):
