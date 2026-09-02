@@ -2,7 +2,7 @@ SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-.PHONY: install run run-sse format lint test verify help
+.PHONY: install run run-sse run-slurm-simulator format lint test verify help
 
 install: ## Install dependencies
 	@uv sync --all-groups
@@ -12,6 +12,9 @@ run: ## Run application
 
 run-sse: ## Run application with SSE engine configuration
 	@uv run python -m oqtopus_engine_core.app -c config/sse_engine_config.yaml -l config/sse_engine_logging.yaml
+
+run-slurm-simulator: ## Run application with SLURM simulator configuration
+	@uv run python -m oqtopus_engine_core.app -c config/slurm_simulator_config.yaml -l config/logging.yaml
 
 format: ## Run code formatting
 	@uv run ruff check --fix
