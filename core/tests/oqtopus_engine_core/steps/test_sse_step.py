@@ -368,6 +368,7 @@ class TestRunSse:
             )
         assert sample_job.status == "succeeded"
         mock_gctx.job_repository.update_job_transpiler_info.assert_awaited_once()
+        mock_runner.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_sse_user_program_error_raises(
@@ -497,6 +498,21 @@ class TestSseRunnerInit:
         assert runner._job_id == sample_job.job_id
         assert runner._container_name == sample_job.job_id
         assert runner.result_job is None
+
+
+class TestSseRunnerClose:
+    def test_close_closes_docker_client(self, make_runner: _MakeRunner) -> None:
+        runner, mock_docker, _ = make_runner()
+
+        runner.close()
+
+        mock_docker.DockerClient.return_value.close.assert_called_once()
+
+    def test_close_swallows_error(self, make_runner: _MakeRunner) -> None:
+        runner, mock_docker, _ = make_runner()
+        mock_docker.DockerClient.return_value.close.side_effect = Exception("boom")
+
+        runner.close()
 
 
 class TestSseRunnerRunSse:
@@ -826,23 +842,23 @@ class TestCopyUserProgramIntoContainer:
 # SseRunner._get_result_from_container
 # ---------------------------------------------------------------------------
 
-def _make_tar_bytes(filename: str, content: bytes) -> list:
+def _make_tar_bytes(filename: str, content: bytes) -> tuple:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
         info = tarfile.TarInfo(name=filename)
         info.size = len(content)
         tar.addfile(tarinfo=info, fileobj=io.BytesIO(content))
-    return [(buf.getvalue(), None)]
+    return (buf.getvalue(), None)
 
 
-def _make_tar_bytes_directory(dirname: str) -> list:
+def _make_tar_bytes_directory(dirname: str) -> tuple:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
         info = tarfile.TarInfo(name=dirname)
         info.type = tarfile.DIRTYPE
         info.mode = 0o755
         tar.addfile(tarinfo=info)
-    return [(buf.getvalue(), None)]
+    return (buf.getvalue(), None)
 
 
 class TestGetResultFromContainer:
@@ -856,20 +872,21 @@ class TestGetResultFromContainer:
             "transpiler_info": {}, "simulator_info": {},
             "mitigation_info": {},
         }
-        chunks = _make_tar_bytes("result.json", json.dumps(job_data).encode())
-        runner._container.exec_run.return_value = (0, iter(chunks))
+        output = _make_tar_bytes("result.json", json.dumps(job_data).encode())
+        runner._container.exec_run.return_value = (0, output)
 
         result = runner._get_result_from_container(
             user="appuser", container_path=Path("/sse/out"), filename="result.json"
         )
         assert result.job_id == "j1"
         assert result.status == "succeeded"
+        assert runner._container.exec_run.call_args.kwargs["stream"] is False
 
     def test_stderr_raises(self, make_runner: _MakeRunner) -> None:
         runner, _, _ = make_runner()
         runner._container = MagicMock()
         runner._container.exec_run.return_value = (
-            0, iter([(None, b"tar: file not found")])
+            0, (None, b"tar: file not found")
         )
 
         with pytest.raises(RuntimeError, match="error when getting file"):
@@ -881,8 +898,8 @@ class TestGetResultFromContainer:
         runner, _, _ = make_runner()
         runner._container = MagicMock()
 
-        chunks = _make_tar_bytes("result.json", b"")
-        runner._container.exec_run.return_value = (0, iter(chunks))
+        output = _make_tar_bytes("result.json", b"")
+        runner._container.exec_run.return_value = (0, output)
 
         with pytest.raises(RuntimeError, match="result file is empty"):
             runner._get_result_from_container(
@@ -895,8 +912,8 @@ class TestGetResultFromContainer:
         runner, _, _ = make_runner()
         runner._container = MagicMock()
 
-        chunks = _make_tar_bytes_directory("result.json")
-        runner._container.exec_run.return_value = (0, iter(chunks))
+        output = _make_tar_bytes_directory("result.json")
+        runner._container.exec_run.return_value = (0, output)
 
         with pytest.raises(RuntimeError, match="result file not found in tar"):
             runner._get_result_from_container(
