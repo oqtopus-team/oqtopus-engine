@@ -1093,6 +1093,9 @@ async def test_obs_ctx_reattached_on_post_process_reentry():
     )
 
     assert step.seen["post"].get("oqtopus.job_id") == "job-1"
+    # the attached context is detached again on the way out, so the caller's
+    # context is left as it was.
+    assert "oqtopus.job_id" not in baggage.get_all(otel_context.get_current())
 
 
 @pytest.mark.asyncio
