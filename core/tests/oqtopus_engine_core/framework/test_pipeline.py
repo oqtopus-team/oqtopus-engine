@@ -1083,6 +1083,7 @@ async def test_obs_ctx_reattached_on_post_process_reentry():
     executor = PipelineExecutor([step], QueueBuffer())
     jctx = JobContext(initial={})
     jctx["_oqtopus_obs_ctx"] = baggage.set_baggage("oqtopus.job_id", "job-1")
+    baggage_before = dict(baggage.get_all(otel_context.get_current()))
 
     await executor._run_from(
         StepPhase.POST_PROCESS,
@@ -1095,7 +1096,7 @@ async def test_obs_ctx_reattached_on_post_process_reentry():
     assert step.seen["post"].get("oqtopus.job_id") == "job-1"
     # the attached context is detached again on the way out, so the caller's
     # context is left as it was.
-    assert "oqtopus.job_id" not in baggage.get_all(otel_context.get_current())
+    assert dict(baggage.get_all(otel_context.get_current())) == baggage_before
 
 
 @pytest.mark.asyncio
