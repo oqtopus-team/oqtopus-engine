@@ -28,7 +28,7 @@ dependencies = [
   "pydantic>=2.12.5",
   "python-json-logger>=4.0.0",
   "pyyaml>=6.0.3",
-  "qiskit==1.2",
+  "qiskit==2.5.2",
   "qiskit-qasm3-import>=0.6.0",
   "six>=1.17.0",
   "urllib3>=2.6.1",
