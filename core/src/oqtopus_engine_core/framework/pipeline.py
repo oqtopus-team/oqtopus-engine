@@ -266,6 +266,17 @@ class PipelineExecutor:
             jctx["_oqtopus_obs_finalized"] = False
             job_ready_counter.add(1, {"oqtopus.pipeline_name": pipeline_name})
             token = otel_context.attach(ctx)
+        else:
+            # Re-entries (POST_PROCESS after a DETACH, child jobs from a split)
+            # run in their own asyncio task, which starts from an empty OTel
+            # context. Without re-attaching the context saved above, their step
+            # spans become trace roots instead of children of
+            # `oqtopus_engine.job.process`, and the oqtopus.* baggage is absent
+            # from the ambient context, so auto-instrumented client spans and
+            # the downstream services they call lose `oqtopus.job_id`.
+            saved_ctx = jctx.get("_oqtopus_obs_ctx")
+            if saved_ctx is not None:
+                token = otel_context.attach(saved_ctx)
 
         try:
             await self._run_state_machine(step_phase, index, gctx, jctx, job)
