@@ -142,26 +142,13 @@ class PipelineExecutor:
         while True:
             try:
                 gctx, jctx, job = await buffer.get()
-                # Worker tasks are spawned at pipeline startup with an empty
-                # OTel context. Re-attach the per-job context that was saved
-                # on jctx during the first `_run_from` entry so spans created
-                # after a Buffer transit stay parented under the job's root
-                # `oqtopus_engine.job.process` span.
-                token = None
-                saved_ctx = jctx.get("_oqtopus_obs_ctx")
-                if saved_ctx is not None:
-                    token = otel_context.attach(saved_ctx)
-                try:
-                    await self._run_from(
-                        step_phase=StepPhase.PRE_PROCESS,
-                        index=buffer_index + 1,
-                        gctx=gctx,
-                        jctx=jctx,
-                        job=job,
-                    )
-                finally:
-                    if token is not None:
-                        otel_context.detach(token)
+                await self._run_from(
+                    step_phase=StepPhase.PRE_PROCESS,
+                    index=buffer_index + 1,
+                    gctx=gctx,
+                    jctx=jctx,
+                    job=job,
+                )
             except Exception:
                 logger.exception(
                     "worker crashed and recovered",
@@ -210,8 +197,8 @@ class PipelineExecutor:
         ``oqtopus_engine.job.process`` span and attaches the per-job OTel
         context (with ``oqtopus.*`` baggage) so child spans created during
         processing become its descendants. The context is saved on jctx so
-        workers can re-attach it after Buffer transits; the span is ended
-        in ``_finalize_job_observability``.
+        every later entry can re-attach it after a Buffer transit; the span
+        is ended in ``_finalize_job_observability``.
 
         Args:
             step_phase: The current phase of execution (pre_process or post_process).
@@ -233,9 +220,9 @@ class PipelineExecutor:
 
         # Root jobs only: open the long-lived `oqtopus_engine.job.process`
         # span and attach an OTel context carrying it (plus oqtopus.* baggage)
-        # to the current task. The context is also saved on jctx so worker
-        # tasks can re-attach it after a Buffer transit. The span is ended in
-        # `_finalize_job_observability`.
+        # to the current task. The context is also saved on jctx so later
+        # entries can re-attach it after a Buffer transit. The span is ended
+        # in `_finalize_job_observability`.
         token = None
         if (
             index == 0
@@ -267,13 +254,19 @@ class PipelineExecutor:
             job_ready_counter.add(1, {"oqtopus.pipeline_name": pipeline_name})
             token = otel_context.attach(ctx)
         else:
-            # Re-entries (POST_PROCESS after a DETACH, child jobs from a split)
-            # run in their own asyncio task, which starts from an empty OTel
-            # context. Without re-attaching the context saved above, their step
-            # spans become trace roots instead of children of
+            # Re-entries run with whatever OTel context their caller left
+            # ambient. Buffer hand-offs are the gap: the worker tasks that
+            # dequeue from a Buffer are spawned at startup
+            # (`PipelineManager._shared_worker_loop`, `_worker_loop`), so they
+            # start from an empty context and every re-entry they drive
+            # inherits it. Without re-attaching the context saved above, those
+            # step spans become trace roots instead of children of
             # `oqtopus_engine.job.process`, and the oqtopus.* baggage is absent
             # from the ambient context, so auto-instrumented client spans and
             # the downstream services they call lose `oqtopus.job_id`.
+            # Re-entries that stay inside the job's own task tree (DETACH via
+            # `asyncio.create_task`, split children) already inherit a copy of
+            # the context; re-attaching it is a no-op for them.
             saved_ctx = jctx.get("_oqtopus_obs_ctx")
             if saved_ctx is not None:
                 token = otel_context.attach(saved_ctx)
@@ -709,8 +702,8 @@ class PipelineExecutor:
 
         Safe to call multiple times for the same job; only the first call
         records metrics and ends the span. The per-invocation OTel context
-        tokens are managed by their callers (`_run_from` / `_worker_loop`),
-        so this function only owns the span lifecycle.
+        tokens are managed by their caller (`_run_from`), so this function
+        only owns the span lifecycle.
 
         If any descendant step has marked the root jctx via
         `_mark_root_observability_failed`, the caller's status is overridden
@@ -870,8 +863,8 @@ class PipelineExecutor:
 
         # Propagate the parent's per-job OTel context (if any) to each child
         # via jctx. Children inherit the active context naturally when
-        # spawned in this task, but the saved context is needed so workers
-        # can re-attach it after a child crosses a Buffer.
+        # spawned in this task, but the saved context is needed so that it
+        # can be re-attached after a child crosses a Buffer.
         parent_obs_ctx = jctx.get("_oqtopus_obs_ctx")
         pipeline_name = jctx.get("pipeline_name")
 
