@@ -133,11 +133,18 @@ class JobRepository(ABC):
     async def update_job_status(
         self,
         job: Job,
+        *,
+        include_output_files: bool = True,
     ) -> None:
         """Update job status and status related data.
 
         Args:
             job: The job to update
+            include_output_files:
+                If ``True`` (default), the current ``job.output_files`` is
+                included in the request. If ``False``, ``output_files`` is
+                omitted, for updates that carry no new information about job
+                outputs (e.g. an early ``ready`` -> ``running`` transition).
 
         Raises:
             NotImplementedError: If not implemented in subclass.
@@ -153,12 +160,18 @@ class JobRepository(ABC):
         self,
         job: Job,
         *,
+        include_output_files: bool = True,
         preserve_order: bool = True,
     ) -> None:
         """Update job status and status related data.
 
         Args:
             job: The job to update
+            include_output_files:
+                If ``True`` (default), the current ``job.output_files`` is
+                included in the request. If ``False``, ``output_files`` is
+                omitted, for updates that carry no new information about job
+                outputs (e.g. an early ``ready`` -> ``running`` transition).
             preserve_order:
                 If ``True`` (default), operations targeting the same ``job_id``
                 are executed sequentially so that updates cannot overtake each

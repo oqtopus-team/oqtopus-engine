@@ -572,16 +572,26 @@ class OqtopusCloudJobRepository(JobRepository):
     async def update_job_status(
         self,
         job: Job,
+        *,
+        include_output_files: bool = True,
     ) -> None:
         """Send a PATCH request to update job status and related data.
 
         Args:
             job: The job to patch.
+            include_output_files:
+                If ``True`` (default), the current ``job.output_files`` is
+                included in the request body. If ``False``, ``output_files``
+                is omitted from the request entirely (dropped during
+                serialization rather than sent as ``null``, since only
+                ``status`` is required by the API). Callers pass ``False``
+                when the update carries no new information about job
+                outputs, e.g. an early ``ready`` -> ``running`` transition.
 
         """
         body = JobsJobStatusUpdate(
             status=job.status,
-            output_files=job.output_files,
+            output_files=job.output_files if include_output_files else None,
             message=job.message,
             execution_time=job.execution_time,
         )
@@ -626,12 +636,15 @@ class OqtopusCloudJobRepository(JobRepository):
         self,
         job: Job,
         *,
+        include_output_files: bool = True,
         preserve_order: bool = True,
     ) -> None:
         """Send a PATCH request to update job status without waiting.
 
         Args:
             job: The job to patch
+            include_output_files:
+                Forwarded to :meth:`update_job_status`; see there for details.
             preserve_order:
                 If ``True`` (default), operations targeting the same ``job_id``
                 are executed sequentially so that updates cannot overtake each
@@ -639,18 +652,29 @@ class OqtopusCloudJobRepository(JobRepository):
                 request may run concurrently with other updates for the same job.
 
         """
-        # Take a shallow copy immediately to capture the current 'status'.
-        # This prevents the value from changing while waiting in the queue.
-        output_files_snapshot = copy.deepcopy(job.output_files)
+        # Take a shallow copy immediately to capture 'status', 'message' and
+        # 'execution_time' as they are at call time, so they cannot change
+        # while this task is waiting in the per-job queue.
         job_snapshot = job.model_copy(deep=False)
-        job_snapshot.output_files = output_files_snapshot
+
+        async def _patch() -> None:
+            if include_output_files:
+                # Unlike the scalar fields above, 'output_files' is read here,
+                # at execution time, instead of being snapshotted at call
+                # time. Outputs such as transpile_result/combined_program are
+                # appended to job.output_files only after their upload
+                # completes (see upload_job_outputs_nowait), and
+                # preserve_order=True guarantees those uploads have already
+                # finished by the time this coroutine runs.
+                job_snapshot.output_files = list(job.output_files)
+            await self.update_job_status(
+                job_snapshot, include_output_files=include_output_files
+            )
 
         if preserve_order:
-            task = asyncio.create_task(
-                self._enqueue_and_run(job.job_id, self.update_job_status(job_snapshot))
-            )
+            task = asyncio.create_task(self._enqueue_and_run(job.job_id, _patch()))
         else:
-            task = asyncio.create_task(self.update_job_status(job_snapshot))
+            task = asyncio.create_task(_patch())
 
         self._track_background_request(
             task,
