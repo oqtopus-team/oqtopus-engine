@@ -1,6 +1,8 @@
 import asyncio
 
 import pytest
+from opentelemetry import baggage
+from opentelemetry import context as otel_context
 
 from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.framework.buffer import Buffer
@@ -1053,6 +1055,48 @@ async def test_obs_ctx_propagated_to_child_jctx():
     assert parent_ctx is not None
     for child_jctx in jctx.children:
         assert child_jctx.get("_oqtopus_obs_ctx") is parent_ctx
+
+
+class BaggageRecordingStep(Step):
+    """Record the ambient baggage seen by each phase."""
+
+    def __init__(self) -> None:
+        self.seen: dict[str, dict] = {}
+
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        self.seen["pre"] = dict(baggage.get_all(otel_context.get_current()))
+        return StepResult()
+
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        self.seen["post"] = dict(baggage.get_all(otel_context.get_current()))
+        return StepResult()
+
+
+@pytest.mark.asyncio
+async def test_obs_ctx_reattached_on_post_process_reentry():
+    """A POST_PROCESS re-entry runs in a fresh asyncio task with an empty OTel
+    context, so `_run_from` must re-attach the context saved on jctx. Without
+    it the step spans lose the job's baggage (and become trace roots), and the
+    downstream services they call export spans with no `oqtopus.job_id`.
+    """
+    step = BaggageRecordingStep()
+    executor = PipelineExecutor([step], QueueBuffer())
+    jctx = JobContext(initial={})
+    jctx["_oqtopus_obs_ctx"] = baggage.set_baggage("oqtopus.job_id", "job-1")
+    baggage_before = dict(baggage.get_all(otel_context.get_current()))
+
+    await executor._run_from(
+        StepPhase.POST_PROCESS,
+        0,
+        make_test_global_context(),
+        jctx,
+        make_test_job("root"),
+    )
+
+    assert step.seen["post"].get("oqtopus.job_id") == "job-1"
+    # the attached context is detached again on the way out, so the caller's
+    # context is left as it was.
+    assert dict(baggage.get_all(otel_context.get_current())) == baggage_before
 
 
 @pytest.mark.asyncio
