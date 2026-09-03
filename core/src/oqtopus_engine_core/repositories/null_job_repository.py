@@ -116,7 +116,6 @@ class NullJobRepository(JobRepository):
     async def update_job_status(
         self,
         job: Job,
-        execution_time: float | None = None,
         *,
         include_output_files: bool = True,
     ) -> None:
@@ -124,14 +123,12 @@ class NullJobRepository(JobRepository):
         self._log_noop(
             "update_job_status",
             job_id=job.job_id,
-            execution_time=execution_time,
             include_output_files=include_output_files,
         )
 
     async def update_job_status_nowait(
         self,
         job: Job,
-        execution_time: float | None = None,
         *,
         include_output_files: bool = True,
         preserve_order: bool = True,
@@ -140,7 +137,6 @@ class NullJobRepository(JobRepository):
         self._log_noop(
             "update_job_status_nowait",
             job_id=job.job_id,
-            execution_time=execution_time,
             include_output_files=include_output_files,
             preserve_order=preserve_order,
         )
