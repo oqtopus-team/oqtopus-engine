@@ -117,12 +117,15 @@ class NullJobRepository(JobRepository):
         self,
         job: Job,
         execution_time: float | None = None,
+        *,
+        include_output_files: bool = True,
     ) -> None:
         """Log and discard the status update request."""
         self._log_noop(
             "update_job_status",
             job_id=job.job_id,
             execution_time=execution_time,
+            include_output_files=include_output_files,
         )
 
     async def update_job_status_nowait(
@@ -130,6 +133,7 @@ class NullJobRepository(JobRepository):
         job: Job,
         execution_time: float | None = None,
         *,
+        include_output_files: bool = True,
         preserve_order: bool = True,
     ) -> None:
         """Log and discard the asynchronous status update request."""
@@ -137,6 +141,7 @@ class NullJobRepository(JobRepository):
             "update_job_status_nowait",
             job_id=job.job_id,
             execution_time=execution_time,
+            include_output_files=include_output_files,
             preserve_order=preserve_order,
         )
 

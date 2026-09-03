@@ -137,7 +137,9 @@ async def test_pre_process_internal_child_updates_parent_status(
 
     # Verification
     # Instead of skipping, it should now find and update the parent
-    gctx.job_repository.update_job_status_nowait.assert_awaited_once_with(parent_job)
+    gctx.job_repository.update_job_status_nowait.assert_awaited_once_with(
+        parent_job, include_output_files=False
+    )
 
     # The actual execution (stub call) should still happen for the child
     gateway_step._stub.CallJob.assert_awaited_once()
@@ -205,7 +207,9 @@ async def test_pre_process_parent_job_updates_status_only_once(
 
     # Verification 1: Ensure repository update is called exactly once for the parent
     # If the implementation incorrectly updates for each child, this will fail.
-    gctx.job_repository.update_job_status_nowait.assert_awaited_once_with(parent)
+    gctx.job_repository.update_job_status_nowait.assert_awaited_once_with(
+        parent, include_output_files=False
+    )
 
     # Verification 2: Explicitly check that the argument was the parent object
     calls = gctx.job_repository.update_job_status_nowait.await_args_list

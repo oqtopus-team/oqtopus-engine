@@ -62,9 +62,12 @@ class SseStep(Step):
             message = "the sse_program is not specified in the job."
             raise ValueError(message)
 
-        # Update job status
+        # Update job status. No outputs exist yet at this transition, so
+        # output_files is irrelevant here.
         job.status = "running"
-        await gctx.job_repository.update_job_status(job)  # type: ignore[union-attr]
+        await gctx.job_repository.update_job_status(  # type: ignore[union-attr]
+            job, include_output_files=False
+        )
 
         config = self._settings
         # Make tmp dir

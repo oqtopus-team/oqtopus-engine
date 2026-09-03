@@ -134,7 +134,9 @@ class TestSseStepPreProcess:
             await sse_step.pre_process(mock_gctx, {}, sample_job)
 
         assert sample_job.status == "running"
-        mock_gctx.job_repository.update_job_status.assert_awaited_once()
+        mock_gctx.job_repository.update_job_status.assert_awaited_once_with(
+            sample_job, include_output_files=False
+        )
 
     @pytest.mark.asyncio
     async def test_pre_process_calls_run_sse(

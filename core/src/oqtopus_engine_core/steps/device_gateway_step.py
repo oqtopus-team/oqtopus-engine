@@ -277,4 +277,8 @@ class DeviceGatewayStep(Step):
         for job in jobs:
             if job.status == "ready":
                 job.status = "running"
-                await gctx.job_repository.update_job_status_nowait(job)  # type: ignore[union-attr]
+                # No outputs exist yet at this transition, so output_files is
+                # irrelevant here.
+                await gctx.job_repository.update_job_status_nowait(  # type: ignore[union-attr]
+                    job, include_output_files=False
+                )
