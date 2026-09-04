@@ -428,10 +428,7 @@ class OqtopusCloudJobRepository(JobRepository):
 
         logger.info(
             "job input download started",
-            extra={
-                **extra,
-                "presigned_url": job.input,
-            },
+            extra={**extra},
         )
 
         start = time.perf_counter()
@@ -447,7 +444,6 @@ class OqtopusCloudJobRepository(JobRepository):
             extra={
                 "elapsed_ms": round(elapsed_ms, 3),
                 **extra,
-                "presigned_url": job.input,
             },
         )
 
