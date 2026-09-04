@@ -298,17 +298,20 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         upload_response = cast("DevicesDeviceInfoUploadResponse", upload_response_obj)
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
+        presigned_url = upload_response.presigned_url
+
         logger.info(
             "GET /devices/{device_id}/device_info/upload: response",
             extra={
                 "status_code": status_code,
                 "elapsed_ms": round(elapsed_ms, 3),
                 **extra,
-                "body": upload_response,
+                "url": presigned_url.url,
+                "key": presigned_url.fields.get("key")
+                if isinstance(presigned_url.fields, dict)
+                else None,
             },
         )
-
-        presigned_url = upload_response.presigned_url
 
         def _upload_call() -> None:
             proxies = (
