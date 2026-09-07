@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
     EstimationResult,
@@ -13,12 +13,11 @@ from oqtopus_engine_core.framework import (
     Job,
     JobContext,
     JobResult,
-    JoinOnPostprocess,
+    PipelineDirective,
     SamplingResult,
-    SplitOnPreprocess,
     Step,
+    StepResult,
 )
-from oqtopus_engine_core.framework.context import link_parent_and_children
 from oqtopus_engine_core.framework.model import TranspileResult
 from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
     estimator_pb2,
@@ -29,7 +28,11 @@ logger = logging.getLogger(__name__)
 
 ESTIMATION_JOIN_INFO_KEY = "estimation_join_info"
 ESTIMATION_CHILD_INDEX_KEY = "estimation_child_index"
-ESTIMATOR_STEP_NAME = "EstimatorStep"
+ESTIMATION_PAULIS_KEY = "estimation_paulis"
+ESTIMATION_EXPECTATION_VALUES_KEY = "estimation_expectation_values"
+ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY = (
+    "estimation_standard_deviation_upper_bounds"
+)
 
 
 class EstimationJoinInfo:
@@ -38,26 +41,6 @@ class EstimationJoinInfo:
     grouped_operators: list[list] | None = None
     child_order: list[str] | None = None
     started_at: float | None = None
-    internal_children: bool = True
-
-
-def _is_split_child_context(jctx: JobContext) -> bool:
-    """Return True only for contexts explicitly marked as split children.
-
-    Returns:
-        True when the context belongs to an internal split child job.
-
-    """
-    return jctx.get("has_actual_parent", False)
-
-
-def _add_skip_step(jctx: JobContext, key: str, step_name: str) -> None:
-    """Mark a step as skipped for split/join gating in the pipeline executor."""
-    skip_steps = jctx.get(key)
-    if skip_steps is None:
-        skip_steps = set()
-        jctx[key] = skip_steps
-    skip_steps.add(step_name)
 
 
 def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
@@ -68,7 +51,7 @@ def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
 
     """
     if job.transpile_result is None:
-        return job.program[0], []
+        return job.program[0], []  # type: ignore[index]
 
     transpile_result = job.transpile_result
     virtual_physical_mapping = transpile_result.virtual_physical_mapping[
@@ -83,12 +66,12 @@ def _build_estimator_request_payload(job: Job) -> tuple[str, list[int]]:
 
 
 def _build_child_job(
-        parent_job: Job,
-        *,
-        child_job_id: str,
-        program: str,
-        transpile_result: TranspileResult
-    ) -> Job:
+    parent_job: Job,
+    *,
+    child_job_id: str,
+    program: str,
+    transpile_result: TranspileResult,
+) -> Job:
     """Create an internal sampling child job for a single measurement circuit.
 
     Returns:
@@ -122,7 +105,91 @@ def _build_child_job(
     )
 
 
-class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
+def _get_ordered_join_children(
+    parent_jctx: JobContext,
+    parent_job: Job,
+    child_order: list[str],
+) -> tuple[list[Job], list[JobContext]]:
+    child_by_id = {child.job_id: child for child in parent_job.children}
+    child_context_by_index = {
+        child_jctx[ESTIMATION_CHILD_INDEX_KEY]: child_jctx
+        for child_jctx in parent_jctx.children
+    }
+    ordered_children = []
+    ordered_contexts = []
+    corrected_state: bool | None = None
+    for index, child_id in enumerate(child_order):
+        child = child_by_id.get(child_id)
+        if child is None:
+            message = f"child job not found during join: {child_id}"
+            raise RuntimeError(message)
+        child_jctx = child_context_by_index.get(index)
+        if child_jctx is None:
+            message = f"child context not found during join: {child_id}"
+            raise RuntimeError(message)
+        has_expectation_values = ESTIMATION_EXPECTATION_VALUES_KEY in child_jctx
+        has_standard_deviation_upper_bounds = (
+            ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY in child_jctx
+        )
+        if has_expectation_values != has_standard_deviation_upper_bounds:
+            message = (
+                "child context must contain both expectation values and "
+                f"standard-deviation upper bounds: {child_id}"
+            )
+            raise RuntimeError(message)
+        if corrected_state is not None and corrected_state != has_expectation_values:
+            message = (
+                "corrected expectation values and raw counts cannot be mixed "
+                "during estimation join"
+            )
+            raise RuntimeError(message)
+        corrected_state = has_expectation_values
+        ordered_children.append(child)
+        ordered_contexts.append(child_jctx)
+
+    return ordered_children, ordered_contexts
+
+
+def _build_estimation_postprocess_request(
+    ordered_children: list[Job],
+    child_contexts: list[JobContext],
+    grouped_operators: str,
+) -> tuple[str, Any]:
+    if child_contexts and ESTIMATION_EXPECTATION_VALUES_KEY in child_contexts[0]:
+        expectation_value_groups = [
+            estimator_pb2.ExpectationValues(  # type: ignore[attr-defined]
+                values=child_jctx[ESTIMATION_EXPECTATION_VALUES_KEY],
+                standard_deviation_upper_bounds=child_jctx[
+                    ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY
+                ],
+            )
+            for child_jctx in child_contexts
+        ]
+        request = estimator_pb2.ReqEstimationPostProcessFromExpectationValuesRequest(  # type: ignore[attr-defined]
+            expectation_value_groups=expectation_value_groups,
+            grouped_operators=grouped_operators,
+        )
+        return "ReqEstimationPostProcessFromExpectationValues", request
+
+    counts_pb_list = []
+    for child in ordered_children:
+        sampling = child.result.sampling if child.result else None
+        if sampling is None or sampling.counts is None:
+            message = f"child job counts are missing during join: {child.job_id}"
+            raise RuntimeError(message)
+        counts_pb_list.append(
+            estimator_pb2.Counts(  # type: ignore[attr-defined]
+                counts=sampling.counts,
+            )
+        )
+    request = estimator_pb2.ReqEstimationPostProcessRequest(  # type: ignore[attr-defined]
+        counts=counts_pb_list,
+        grouped_operators=grouped_operators,
+    )
+    return "ReqEstimationPostProcess", request
+
+
+class EstimatorStep(Step):
     """Split estimation jobs in pre-process and join them in post-process."""
 
     def __init__(
@@ -151,28 +218,30 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         gctx: GlobalContext,  # noqa: ARG002
         jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Split an estimation job into sampling child jobs during pre-process.
 
         Raises:
             ValueError: If the estimation operator is not specified.
 
+        Returns:
+            StepResult: SPLIT_FOR_JOIN with child jobs for estimation parents;
+                NONE for all other cases.
+
         """
         if job.job_type != "estimation":
-            _add_skip_step(jctx, "split_skip_steps", ESTIMATOR_STEP_NAME)
             logger.debug(
                 "job_type is not 'estimation', skipping pre_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
-        if _is_split_child_context(jctx):
-            _add_skip_step(jctx, "split_skip_steps", ESTIMATOR_STEP_NAME)
+        if ESTIMATION_CHILD_INDEX_KEY in jctx:
             logger.debug(
                 "estimation child skips pre_process body",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         if job.operator is None:
             message = "the operator is not specified in the job."
@@ -180,7 +249,7 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
 
         qasm_code, mapping_list = _build_estimator_request_payload(job)
         operators_str = str([(op.pauli, op.coeff) for op in job.operator])
-        request = estimator_pb2.ReqEstimationPreProcessRequest(
+        request = estimator_pb2.ReqEstimationPreProcessRequest(  # type: ignore[attr-defined]
             qasm_code=qasm_code,
             operators=operators_str,
             basis_gates=self._basis_gates,
@@ -205,7 +274,8 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         )
 
         join_info = EstimationJoinInfo()
-        join_info.grouped_operators = json.loads(response.grouped_operators)
+        grouped_operators: list[list] = json.loads(response.grouped_operators)
+        join_info.grouped_operators = grouped_operators
         join_info.started_at = time.perf_counter()
 
         child_jobs: list[Job] = []
@@ -218,14 +288,14 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
                     job,
                     child_job_id=child_job_id,
                     program=program,
-                    transpile_result=job.transpile_result
+                    transpile_result=job.transpile_result,  # type: ignore[arg-type]
                 )
             )
             child_ctxs.append(
                 JobContext(
                     initial={
-                        "has_actual_parent": True,
                         ESTIMATION_CHILD_INDEX_KEY: index,
+                        ESTIMATION_PAULIS_KEY: grouped_operators[0][index],
                     }
                 )
             )
@@ -233,31 +303,36 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
 
         join_info.child_order = child_order
         jctx[ESTIMATION_JOIN_INFO_KEY] = join_info
-        link_parent_and_children(jctx, job, child_ctxs, child_jobs)
+        return StepResult(
+            directive=PipelineDirective.SPLIT_FOR_JOIN,
+            child_jobs=child_jobs,
+            child_contexts=child_ctxs,
+        )
 
     async def post_process(  # noqa: PLR6301
         self,
         gctx: GlobalContext,  # noqa: ARG002
         jctx: JobContext,
         job: Job,
-    ) -> None:
-        """Gate post-process so only split child jobs reach the join point."""
-        if job.job_type != "estimation":
-            if not _is_split_child_context(jctx):
-                _add_skip_step(jctx, "join_skip_steps", ESTIMATOR_STEP_NAME)
-            logger.debug(
-                "job_type is not 'estimation', skipping post_process",
-                extra={"job_id": job.job_id, "job_type": job.job_type},
-            )
-            return
+    ) -> StepResult:
+        """Signal JOIN for estimation split children; NONE for all other jobs.
 
-        if not _is_split_child_context(jctx):
-            _add_skip_step(jctx, "join_skip_steps", ESTIMATOR_STEP_NAME)
+        Returns:
+            StepResult: JOIN directive for split children; NONE otherwise.
+
+        """
+        if ESTIMATION_CHILD_INDEX_KEY in jctx:
             logger.debug(
-                "parent estimation job skips join gate post_process",
+                "estimation split child reaching join point",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult(directive=PipelineDirective.JOIN)
+
+        logger.debug(
+            "non-child job, skipping join gate post_process",
+            extra={"job_id": job.job_id, "job_type": job.job_type},
+        )
+        return StepResult()
 
     async def join_jobs(
         self,
@@ -280,54 +355,56 @@ class EstimatorStep(Step, SplitOnPreprocess, JoinOnPostprocess):
         child_order = join_info.child_order or [
             child.job_id for child in parent_job.children
         ]
-        child_by_id = {child.job_id: child for child in parent_job.children}
-
-        counts_pb_list = []
-        for child_id in child_order:
-            child = child_by_id.get(child_id)
-            if child is None:
-                message = f"child job not found during join: {child_id}"
-                raise RuntimeError(message)
-            sampling = child.result.sampling if child.result else None
-            counts = sampling.counts if sampling else None
-            if counts is None:
-                message = f"child job counts are missing during join: {child_id}"
-                raise RuntimeError(message)
-            counts_pb_list.append(estimator_pb2.Counts(counts=counts))
-
-        request = estimator_pb2.ReqEstimationPostProcessRequest(
-            counts=counts_pb_list,
-            grouped_operators=json.dumps(join_info.grouped_operators),
+        ordered_children, child_contexts = _get_ordered_join_children(
+            parent_jctx,
+            parent_job,
+            child_order,
         )
+        rpc_name, request = _build_estimation_postprocess_request(
+            ordered_children,
+            child_contexts,
+            json.dumps(join_info.grouped_operators),
+        )
+        rpc = getattr(self._stub, rpc_name)
+
         logger.info(
-            "ReqEstimationPostProcess request",
+            "Estimator post-process request",
             extra={
                 "job_id": parent_job.job_id,
                 "job_type": parent_job.job_type,
                 "last_child_job_id": last_child.job_id,
+                "rpc_name": rpc_name,
                 "request": request,
             },
         )
 
         start = time.perf_counter()
-        response = await self._stub.ReqEstimationPostProcess(request)
+        response = await rpc(request)
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
-            "ReqEstimationPostProcess response",
+            "Estimator post-process response",
             extra={
                 "elapsed_ms": round(elapsed_ms, 3),
                 "job_id": parent_job.job_id,
                 "job_type": parent_job.job_type,
+                "rpc_name": rpc_name,
                 "response": response,
             },
         )
+
+        if rpc_name == "ReqEstimationPostProcessFromExpectationValues":
+            expectation_value = response.expectation_value
+            standard_deviation = response.standard_deviation_upper_bound
+        else:
+            expectation_value = response.expval
+            standard_deviation = response.stds
 
         if parent_job.result is None:
             parent_job.result = JobResult()
         if parent_job.result.estimation is None:
             parent_job.result.estimation = EstimationResult()
-        parent_job.result.estimation.exp_value = float(response.expval)
-        parent_job.result.estimation.stds = float(response.stds)
+        parent_job.result.estimation.exp_value = float(expectation_value)
+        parent_job.result.estimation.stds = float(standard_deviation)
         parent_job.execution_time = float(
             f"{sum(child.execution_time or 0.0 for child in parent_job.children):.3f}"
         )

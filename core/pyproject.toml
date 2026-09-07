@@ -1,6 +1,6 @@
 [project]
 name = "oqtopus-engine-core"
-version = "2.1.1"
+version = "2.2.0"
 description = "OQTOPUS Engine in the backend layer retrieves jobs managed in OQTOPUS Cloud and executes quantum programs"
 readme = "README.md"
 license = "Apache-2.0"
@@ -23,6 +23,7 @@ dependencies = [
   "oqtopus-util>=1.0.1",
   "docker>=7.1.0",
   "grpcio>=1.76.0",
+  "lark>=1.3.1",
   "protobuf>=6.33.2",
   "pydantic>=2.12.5",
   "python-json-logger>=4.0.0",
@@ -34,7 +35,10 @@ dependencies = [
   "uuid7>=0.1.0",
   "opentelemetry-api>=1.27.0",
   "opentelemetry-sdk>=1.27.0",
+  "opentelemetry-distro>=0.48b0",
+  "opentelemetry-exporter-otlp>=1.27.0",
   "opentelemetry-instrumentation-grpc>=0.48b0",
+  "opentelemetry-instrumentation-system-metrics>=0.48b0",
   "opentelemetry-instrumentation-urllib3>=0.48b0",
 ]
 
@@ -92,7 +96,7 @@ lint.ignore = [
 ]
 
 [tool.mypy]
-files = ["src", "tests"]
+packages = ["oqtopus_engine_core"]
 exclude = [
   "src/.*/interfaces/", # Generated codes
 ]

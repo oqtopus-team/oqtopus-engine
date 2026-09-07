@@ -12,10 +12,12 @@ import grpc  # type: ignore[import-untyped]
 import numpy as np
 import qiskit.qasm3  # type: ignore[import-untyped]
 from grpc_reflection.v1alpha import reflection  # type: ignore[import-untyped]
+from opentelemetry import trace
 from oqtopus_util.config import load_config, setup_logging
 from qiskit import QuantumCircuit
 
 from oqtopus_engine_combiner.mp_auto import OptimalCircuitCombiner
+from oqtopus_engine_combiner.observability import setup_observability
 from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2 import (  # type: ignore[attr-defined]
     DESCRIPTOR,
     CombineRequest,
@@ -25,11 +27,12 @@ from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2 import ( 
     Status,
 )
 from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2_grpc import (
-    CombinerService,
+    CombinerServiceServicer,
     add_CombinerServiceServicer_to_server,
 )
 
 logger = logging.getLogger("oqtopus_engine_combiner")
+tracer = trace.get_tracer("oqtopus_engine_combiner")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -68,11 +71,11 @@ class InvalidQubitsError(Exception):
             str: error message.
 
         """
-        return f"total qubits must be less than {self.limit_qubits}. current qubits: {self.total_qubits}"   # noqa: E501
+        return f"total qubits must be less than {self.limit_qubits}. current qubits: {self.total_qubits}"  # noqa: E501
 
 
 # response
-class CircuitCombiner(CombinerService):
+class CircuitCombiner(CombinerServiceServicer):
     """Combine quantum circuits.
 
     This class combines quantum circuits and returns the combined circuit program.
@@ -99,54 +102,72 @@ class CircuitCombiner(CombinerService):
         """
         start = time.perf_counter()
 
-        try:
-            # deal with request JSON-array
-            logger.debug(
-                "start combine_circuit",
-                extra={
-                    "request": request,
-                },
-            )
+        with tracer.start_as_current_span(
+            "combiner.Combine",
+            attributes={"combiner.max_qubits": request.max_qubits},
+        ) as span:
+            try:
+                # deal with request JSON-array
+                logger.debug(
+                    "start combine_circuit",
+                    extra={
+                        "request": request,
+                    },
+                )
 
-            program_list = self.deal_with_request_programs(programs=request.programs)
-            maxqubits = request.max_qubits
-            # combine circuits
-            combined_status, combined_circuit, combined_qubits_list = (
-                self.combine_circuits(program_list, maxqubits)
-            )
-            # e.g.
-            # For combined circuits such as [c1 (3-qubit), c2 (2-qubit), c3 (1-qubit)]
-            # in total 6 qubits, combined_qubits_list is [3, 2, 1].
+                program_list = self.deal_with_request_programs(
+                    programs=request.programs
+                )
+                if span.is_recording():
+                    span.set_attribute("combiner.num_input_circuits", len(program_list))
+                maxqubits = request.max_qubits
+                # combine circuits
+                combined_status, combined_circuit, combined_qubits_list = (
+                    self.combine_circuits(program_list, maxqubits)
+                )
+                # e.g.
+                # For combined circuits [c1 (3-qubit), c2 (2-qubit), c3 (1-qubit)]
+                # in total 6 qubits, combined_qubits_list is [3, 2, 1].
+                if span.is_recording():
+                    span.set_attribute(
+                        "combiner.total_qubits", sum(combined_qubits_list)
+                    )
 
-            response = CombineResponse(
-                combined_status=combined_status,
-                combined_program=combined_circuit,
-                combined_qubits_list=combined_qubits_list,
-            )
+                response = CombineResponse(
+                    combined_status=combined_status,
+                    combined_program=combined_circuit,
+                    combined_qubits_list=combined_qubits_list,
+                )
 
-        except ValueError:
-            logger.exception("invalid request")
-            response = CombineResponse(
-                combined_status=Status.STATUS_FAILURE,
-                combined_program="",
-                combined_qubits_list=[],
-            )
-        except Exception:
-            logger.exception("failed to combine circuits")
-            response = CombineResponse(
-                combined_status=Status.STATUS_FAILURE,
-                combined_program="",
-                combined_qubits_list=[],
-            )
+            except ValueError:
+                logger.exception("invalid request")
+                response = CombineResponse(
+                    combined_status=Status.STATUS_FAILURE,
+                    combined_program="",
+                    combined_qubits_list=[],
+                )
+            except Exception:
+                logger.exception("failed to combine circuits")
+                response = CombineResponse(
+                    combined_status=Status.STATUS_FAILURE,
+                    combined_program="",
+                    combined_qubits_list=[],
+                )
+            if span.is_recording():
+                span.set_attribute(
+                    "combiner.combined_status", int(response.combined_status)
+                )
+                if response.combined_status == Status.STATUS_FAILURE:
+                    span.set_status(trace.StatusCode.ERROR, "combine failed")
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
-                "finish combine_circuit",
-                extra={
-                    "elapsed_ms": round(elapsed_ms, 3),
-                    "response": response,
-                },
-            )
+            "finish combine_circuit",
+            extra={
+                "elapsed_ms": round(elapsed_ms, 3),
+                "response": response,
+            },
+        )
         return response
 
     @staticmethod
@@ -261,73 +282,89 @@ class CircuitCombiner(CombinerService):
         """
         start = time.perf_counter()
 
-        try:
-            # deal with request JSON-array
-            logger.info(
-                "start optimal_combine_circuit",
-                extra={
-                    "request": request,
-                },
-            )
+        with tracer.start_as_current_span("combiner.OptimalCombine") as span:
+            try:
+                # deal with request JSON-array
+                logger.info(
+                    "start optimal_combine_circuit",
+                    extra={
+                        "request": request,
+                    },
+                )
 
-            jobs = self.deal_with_request_programs(programs=request.programs)
-            logger.debug(
-                "received jobs",
-                extra={
-                    "jobs": jobs,
-                },
-            )
-            device_info = json.loads(request.device_info)
+                jobs = self.deal_with_request_programs(programs=request.programs)
+                if span.is_recording():
+                    span.set_attribute("combiner.num_input_circuits", len(jobs))
+                logger.debug(
+                    "received jobs",
+                    extra={
+                        "jobs": jobs,
+                    },
+                )
+                device_info = json.loads(request.device_info)
 
-            combined_groups = []
-            combiner = OptimalCircuitCombiner(
-                idle_qubits_insertion_enabled=self._idle_qubits_insertion_enabled
-            )
-            # assign qubits to each circuit and create groups to be combined
-            assigned_ids, assigned_groups = combiner.assign_circuits(jobs=jobs,
-                                                                     device_info=device_info
-                                                                     )
-            # create combined circuits for each group
-            combined_groups = combiner.combine_circuits_for_groups(assigned_groups)
+                combined_groups = []
+                combiner = OptimalCircuitCombiner(
+                    idle_qubits_insertion_enabled=self._idle_qubits_insertion_enabled
+                )
+                # assign qubits to each circuit and create groups to be combined
+                assigned_ids, assigned_groups = combiner.assign_circuits(
+                    jobs=jobs, device_info=device_info
+                )
+                # create combined circuits for each group
+                combined_groups = combiner.combine_circuits_for_groups(assigned_groups)
+                if span.is_recording():
+                    span.set_attribute(
+                        "combiner.num_combined_circuits", len(combined_groups)
+                    )
+                    span.set_attribute(
+                        "combiner.num_unassigned", len(jobs) - len(assigned_ids)
+                    )
 
-            combine_result = {
-                "assigned_ids": assigned_ids,
-                "combined_groups": combined_groups,
-            }
-            response = OptimalCombineResponse(
-                combined_status=Status.STATUS_SUCCESS,
-                combine_result=json.dumps(combine_result),
-            )
+                combine_result = {
+                    "assigned_ids": assigned_ids,
+                    "combined_groups": combined_groups,
+                }
+                response = OptimalCombineResponse(
+                    combined_status=Status.STATUS_SUCCESS,
+                    combine_result=json.dumps(combine_result),
+                )
 
-            logger.debug(
-                "combined circuits",
-                extra={
-                    "combine_result": combine_result,
-                    "num_input_circuits": len(jobs),
-                    "num_combined_circuits": len(combined_groups),
-                    "num_unassigned_circuits": len(jobs) - len(assigned_ids),
-                },
-            )
-            # message to make log easier to read
-            achievement_msg = (
-                f"combined {len(assigned_ids)}/{len(jobs)} circuits into "
-                f"{len(combined_groups)} combined circuits."
-            )
+                logger.debug(
+                    "combined circuits",
+                    extra={
+                        "combine_result": combine_result,
+                        "num_input_circuits": len(jobs),
+                        "num_combined_circuits": len(combined_groups),
+                        "num_unassigned_circuits": len(jobs) - len(assigned_ids),
+                    },
+                )
+                # message to make log easier to read
+                achievement_msg = (
+                    f"combined {len(assigned_ids)}/{len(jobs)} circuits into "
+                    f"{len(combined_groups)} combined circuits."
+                )
 
-        except ValueError:
-            logger.exception("invalid request")
-            achievement_msg = "failed to combine circuits due to invalid request."
-            response = OptimalCombineResponse(
-                combined_status=Status.STATUS_FAILURE,
-                combine_result="",
-            )
-        except Exception:
-            logger.exception("failed to combine circuits")
-            achievement_msg = "failed to combine circuits due to internal error."
-            response = OptimalCombineResponse(
-                combined_status=Status.STATUS_FAILURE,
-                combine_result="",
-            )
+            except ValueError:
+                logger.exception("invalid request")
+                achievement_msg = "failed to combine circuits due to invalid request."
+                response = OptimalCombineResponse(
+                    combined_status=Status.STATUS_FAILURE,
+                    combine_result="",
+                )
+            except Exception:
+                logger.exception("failed to combine circuits")
+                achievement_msg = "failed to combine circuits due to internal error."
+                response = OptimalCombineResponse(
+                    combined_status=Status.STATUS_FAILURE,
+                    combine_result="",
+                )
+            if span.is_recording():
+                span.set_attribute(
+                    "combiner.combined_status", int(response.combined_status)
+                )
+                if response.combined_status == Status.STATUS_FAILURE:
+                    span.set_status(trace.StatusCode.ERROR, achievement_msg)
 
         elapsed_ms = (time.perf_counter() - start) * 1000.0
         logger.info(
@@ -406,6 +443,23 @@ class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
         return f"{self.log_dir}/circuit_combiner-{current_time}.log"
 
 
+def create_server(max_workers: int, grpc_options: list) -> grpc.Server:
+    """Create a gRPC server with the given thread pool size and options.
+
+    Args:
+        max_workers: Maximum number of worker threads for the server.
+        grpc_options: gRPC channel options to configure the server with.
+
+    Returns:
+        The created gRPC server.
+
+    """
+    return grpc.server(
+        futures.ThreadPoolExecutor(max_workers),
+        options=grpc_options,
+    )
+
+
 # boot server
 def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     """Start the gRPC server with the specified configuration and logging settings.
@@ -427,17 +481,18 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     logging_yaml = load_config(logging_yaml_path)
     setup_logging(logging_yaml)
 
+    setup_observability(config_yaml)
+
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
     address = str(config_yaml["proto"].get("address") or "[::]:51013")
-    str_idle_qubits_insertion_enabled = \
-        str(config_yaml["combiner"].get("idle_qubits_insertion_enabled") or "false")
+    str_idle_qubits_insertion_enabled = str(
+        config_yaml["combiner"].get("idle_qubits_insertion_enabled") or "false"
+    )
     idle_qubits_insertion_enabled = str_idle_qubits_insertion_enabled.lower() == "true"
+    grpc_options = config_yaml["proto"].get("grpc_options") or []
 
     # create the gRPC server
-    server = grpc.server(
-        futures.ThreadPoolExecutor(max_workers),
-        options=config_yaml["proto"]["grpc_options"],
-    )
+    server = create_server(max_workers, grpc_options)
     add_CombinerServiceServicer_to_server(
         CircuitCombiner(idle_qubits_insertion_enabled=idle_qubits_insertion_enabled),
         server,

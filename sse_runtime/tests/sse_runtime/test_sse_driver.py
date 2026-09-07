@@ -301,47 +301,32 @@ def _build_expected_request(
     return expected_request
 
 
-# -----------------------------
-# JSON/serialization utilities
-# -----------------------------
-@pytest.mark.parametrize("raw_json", [None, ""])
-def test_load_json_dict_returns_empty_when_raw_json_is_missing_or_empty(
-    raw_json: str | None,
-) -> None:
-    assert sse_driver._load_json_dict(raw_json) == {}
-
-
-def test_load_json_dict_raises_when_json_is_not_object() -> None:
-    with pytest.raises(sse_driver.SseRuntimeError, match="JSON object"):
-        sse_driver._load_json_dict("[]")
-
-
 # -----------------
 # Request builders
 # -----------------
 @pytest.mark.parametrize(
-    ("input_job_factory", "job_json"),
+    ("input_job_factory", "job_id"),
     [
         pytest.param(
             _build_submit_job_request,
-            '{"job_id": "parent-id"}',
+            "parent-id",
             id="overrides-fields",
         ),
         pytest.param(
             _build_submit_job_request_full,
-            '{"job_id": "parent-id"}',
+            "parent-id",
             id="keeps-model-fields",
         ),
     ],
 )
 def test_make_request_merges_submit_job_request_and_upload_info(
     input_job_factory: Any,
-    job_json: str,
+    job_id: str,
 ) -> None:
     input_job = input_job_factory()
     upload_info = _build_upload_info()
 
-    request = sse_driver._make_request(job_json, input_job, upload_info)
+    request = sse_driver._make_request(job_id, input_job, upload_info)
 
     _assert_make_request_payload(
         request,
@@ -355,7 +340,7 @@ def test_make_request_merges_submit_job_request_and_upload_info(
 
 def test_make_request_serializes_operator_items() -> None:
     request = sse_driver._make_request(
-        '{"job_id": "parent-id"}',
+        "parent-id",
         _build_submit_job_request(),
         _build_upload_info_with_operator(),
     )
@@ -389,12 +374,28 @@ def test_log_result_raises_when_out_path_does_not_exist(
         sse_driver._log_result(json.dumps({"status": "failed"}), "result.json")
 
 
-def test_submit_job_raises_when_job_json_missing(
+def test_submit_job_raises_when_job_id_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("JOB_JSON", raising=False)
+    monkeypatch.delenv("JOB_ID", raising=False)
 
-    with pytest.raises(OSError, match="Could not get job data"):
+    with pytest.raises(
+        sse_driver.SseRuntimeError, match="Could not get JOB_ID from environment"
+    ):
+        sse_driver.submit_job(
+            _build_submit_job_request(),
+            _build_upload_info(),
+        )
+
+
+def test_submit_job_raises_when_job_id_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("JOB_ID", "")
+
+    with pytest.raises(
+        sse_driver.SseRuntimeError, match="Could not get JOB_ID from environment"
+    ):
         sse_driver.submit_job(
             _build_submit_job_request(),
             _build_upload_info(),
@@ -540,7 +541,7 @@ def test_submit_job_grpc_success_path(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv("JOB_JSON", '{"job_id":"parent-1"}')
+    monkeypatch.setenv("JOB_ID", "parent-1")
     monkeypatch.setenv("SSE_ENGINE_ADDRESS", "test-host:1234")
     monkeypatch.setenv("OUT_PATH", str(tmp_path))
 
@@ -620,7 +621,7 @@ def test_submit_job_raises_when_status_failed(
     job_message: str,
     expected_error: str,
 ) -> None:
-    monkeypatch.setenv("JOB_JSON", '{"job_id":"parent-1"}')
+    monkeypatch.setenv("JOB_ID", "parent-1")
     monkeypatch.setenv("OUT_PATH", str(tmp_path))
 
     fake_response = SimpleNamespace(
@@ -638,7 +639,7 @@ def test_submit_job_raises_when_status_failed(
     monkeypatch.setattr(
         sse_driver.grpc,
         "insecure_channel",
-        lambda _address, options=None: _DummyChannel(object()),
+        lambda _address, options=None: _DummyChannel(object()),  # noqa: ARG005
     )
     monkeypatch.setattr(
         sse_driver.sse_pb2_grpc,

@@ -4,7 +4,7 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -12,7 +12,7 @@ from oqtopus_engine_core.framework import (
     JobContext,
     JobFetcher,
 )
-from oqtopus_engine_core.framework.pipeline import PipelineExecutor
+from oqtopus_engine_core.framework.pipeline_manager import PipelineManager
 from oqtopus_engine_core.interfaces.sse_interface.v1 import (
     sse_pb2,
     sse_pb2_grpc,
@@ -58,7 +58,7 @@ class SseEngineGateway(JobFetcher):
 
         """
         if self.pipeline is None or self.gctx is None:
-            msg = "PipelineExecutor and GlobalContext must not be None"
+            msg = "PipelineManager and GlobalContext must not be None"
             raise ValueError(msg)
 
         server = grpc.aio.server(options=self._grpc_options)
@@ -81,16 +81,16 @@ class SseEngineGateway(JobFetcher):
 class SseEngineGatewayServicer:
     """gRPC Servicer that handles job requests."""
 
-    def __init__(self, pipeline: PipelineExecutor, gctx: GlobalContext) -> None:
+    def __init__(self, pipeline: PipelineManager, gctx: GlobalContext) -> None:
         """Initialize the SseEngineGateway Servicer."""
         self.pipeline = pipeline
         self.gctx = gctx
 
     async def SseEngine(  # noqa: N802
         self,
-        request: sse_pb2.SseEngineRequest,
+        request: sse_pb2.SseEngineRequest,  # type: ignore[name-defined]
         context: grpc.RpcContext,  # noqa: ARG002
-    ) -> sse_pb2.SseEngineResponse:
+    ) -> sse_pb2.SseEngineResponse:  # type: ignore[name-defined]
         """Handle gRPC requests for executing pipeline.
 
         Args:
@@ -107,7 +107,7 @@ class SseEngineGatewayServicer:
         start = time.perf_counter()
 
         # Placeholder response structure
-        res = sse_pb2.SseEngineResponse(
+        res = sse_pb2.SseEngineResponse(  # type: ignore[attr-defined]
             status="failed",
             message="",
             job_json="",
@@ -168,7 +168,7 @@ class SseEngineGatewayServicer:
         return res
 
     @staticmethod
-    def _get_job_from_request(request: sse_pb2.SseEngineRequest) -> Job:
+    def _get_job_from_request(request: sse_pb2.SseEngineRequest) -> Job:  # type: ignore[name-defined]
         """Convert gRPC request to Job object.
 
         Args:

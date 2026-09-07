@@ -861,7 +861,9 @@ class TestOptimalCircuitCombiner:
 
         assert idle_nodes == set()
 
-    def test_calculate_idle_nodes_before_mapping_with_only_used_nodes(self):
+    def test_calculate_idle_nodes_before_mapping_with_exist_idle_nodes_but_no_used_nodes(
+        self,
+    ):
         topology_json = make_linear_topology(5)
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
@@ -874,7 +876,7 @@ class TestOptimalCircuitCombiner:
 
         assert idle_nodes == set()
         mock_info.assert_called_once_with(
-            "exist idle nodes but no used nodes, this should not happen",
+            "Exist idle nodes but no used nodes.",
             extra={
                 "exist_idle_nodes": {0, 1},
                 "used_nodes": set(),
@@ -892,7 +894,7 @@ class TestOptimalCircuitCombiner:
 
         assert idle_nodes == set()
         mock_info.assert_called_once_with(
-            "inferred topology is None, cannot calculate idle nodes before mapping"
+            "Inferred topology is None, cannot calculate idle nodes before mapping"
         )
 
     def test_calculate_idle_nodes_before_mapping_with_only_used_nodes(self):

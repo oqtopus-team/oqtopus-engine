@@ -1,6 +1,6 @@
 [project]
 name = "oqtopus-engine-estimator"
-version = "2.1.1"
+version = "2.2.0"
 readme = "README.md"
 license = "Apache-2.0"
 authors = [{ name = "oqtopus-team", email = "oqtopus-team@googlegroups.com" }]
@@ -21,11 +21,17 @@ dependencies = [
   "grpcio>=1.76.0",
   "grpcio-reflection>=1.76.0",
   "numpy>=2.3.5",
+  "opentelemetry-api>=1.27.0",
+  "opentelemetry-sdk>=1.27.0",
+  "opentelemetry-distro>=0.48b0",
+  "opentelemetry-exporter-otlp>=1.27.0",
+  "opentelemetry-instrumentation-grpc>=0.48b0",
+  "opentelemetry-instrumentation-system-metrics>=0.48b0",
   "protobuf>=6.33.2",
   "oqtopus-util>=1.0.1",
   "python-json-logger>=4.0.0",
   "pyyaml>=6.0.3",
-  "qiskit==1.2",
+  "qiskit==2.5.2",
   "qiskit-qasm3-import>=0.6.0",
 ]
 

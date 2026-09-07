@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
-from oqtopus_engine_core.framework import Job, JobRepository
+from oqtopus_engine_core.framework import Job, JobOutput, JobRepository
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     ApiClient,
     Configuration,
@@ -32,6 +32,7 @@ class OqtopusCloudJobRepository(JobRepository):
         api_key: str = "",
         proxy: str | None = None,
         workers: int = 5,
+        api_request_timeout_seconds: int = 10,
         file_op_timeout_seconds: int = 60,
         max_file_size: int = 10485760,
     ) -> None:
@@ -42,6 +43,7 @@ class OqtopusCloudJobRepository(JobRepository):
             api_key: The API key for authentication.
             proxy: The proxy URL for the API request.
             workers: The number of concurrent workers to use for API requests.
+            api_request_timeout_seconds: Timeout for Jobs API HTTP requests.
             file_op_timeout_seconds: Timeout for file upload and download.
             max_file_size: Maximum allowed size for uploaded ZIP payloads.
 
@@ -69,6 +71,7 @@ class OqtopusCloudJobRepository(JobRepository):
         self._job_tails_lock = asyncio.Lock()
 
         self._proxy = proxy
+        self._api_request_timeout_seconds = api_request_timeout_seconds
         self._file_op_timeout_seconds = file_op_timeout_seconds
         self._max_file_size = max_file_size
 
@@ -78,6 +81,7 @@ class OqtopusCloudJobRepository(JobRepository):
                 "url": url,
                 "proxy": proxy,
                 "workers": workers,
+                "api_request_timeout_seconds": api_request_timeout_seconds,
                 "file_op_timeout_seconds": file_op_timeout_seconds,
             },
         )
@@ -87,7 +91,7 @@ class OqtopusCloudJobRepository(JobRepository):
         call: Callable[[], T],
         label: str,
         extra: dict[str, Any],
-    ) -> T | None:
+    ) -> T:
         """Call an API in a worker thread with logging and error handling.
 
         Args:
@@ -97,7 +101,7 @@ class OqtopusCloudJobRepository(JobRepository):
             extra: Extra fields to log on error.
 
         Returns:
-            The data returned by the call, or None if an error occurred.
+            The data returned by the call.
 
         Raises:
             ApiException: If an API error occurs.
@@ -254,11 +258,11 @@ class OqtopusCloudJobRepository(JobRepository):
         call: Callable[[], T],
         label: str,
         extra: dict[str, Any],
-    ) -> T | None:
+    ) -> T:
         """Call a storage request in a worker thread.
 
         Returns:
-            The value returned by the storage call, or `None` on failure.
+            The value returned by the storage call.
 
         Raises:
             OqtopusStorageError: If a storage-specific error occurs.
@@ -305,6 +309,7 @@ class OqtopusCloudJobRepository(JobRepository):
                 device_id=device_id,
                 status=status,
                 limit=limit,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -318,11 +323,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "GET /jobs",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -330,17 +336,17 @@ class OqtopusCloudJobRepository(JobRepository):
             extra={
                 "status_code": status_code,
                 "elapsed_ms": round(elapsed_ms, 3),
-                "len(body)": len(response) if response is not None else 0,
+                "len(body)": len(response) if response is not None else 0,  # type: ignore[arg-type]
             },
         )
 
         jobs: list[Job] = []
-        for job_oas in response:
+        for job_oas in response:  # type: ignore[attr-defined]
             job = Job(**job_oas.to_dict())  # type: ignore[call-arg]
             jobs.append(job)
         return jobs
 
-    async def get_job_upload_url(
+    async def get_job_upload_urls(
         self, job: Job, items: list[str]
     ) -> list[JobsJobInfoUploadPresignedURL]:
         """Fetch presigned URLs for job information item uploads.
@@ -358,7 +364,9 @@ class OqtopusCloudJobRepository(JobRepository):
 
         def _call() -> tuple[list[JobsJobInfoUploadPresignedURL], int, dict]:
             return self._jobs_api.get_upload_with_http_info(
-                job_id=job.job_id, items=",".join(items)
+                job_id=job.job_id,
+                items=",".join(items),
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -372,11 +380,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "GET /jobs/{job_id}/upload",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -419,10 +428,7 @@ class OqtopusCloudJobRepository(JobRepository):
 
         logger.info(
             "job input download started",
-            extra={
-                **extra,
-                "presigned_url": job.input,
-            },
+            extra={**extra},
         )
 
         start = time.perf_counter()
@@ -438,13 +444,70 @@ class OqtopusCloudJobRepository(JobRepository):
             extra={
                 "elapsed_ms": round(elapsed_ms, 3),
                 **extra,
-                "presigned_url": job.input,
             },
         )
 
         return response
 
-    async def upload_job_output(
+    async def upload_job_outputs(
+        self,
+        job: Job,
+        outputs: list[JobOutput],
+    ) -> None:
+        """Fetch presigned URLs and upload a group of job output files.
+
+        Each output is represented as ``(item, data, arcname_ext, arcname)``.
+        The order of ``outputs`` is preserved for both URL allocation and upload.
+
+        Raises:
+            ValueError: If the number of returned URLs does not match ``outputs``.
+
+        """
+        urls = await self.get_job_upload_urls(
+            job=job,
+            items=[item for item, _, _, _ in outputs],
+        )
+        if len(urls) != len(outputs):
+            msg = (
+                "Job repository returned a different number of upload URLs "
+                "than requested"
+            )
+            raise ValueError(msg)
+
+        for url, (_, data, arcname_ext, arcname) in zip(urls, outputs, strict=True):
+            await self._upload_one_output(
+                job=job,
+                presigned_url=url,
+                data=data,
+                arcname_ext=arcname_ext,
+                arcname=arcname,
+            )
+
+    async def upload_job_outputs_nowait(
+        self,
+        job: Job,
+        outputs: list[JobOutput],
+        *,
+        preserve_order: bool = True,
+    ) -> None:
+        """Upload a group of job output files without waiting."""
+        if preserve_order:
+            task = asyncio.create_task(
+                self._enqueue_and_run(
+                    job.job_id,
+                    self.upload_job_outputs(job, outputs),
+                )
+            )
+        else:
+            task = asyncio.create_task(self.upload_job_outputs(job, outputs))
+
+        self._track_background_request(
+            task,
+            label="job outputs upload",
+            extra={"job_id": job.job_id, "job_type": job.job_type},
+        )
+
+    async def _upload_one_output(
         self,
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
@@ -502,60 +565,29 @@ class OqtopusCloudJobRepository(JobRepository):
 
         job.output_files.append(presigned_url.fields.key)
 
-    async def upload_job_output_nowait(  # noqa: PLR0913
-        self,
-        job: Job,
-        presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any] | str,
-        arcname_ext: str = "",
-        arcname: str | None = None,
-        *,
-        preserve_order: bool = True,
-    ) -> None:
-        """Upload job output data to cloud storage without waiting."""
-        if preserve_order:
-            task = asyncio.create_task(
-                self._enqueue_and_run(
-                    job.job_id,
-                    self.upload_job_output(
-                        job,
-                        presigned_url,
-                        data,
-                        arcname_ext,
-                        arcname,
-                    ),
-                )
-            )
-        else:
-            task = asyncio.create_task(
-                self.upload_job_output(
-                    job,
-                    presigned_url,
-                    data,
-                    arcname_ext,
-                    arcname,
-                )
-            )
-
-        self._track_background_request(
-            task,
-            label="job output upload",
-            extra={"job_id": job.job_id, "job_type": job.job_type},
-        )
-
     async def update_job_status(
         self,
         job: Job,
+        *,
+        include_output_files: bool = True,
     ) -> None:
         """Send a PATCH request to update job status and related data.
 
         Args:
             job: The job to patch.
+            include_output_files:
+                If ``True`` (default), the current ``job.output_files`` is
+                included in the request body. If ``False``, ``output_files``
+                is omitted from the request entirely (dropped during
+                serialization rather than sent as ``null``, since only
+                ``status`` is required by the API). Callers pass ``False``
+                when the update carries no new information about job
+                outputs, e.g. an early ``ready`` -> ``running`` transition.
 
         """
         body = JobsJobStatusUpdate(
             status=job.status,
-            output_files=job.output_files,
+            output_files=job.output_files if include_output_files else None,
             message=job.message,
             execution_time=job.execution_time,
         )
@@ -564,6 +596,7 @@ class OqtopusCloudJobRepository(JobRepository):
             return self._jobs_api.patch_job_with_http_info(
                 job_id=job.job_id,
                 body=body,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -577,11 +610,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "PATCH /jobs/{job_id}/status",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(
@@ -598,12 +632,15 @@ class OqtopusCloudJobRepository(JobRepository):
         self,
         job: Job,
         *,
+        include_output_files: bool = True,
         preserve_order: bool = True,
     ) -> None:
         """Send a PATCH request to update job status without waiting.
 
         Args:
             job: The job to patch
+            include_output_files:
+                Forwarded to :meth:`update_job_status`; see there for details.
             preserve_order:
                 If ``True`` (default), operations targeting the same ``job_id``
                 are executed sequentially so that updates cannot overtake each
@@ -611,18 +648,29 @@ class OqtopusCloudJobRepository(JobRepository):
                 request may run concurrently with other updates for the same job.
 
         """
-        # Take a shallow copy immediately to capture the current 'status'.
-        # This prevents the value from changing while waiting in the queue.
-        output_files_snapshot = copy.deepcopy(job.output_files)
+        # Take a shallow copy immediately to capture 'status', 'message' and
+        # 'execution_time' as they are at call time, so they cannot change
+        # while this task is waiting in the per-job queue.
         job_snapshot = job.model_copy(deep=False)
-        job_snapshot.output_files = output_files_snapshot
+
+        async def _patch() -> None:
+            if include_output_files:
+                # Unlike the scalar fields above, 'output_files' is read here,
+                # at execution time, instead of being snapshotted at call
+                # time. Outputs such as transpile_result/combined_program are
+                # appended to job.output_files only after their upload
+                # completes (see upload_job_outputs_nowait), and
+                # preserve_order=True guarantees those uploads have already
+                # finished by the time this coroutine runs.
+                job_snapshot.output_files = list(job.output_files)
+            await self.update_job_status(
+                job_snapshot, include_output_files=include_output_files
+            )
 
         if preserve_order:
-            task = asyncio.create_task(
-                self._enqueue_and_run(job.job_id, self.update_job_status(job_snapshot))
-            )
+            task = asyncio.create_task(self._enqueue_and_run(job.job_id, _patch()))
         else:
-            task = asyncio.create_task(self.update_job_status(job_snapshot))
+            task = asyncio.create_task(_patch())
 
         self._track_background_request(
             task,
@@ -648,6 +696,7 @@ class OqtopusCloudJobRepository(JobRepository):
             return self._jobs_api.update_job_transpiler_info_with_http_info(
                 job_id=job.job_id,
                 body=body,
+                _request_timeout=self._api_request_timeout_seconds,
             )
 
         extra: dict[str, Any] = {
@@ -664,11 +713,12 @@ class OqtopusCloudJobRepository(JobRepository):
         )
 
         start = time.perf_counter()
-        response, status_code, _ = await self._request_with_error_logging(
+        result = await self._request_with_error_logging(
             _call,
             "PUT /jobs/{job_id}/transpiler_info",
             extra,
         )
+        response, status_code, _ = result
         elapsed_ms = (time.perf_counter() - start) * 1000.0
 
         logger.info(

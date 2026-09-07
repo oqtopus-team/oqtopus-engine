@@ -2,22 +2,84 @@ import json
 import logging
 import time
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Protocol
 
-import grpc
+import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
     Job,
     JobContext,
+    SamplingResult,
     Step,
+    StepResult,
 )
 from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
     mitigator_pb2,
     mitigator_pb2_grpc,
 )
+from oqtopus_engine_core.steps.estimator_step import (
+    ESTIMATION_EXPECTATION_VALUES_KEY,
+    ESTIMATION_PAULIS_KEY,
+    ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class _ExpectationValueMitigationResponse(Protocol):
+    @property
+    def expectation_values(self) -> Sequence[float]: ...
+
+    @property
+    def standard_deviation_upper_bounds(self) -> Sequence[float]: ...
+
+
+def _apply_expectation_value_mitigation_response(
+    jctx: JobContext,
+    paulis: Sequence[str],
+    response: _ExpectationValueMitigationResponse,
+) -> None:
+    expectation_values = list(response.expectation_values)
+    standard_deviation_upper_bounds = list(response.standard_deviation_upper_bounds)
+    if not (
+        len(expectation_values) == len(standard_deviation_upper_bounds) == len(paulis)
+    ):
+        message = (
+            "mitigator response expectation values, standard-deviation upper "
+            "bounds, and Pauli labels must have equal lengths"
+        )
+        raise RuntimeError(message)
+
+    jctx[ESTIMATION_EXPECTATION_VALUES_KEY] = expectation_values
+    jctx[ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY] = (
+        standard_deviation_upper_bounds
+    )
+    logger.debug(
+        "Readout-error-mitigated expectation values",
+        extra={
+            "expectation_values": expectation_values,
+            "standard_deviation_upper_bounds": standard_deviation_upper_bounds,
+        },
+    )
+
+
+def _require_sampling_result(job: Job) -> SamplingResult:
+    if job.result is None:  # pragma: no cover
+        message = "job.result is None. Cannot perform readout error mitigation."
+        raise ValueError(message)
+    if job.result.sampling is None:  # pragma: no cover
+        message = (
+            "job.result.sampling is None. Cannot perform readout error mitigation."
+        )
+        raise ValueError(message)
+    if job.result.sampling.counts is None:  # pragma: no cover
+        message = (
+            "job.result.sampling.counts is None. "
+            "Cannot perform readout error mitigation."
+        )
+        raise ValueError(message)
+    return job.result.sampling
 
 
 class ReadoutErrorMitigationStep(Step):
@@ -62,12 +124,12 @@ class ReadoutErrorMitigationStep(Step):
             },
         )
 
-    async def pre_process(
+    async def pre_process(  # noqa: PLR6301
         self,
-        gctx: GlobalContext,
-        jctx: JobContext,
-        job: Job,
-    ) -> None:
+        gctx: GlobalContext,  # noqa: ARG002
+        jctx: JobContext,  # noqa: ARG002
+        job: Job,  # noqa: ARG002
+    ) -> StepResult:
         """Pre-process the job before error mitigation.
 
         Do nothing.
@@ -77,14 +139,18 @@ class ReadoutErrorMitigationStep(Step):
             jctx: The job context.
             job: The job object.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
+        return StepResult()
 
     async def post_process(
         self,
         gctx: GlobalContext,
-        jctx: JobContext,  # noqa: ARG002
+        jctx: JobContext,
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Post-process the job by sending a request to mitigator service via gRPC.
 
         This method handles post-processing for mitigation jobs by sending
@@ -100,6 +166,9 @@ class ReadoutErrorMitigationStep(Step):
             ValueError: If gctx.device is None, gctx.device.device_info is None,
                 or required job result fields are None.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
         if (
             job.mitigation_info == {}
@@ -109,7 +178,7 @@ class ReadoutErrorMitigationStep(Step):
                 "ro_error_mitigation is not set, skipping post_process",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            return
+            return StepResult()
 
         if job.mitigation_info["ro_error_mitigation"] == "pseudo_inverse":
             # Extract necessary information from the job
@@ -129,72 +198,93 @@ class ReadoutErrorMitigationStep(Step):
             # Prepare device_topology protobuf (common for both job types)
             qubits_pb = []
             for qubit in device_info_json["qubits"]:
-                mes_error = mitigator_pb2.MesError(
+                mes_error = mitigator_pb2.MesError(  # type: ignore[attr-defined]
                     p0m1=float(qubit["meas_error"]["prob_meas1_prep0"]),
                     p1m0=float(qubit["meas_error"]["prob_meas0_prep1"]),
                 )
-                qubit_pb = mitigator_pb2.Qubit(mes_error=mes_error)
+                qubit_pb = mitigator_pb2.Qubit(mes_error=mes_error)  # type: ignore[attr-defined]
                 qubits_pb.append(qubit_pb)
 
-            device_topology = mitigator_pb2.DeviceTopology(qubits=qubits_pb)
+            device_topology = mitigator_pb2.DeviceTopology(qubits=qubits_pb)  # type: ignore[attr-defined]
 
             if job.job_type not in {"sampling", "multi_manual"}:
                 logger.debug(
                     "job_type is not 'sampling' or 'multi_manual', skipping mitigation",
                     extra={"job_id": job.job_id, "job_type": job.job_type},
                 )
-                return
+                return StepResult()
 
-            if job.result is None:  # pragma: no cover
-                message = "job.result is None. Cannot perform readout error mitigation."
-                raise ValueError(message)
-            if job.result.sampling is None:  # pragma: no cover
-                message = (
-                    "job.result.sampling is None. "
-                    "Cannot perform readout error mitigation."
+            sampling = _require_sampling_result(job)
+            orig_counts = sampling.counts
+            paulis: list[str] = jctx.get(ESTIMATION_PAULIS_KEY, [])
+
+            if paulis:
+                request = mitigator_pb2.ReqExpectationValueMitigationRequest(  # type: ignore[attr-defined]
+                    device_topology=device_topology,
+                    counts=orig_counts,
+                    program=job.program[0],  # type: ignore[index]
+                    paulis=paulis,
                 )
-                raise ValueError(message)
-            if job.result.sampling.counts is None:  # pragma: no cover
-                message = (
-                    "job.result.sampling.counts is None. "
-                    "Cannot perform readout error mitigation."
+                logger.info(
+                    "ReqExpectationValueMitigation request",
+                    extra={
+                        "job_id": job.job_id,
+                        "job_type": job.job_type,
+                        "request": request,
+                    },
                 )
-                raise ValueError(message)
-            orig_counts = job.result.sampling.counts
+                start = time.perf_counter()
+                response = await self._stub.ReqExpectationValueMitigation(request)
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
+                logger.info(
+                    "ReqExpectationValueMitigation response",
+                    extra={
+                        "elapsed_ms": round(elapsed_ms, 3),
+                        "job_id": job.job_id,
+                        "job_type": job.job_type,
+                        "response": response,
+                    },
+                )
+                _apply_expectation_value_mitigation_response(
+                    jctx=jctx,
+                    paulis=paulis,
+                    response=response,
+                )
+            else:
+                request = mitigator_pb2.ReqMitigationRequest(  # type: ignore[attr-defined]
+                    device_topology=device_topology,
+                    counts=orig_counts,
+                    program=job.program[0],  # type: ignore[index]
+                )
+                logger.info(
+                    "ReqMitigation request",
+                    extra={
+                        "job_id": job.job_id,
+                        "job_type": job.job_type,
+                        "request": request,
+                    },
+                )
+                start = time.perf_counter()
+                response = await self._stub.ReqMitigation(request)
+                elapsed_ms = (time.perf_counter() - start) * 1000.0
+                logger.info(
+                    "ReqMitigation response",
+                    extra={
+                        "elapsed_ms": round(elapsed_ms, 3),
+                        "job_id": job.job_id,
+                        "job_type": job.job_type,
+                        "response": response,
+                    },
+                )
+                mitigated_counts = dict(response.counts)
+                sampling.counts = mitigated_counts
+                logger.debug(
+                    "Readout-error-mitigated counts",
+                    extra={
+                        "mitigated_counts": mitigated_counts,
+                        "original_counts": orig_counts,
+                    },
+                )
 
-            request = mitigator_pb2.ReqMitigationRequest(
-                device_topology=device_topology,
-                counts=orig_counts,
-                program=job.program[0],
-            )
-            logger.info(
-                "ReqMitigation request",
-                extra={
-                    "job_id": job.job_id,
-                    "job_type": job.job_type,
-                    "request": request,
-                },
-            )
-
-            start = time.perf_counter()
-            response = await self._stub.ReqMitigation(request)
-            elapsed_ms = (time.perf_counter() - start) * 1000.0
-
-            logger.info(
-                "ReqMitigation response",
-                extra={
-                    "elapsed_ms": round(elapsed_ms, 3),
-                    "job_id": job.job_id,
-                    "job_type": job.job_type,
-                    "response": response,
-                },
-            )
-            mitigated_counts = dict(response.counts)
-            job.result.sampling.counts = mitigated_counts
-            logger.debug(
-                "ro_error_mitigated_counts is %s, original_counts is %s",
-                mitigated_counts,
-                orig_counts,
-            )
-
-            return
+            return StepResult()
+        return StepResult()

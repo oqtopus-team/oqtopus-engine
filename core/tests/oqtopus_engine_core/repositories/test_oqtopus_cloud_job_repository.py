@@ -165,7 +165,118 @@ async def test_update_job_status_nowait_bypasses_queue_when_false():
     await asyncio.sleep(0)
 
     assert enqueued == []
-    repo.update_job_status.assert_awaited_once_with(job)
+    repo.update_job_status.assert_awaited_once_with(job, include_output_files=True)
+
+
+# ---------------------------------------------------------------------------
+# update_job_status_nowait – output_files is read at execution time, not at
+# call time (regression test for the non-deterministic job_info loss bug)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_job_status_nowait_includes_output_files_appended_after_call():
+    """A key appended to job.output_files after the call must still be sent.
+
+    This reproduces the race between upload_job_outputs_nowait (which appends
+    to job.output_files only once its upload completes) and
+    update_job_status_nowait (which patches job status). Before the fix,
+    update_job_status_nowait snapshotted output_files at call time via
+    copy.deepcopy, so a key appended later - even before this task actually
+    runs - was silently dropped from the PATCH body.
+    """
+    repo = make_repo()
+    job = make_test_job()
+
+    sent_bodies: list[object] = []
+
+    async def fake_update_job_status(
+        patched_job: Job, *, include_output_files: bool = True
+    ) -> None:
+        sent_bodies.append(
+            list(patched_job.output_files) if include_output_files else None
+        )
+
+    repo.update_job_status = fake_update_job_status  # type: ignore[method-assign]
+
+    # Call update_job_status_nowait first; the append below happens
+    # "after the call" but before the FIFO-queued task actually executes.
+    await repo.update_job_status_nowait(job)
+    job.output_files.append("job-1/transpile_result.zip")
+
+    # Drive the background task (and the _enqueue_and_run task it is nested
+    # in) to completion.
+    await asyncio.gather(*repo._background_requests)
+
+    assert sent_bodies == [["job-1/transpile_result.zip"]]
+
+
+# ---------------------------------------------------------------------------
+# update_job_status / update_job_status_nowait – include_output_files=False
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_update_job_status_omits_output_files_when_excluded():
+    """include_output_files=False must omit output_files from the request body."""
+    repo = make_repo()
+    job = make_test_job()
+    job.output_files.append("job-1/result.zip")
+
+    sent_bodies: list[object] = []
+
+    def fake_patch_job_with_http_info(**kwargs: object) -> tuple[object, int, dict]:
+        sent_bodies.append(kwargs["body"])
+        return (None, 200, {})
+
+    repo._jobs_api.patch_job_with_http_info = fake_patch_job_with_http_info  # type: ignore[method-assign]
+
+    await repo.update_job_status(job, include_output_files=False)
+
+    assert sent_bodies[0].output_files is None
+
+
+@pytest.mark.asyncio
+async def test_update_job_status_nowait_forwards_include_output_files_false():
+    """update_job_status_nowait must forward include_output_files to update_job_status."""
+    repo = make_repo()
+    job = make_test_job()
+    job.output_files.append("job-1/result.zip")
+    repo.update_job_status = AsyncMock()  # type: ignore[method-assign]
+
+    await repo.update_job_status_nowait(job, include_output_files=False)
+    await asyncio.gather(*repo._background_requests)
+
+    repo.update_job_status.assert_awaited_once()
+    _, kwargs = repo.update_job_status.await_args
+    assert kwargs["include_output_files"] is False
+
+
+# ---------------------------------------------------------------------------
+# upload_job_outputs_nowait – preserve_order=True (default)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_upload_job_outputs_nowait_uses_queue_by_default():
+    """Grouped output uploads should route through the per-job queue."""
+    repo = make_repo()
+    job = make_test_job()
+    outputs = [("result", {"ok": True}, ".json", None)]
+
+    enqueued: list[str] = []
+
+    async def fake_enqueue(job_id: str, coroutine: object) -> None:
+        enqueued.append(job_id)
+        _close_coroutine(coroutine)
+
+    repo._enqueue_and_run = fake_enqueue  # type: ignore[method-assign]
+
+    await repo.upload_job_outputs_nowait(job, outputs)
+
+    await asyncio.sleep(0)
+
+    assert enqueued == [job.job_id]
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +377,31 @@ async def test_enqueue_and_run_continues_after_coroutine_failure():
     assert "success" in executed
     # The queue entry must be cleaned up.
     assert "job-seq" not in repo._job_tails
+
+
+# ---------------------------------------------------------------------------
+# get_jobs – api_request_timeout_seconds is passed to the generated client
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_jobs_passes_api_request_timeout_seconds():
+    """get_jobs must forward api_request_timeout_seconds as _request_timeout."""
+    with patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.JobsApi"
+    ) as mock_jobs_api_cls, patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.ApiClient"
+    ), patch(
+        "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.Configuration"
+    ):
+        mock_jobs_api = mock_jobs_api_cls.return_value
+        mock_jobs_api.get_jobs_with_http_info.return_value = ([], 200, {})
+
+        repo = OqtopusCloudJobRepository(workers=2, api_request_timeout_seconds=15)
+        await repo.get_jobs(device_id="test-device")
+
+        _, kwargs = mock_jobs_api.get_jobs_with_http_info.call_args
+        assert kwargs["_request_timeout"] == 15
 
 
 # ---------------------------------------------------------------------------

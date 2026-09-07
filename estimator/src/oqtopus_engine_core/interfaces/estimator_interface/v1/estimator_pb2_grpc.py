@@ -25,6 +25,11 @@ class EstimatorServiceStub(object):
                 request_serializer=oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessRequest.SerializeToString,
                 response_deserializer=oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessResponse.FromString,
                 _registered_method=True)
+        self.ReqEstimationPostProcessFromExpectationValues = channel.unary_unary(
+                '/estimator_interface.v1.EstimatorService/ReqEstimationPostProcessFromExpectationValues',
+                request_serializer=oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessFromExpectationValuesRequest.SerializeToString,
+                response_deserializer=oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessFromExpectationValuesResponse.FromString,
+                _registered_method=True)
 
 
 class EstimatorServiceServicer(object):
@@ -43,6 +48,12 @@ class EstimatorServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ReqEstimationPostProcessFromExpectationValues(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_EstimatorServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -55,6 +66,11 @@ def add_EstimatorServiceServicer_to_server(servicer, server):
                     servicer.ReqEstimationPostProcess,
                     request_deserializer=oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessRequest.FromString,
                     response_serializer=oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessResponse.SerializeToString,
+            ),
+            'ReqEstimationPostProcessFromExpectationValues': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReqEstimationPostProcessFromExpectationValues,
+                    request_deserializer=oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessFromExpectationValuesRequest.FromString,
+                    response_serializer=oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessFromExpectationValuesResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -112,6 +128,33 @@ class EstimatorService(object):
             '/estimator_interface.v1.EstimatorService/ReqEstimationPostProcess',
             oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessRequest.SerializeToString,
             oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReqEstimationPostProcessFromExpectationValues(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/estimator_interface.v1.EstimatorService/ReqEstimationPostProcessFromExpectationValues',
+            oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessFromExpectationValuesRequest.SerializeToString,
+            oqtopus__engine__core_dot_interfaces_dot_estimator__interface_dot_v1_dot_estimator__pb2.ReqEstimationPostProcessFromExpectationValuesResponse.FromString,
             options,
             channel_credentials,
             insecure,

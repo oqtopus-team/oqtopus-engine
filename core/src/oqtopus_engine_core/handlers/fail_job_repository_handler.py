@@ -6,6 +6,7 @@ from oqtopus_engine_core.framework import (
     JobContext,
     PipelineExceptionHandler,
 )
+from oqtopus_engine_core.framework.context import HAS_ORIGINAL_JOB_CHILDREN_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +22,10 @@ class FailJobRepositoryHandler(PipelineExceptionHandler):
         job: Job,
     ) -> None:
         """Handle an exception raised during pipeline execution."""
-        if jctx.get("has_actual_children", False):
+        if HAS_ORIGINAL_JOB_CHILDREN_KEY in jctx:
             # if there are child jobs, update their status
             await self._update_jobs_status(ex, gctx, job.children)
-        elif jctx.get("has_actual_parent", False):
+        elif job.parent is not None:
             logger.info(
                 "skip repository failure update for internal child job",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
@@ -34,16 +35,14 @@ class FailJobRepositoryHandler(PipelineExceptionHandler):
 
     @staticmethod
     async def _update_jobs_status(
-        ex: Exception,
-        gctx: GlobalContext,
-        jobs: list[Job]
+        ex: Exception, gctx: GlobalContext, jobs: list[Job]
     ) -> None:
         """Update the job status to "failed" for the given jobs."""
         for job in jobs:
             try:
                 job.status = "failed"
                 job.message = str(ex)
-                await gctx.job_repository.update_job_status(
+                await gctx.job_repository.update_job_status(  # type: ignore[union-attr]
                     job=job,
                 )
             except Exception:

@@ -28,54 +28,24 @@ class DevicesDeviceInfoUpdate(object):
                             and the value is json key in definition.
     """
     swagger_types = {
-        'device_info': 'str',
         'calibrated_at': 'datetime'
     }
 
     attribute_map = {
-        'device_info': 'device_info',
         'calibrated_at': 'calibrated_at'
     }
 
-    def __init__(self, device_info=None, calibrated_at=None):  # noqa: E501
+    def __init__(self, calibrated_at=None):  # noqa: E501
         """DevicesDeviceInfoUpdate - a model defined in Swagger"""  # noqa: E501
-        self._device_info = None
         self._calibrated_at = None
         self.discriminator = None
-        self.device_info = device_info
-        if calibrated_at is not None:
-            self.calibrated_at = calibrated_at
-
-    @property
-    def device_info(self):
-        """Gets the device_info of this DevicesDeviceInfoUpdate.  # noqa: E501
-
-        Calibration_data and n_nodes etc. Make sure that the value is a valid JSON data.  # noqa: E501
-
-        :return: The device_info of this DevicesDeviceInfoUpdate.  # noqa: E501
-        :rtype: str
-        """
-        return self._device_info
-
-    @device_info.setter
-    def device_info(self, device_info):
-        """Sets the device_info of this DevicesDeviceInfoUpdate.
-
-        Calibration_data and n_nodes etc. Make sure that the value is a valid JSON data.  # noqa: E501
-
-        :param device_info: The device_info of this DevicesDeviceInfoUpdate.  # noqa: E501
-        :type: str
-        """
-        if device_info is None:
-            raise ValueError("Invalid value for `device_info`, must not be `None`")  # noqa: E501
-
-        self._device_info = device_info
+        self.calibrated_at = calibrated_at
 
     @property
     def calibrated_at(self):
         """Gets the calibrated_at of this DevicesDeviceInfoUpdate.  # noqa: E501
 
-        Parameter mandatory and valid if calibrationData not null  # noqa: E501
+        Calibration timestamp for the uploaded device_info.  # noqa: E501
 
         :return: The calibrated_at of this DevicesDeviceInfoUpdate.  # noqa: E501
         :rtype: datetime
@@ -86,11 +56,13 @@ class DevicesDeviceInfoUpdate(object):
     def calibrated_at(self, calibrated_at):
         """Sets the calibrated_at of this DevicesDeviceInfoUpdate.
 
-        Parameter mandatory and valid if calibrationData not null  # noqa: E501
+        Calibration timestamp for the uploaded device_info.  # noqa: E501
 
         :param calibrated_at: The calibrated_at of this DevicesDeviceInfoUpdate.  # noqa: E501
         :type: datetime
         """
+        if calibrated_at is None:
+            raise ValueError("Invalid value for `calibrated_at`, must not be `None`")  # noqa: E501
 
         self._calibrated_at = calibrated_at
 

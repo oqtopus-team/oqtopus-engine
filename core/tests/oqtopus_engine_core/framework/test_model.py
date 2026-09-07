@@ -1,4 +1,4 @@
-from src.oqtopus_engine_core.framework.model import Job
+from oqtopus_engine_core.framework.model import Job
 
 
 def test_job_repr_and_str_output():

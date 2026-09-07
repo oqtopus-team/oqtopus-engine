@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\nEoqtopus_engine_core/interfaces/estimator_interface/v1/estimator.proto\x12\x16\x65stimator_interface.v1\"\x9f\x01\n\x1eReqEstimationPreProcessRequest\x12\x1b\n\tqasm_code\x18\x01 \x01(\tR\x08qasmCode\x12\x1c\n\toperators\x18\x02 \x01(\tR\toperators\x12\x1f\n\x0b\x62\x61sis_gates\x18\x03 \x03(\tR\nbasisGates\x12!\n\x0cmapping_list\x18\x04 \x03(\rR\x0bmappingList\"m\n\x1fReqEstimationPreProcessResponse\x12\x1d\n\nqasm_codes\x18\x01 \x03(\tR\tqasmCodes\x12+\n\x11grouped_operators\x18\x02 \x01(\tR\x10groupedOperators\"\x87\x01\n\x06\x43ounts\x12\x42\n\x06\x63ounts\x18\x01 \x03(\x0b\x32*.estimator_interface.v1.Counts.CountsEntryR\x06\x63ounts\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\rR\x05value:\x02\x38\x01\"\x86\x01\n\x1fReqEstimationPostProcessRequest\x12\x36\n\x06\x63ounts\x18\x01 \x03(\x0b\x32\x1e.estimator_interface.v1.CountsR\x06\x63ounts\x12+\n\x11grouped_operators\x18\x02 \x01(\tR\x10groupedOperators\"N\n ReqEstimationPostProcessResponse\x12\x16\n\x06\x65xpval\x18\x01 \x01(\x02R\x06\x65xpval\x12\x12\n\x04stds\x18\x02 \x01(\x02R\x04stds2\xaf\x02\n\x10\x45stimatorService\x12\x8a\x01\n\x17ReqEstimationPreProcess\x12\x36.estimator_interface.v1.ReqEstimationPreProcessRequest\x1a\x37.estimator_interface.v1.ReqEstimationPreProcessResponse\x12\x8d\x01\n\x18ReqEstimationPostProcess\x12\x37.estimator_interface.v1.ReqEstimationPostProcessRequest\x1a\x38.estimator_interface.v1.ReqEstimationPostProcessResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\nEoqtopus_engine_core/interfaces/estimator_interface/v1/estimator.proto\x12\x16\x65stimator_interface.v1\"\x9f\x01\n\x1eReqEstimationPreProcessRequest\x12\x1b\n\tqasm_code\x18\x01 \x01(\tR\x08qasmCode\x12\x1c\n\toperators\x18\x02 \x01(\tR\toperators\x12\x1f\n\x0b\x62\x61sis_gates\x18\x03 \x03(\tR\nbasisGates\x12!\n\x0cmapping_list\x18\x04 \x03(\rR\x0bmappingList\"m\n\x1fReqEstimationPreProcessResponse\x12\x1d\n\nqasm_codes\x18\x01 \x03(\tR\tqasmCodes\x12+\n\x11grouped_operators\x18\x02 \x01(\tR\x10groupedOperators\"\x87\x01\n\x06\x43ounts\x12\x42\n\x06\x63ounts\x18\x01 \x03(\x0b\x32*.estimator_interface.v1.Counts.CountsEntryR\x06\x63ounts\x1a\x39\n\x0b\x43ountsEntry\x12\x10\n\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n\x05value\x18\x02 \x01(\rR\x05value:\x02\x38\x01\"\x86\x01\n\x1fReqEstimationPostProcessRequest\x12\x36\n\x06\x63ounts\x18\x01 \x03(\x0b\x32\x1e.estimator_interface.v1.CountsR\x06\x63ounts\x12+\n\x11grouped_operators\x18\x02 \x01(\tR\x10groupedOperators\"r\n\x11\x45xpectationValues\x12\x16\n\x06values\x18\x01 \x03(\x01R\x06values\x12\x45\n\x1fstandard_deviation_upper_bounds\x18\x02 \x03(\x01R\x1cstandardDeviationUpperBounds\"\xc8\x01\n4ReqEstimationPostProcessFromExpectationValuesRequest\x12\x63\n\x18\x65xpectation_value_groups\x18\x01 \x03(\x0b\x32).estimator_interface.v1.ExpectationValuesR\x16\x65xpectationValueGroups\x12+\n\x11grouped_operators\x18\x02 \x01(\tR\x10groupedOperators\"N\n ReqEstimationPostProcessResponse\x12\x16\n\x06\x65xpval\x18\x01 \x01(\x02R\x06\x65xpval\x12\x12\n\x04stds\x18\x02 \x01(\x02R\x04stds\"\xa9\x01\n5ReqEstimationPostProcessFromExpectationValuesResponse\x12+\n\x11\x65xpectation_value\x18\x01 \x01(\x01R\x10\x65xpectationValue\x12\x43\n\x1estandard_deviation_upper_bound\x18\x02 \x01(\x01R\x1bstandardDeviationUpperBound2\xfe\x03\n\x10\x45stimatorService\x12\x8a\x01\n\x17ReqEstimationPreProcess\x12\x36.estimator_interface.v1.ReqEstimationPreProcessRequest\x1a\x37.estimator_interface.v1.ReqEstimationPreProcessResponse\x12\x8d\x01\n\x18ReqEstimationPostProcess\x12\x37.estimator_interface.v1.ReqEstimationPostProcessRequest\x1a\x38.estimator_interface.v1.ReqEstimationPostProcessResponse\x12\xcc\x01\n-ReqEstimationPostProcessFromExpectationValues\x12L.estimator_interface.v1.ReqEstimationPostProcessFromExpectationValuesRequest\x1aM.estimator_interface.v1.ReqEstimationPostProcessFromExpectationValuesResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -43,8 +43,14 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_COUNTS_COUNTSENTRY']._serialized_end=506
   _globals['_REQESTIMATIONPOSTPROCESSREQUEST']._serialized_start=509
   _globals['_REQESTIMATIONPOSTPROCESSREQUEST']._serialized_end=643
-  _globals['_REQESTIMATIONPOSTPROCESSRESPONSE']._serialized_start=645
-  _globals['_REQESTIMATIONPOSTPROCESSRESPONSE']._serialized_end=723
-  _globals['_ESTIMATORSERVICE']._serialized_start=726
-  _globals['_ESTIMATORSERVICE']._serialized_end=1029
+  _globals['_EXPECTATIONVALUES']._serialized_start=645
+  _globals['_EXPECTATIONVALUES']._serialized_end=759
+  _globals['_REQESTIMATIONPOSTPROCESSFROMEXPECTATIONVALUESREQUEST']._serialized_start=762
+  _globals['_REQESTIMATIONPOSTPROCESSFROMEXPECTATIONVALUESREQUEST']._serialized_end=962
+  _globals['_REQESTIMATIONPOSTPROCESSRESPONSE']._serialized_start=964
+  _globals['_REQESTIMATIONPOSTPROCESSRESPONSE']._serialized_end=1042
+  _globals['_REQESTIMATIONPOSTPROCESSFROMEXPECTATIONVALUESRESPONSE']._serialized_start=1045
+  _globals['_REQESTIMATIONPOSTPROCESSFROMEXPECTATIONVALUESRESPONSE']._serialized_end=1214
+  _globals['_ESTIMATORSERVICE']._serialized_start=1217
+  _globals['_ESTIMATORSERVICE']._serialized_end=1727
 # @@protoc_insertion_point(module_scope)

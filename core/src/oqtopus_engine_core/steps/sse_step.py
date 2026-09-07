@@ -14,6 +14,7 @@ from oqtopus_engine_core.framework import (
     Job,
     JobContext,
     Step,
+    StepResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ class SseStep(Step):
         gctx: GlobalContext,
         jctx: JobContext,  # noqa: ARG002
         job: Job,
-    ) -> None:
+    ) -> StepResult:
         """Pre-process the job by downloading the user program and run SSE.
 
         This method downloads the user's program from Oqtopus Cloud,
@@ -53,21 +54,20 @@ class SseStep(Step):
             RuntimeError: If the SSE run fails.
             ValueError: If the SSE program is missing from the job.
 
-        """
-        if job.job_type != "sse":
-            logger.debug(
-                "job_type is not sse, skipping",
-                extra={"job_id": job.job_id, "job_type": job.job_type},
-            )
-            return
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
 
+        """
         if job.sse_program is None:
             message = "the sse_program is not specified in the job."
             raise ValueError(message)
 
-        # Update job status
+        # Update job status. No outputs exist yet at this transition, so
+        # output_files is irrelevant here.
         job.status = "running"
-        await gctx.job_repository.update_job_status(job)
+        await gctx.job_repository.update_job_status(  # type: ignore[union-attr]
+            job, include_output_files=False
+        )
 
         config = self._settings
         # Make tmp dir
@@ -101,14 +101,14 @@ class SseStep(Step):
             # Clean up temporary directory
             if config["delete_host_temp_dirs"]:
                 self._delete_tmpdir(temp_dirs["base"])
-        return
+        return StepResult()
 
-    async def post_process(
+    async def post_process(  # noqa: PLR6301
         self,
-        gctx: GlobalContext,
-        jctx: JobContext,
-        job: Job,
-    ) -> None:
+        gctx: GlobalContext,  # noqa: ARG002
+        jctx: JobContext,  # noqa: ARG002
+        job: Job,  # noqa: ARG002
+    ) -> StepResult:
         """Post-process the job.
 
         Do nothing.
@@ -118,7 +118,11 @@ class SseStep(Step):
             jctx: The job context.
             job: The job object.
 
+        Returns:
+            StepResult: NONE directive — the pipeline continues normally.
+
         """
+        return StepResult()
 
     async def _run_sse(
         self,
@@ -163,6 +167,9 @@ class SseStep(Step):
             msg = "internal server error"
             raise RuntimeError(msg) from e
         else:
+            if sse_runner.result_job is None:
+                msg = "SSE runner completed without a result_job"
+                raise RuntimeError(msg)
             job.status = sse_runner.result_job.status
             logger.info(
                 "succeeded to run SSE",
@@ -178,20 +185,23 @@ class SseStep(Step):
                 raise RuntimeError(msg)
         finally:
             elapsed_sec = time.perf_counter() - start
-            self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)
-            await gctx.job_repository.update_job_transpiler_info(job)
+            # Release the Docker client before anything that may raise below
+            sse_runner.close()
+            self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)  # type: ignore[arg-type]
+            await gctx.job_repository.update_job_transpiler_info(job)  # type: ignore[union-attr]
 
             if job.transpile_result is not None:
                 # Upload to storage
-                urls = await gctx.job_repository.get_job_upload_url(
+                await gctx.job_repository.upload_job_outputs_nowait(  # type: ignore[union-attr]
                     job=job,
-                    items=["transpile_result"],
-                )
-                await gctx.job_repository.upload_job_output(
-                    job=job,
-                    presigned_url=urls[0],
-                    data=job.transpile_result.model_dump(),
-                    arcname_ext=".json",
+                    outputs=[
+                        (
+                            "transpile_result",
+                            job.transpile_result.model_dump(),
+                            ".json",
+                            None,
+                        )
+                    ],
                 )
 
     @staticmethod
@@ -296,6 +306,24 @@ class SseRunner:
                 "config": self._config,
             },
         )
+
+    def close(self) -> None:
+        """Release the Docker client held by this runner.
+
+        A SseRunner is created per SSE job, so the unix socket to the Docker
+        daemon must be released explicitly instead of relying on GC.
+
+        Args:
+            None
+
+        """
+        try:
+            self._docker_client.close()
+        except Exception:
+            logger.exception(
+                "failed to close docker client",
+                extra={"job_id": self._job_id},
+            )
 
     async def run_sse(self) -> None:
         """Run a user's program inside a Docker container.
@@ -496,7 +524,8 @@ class SseRunner:
                     "container log",
                     extra={"job_id": self._job_id, "container_log": logs_content},
                 )
-            self.result_job.sse_log = logs_content
+            if self.result_job is not None:
+                self.result_job.sse_log = logs_content
         except Exception:
             logger.exception(
                 "failed to get container log",
@@ -556,8 +585,7 @@ class SseRunner:
 
         # Set environment variables in container
         env_vars = [
-            f"JOB_JSON={self._job.model_dump_json()}",
-            f"IN_PATH={self._container_work_path['in']}",
+            f"JOB_ID={self._job_id}",
             f"OUT_PATH={self._container_work_path['out']}",
             f"SSE_ENGINE_ADDRESS={self._config['sse_engine_address']}",
             f"GRPC_MAX_RECEIVE_MESSAGE_LENGTH={grpc_max_receive}",
@@ -680,31 +708,28 @@ class SseRunner:
 
         # Receive data from standard output and write it to a file on the host side
         cmd = f"tar -C {container_path} -c -f - {filename}"
-        _, chunks = self._container.exec_run(
+        # NOTE: stream=False is intentional. The generator returned by stream=True
+        # holds the HTTP response over the unix socket to the Docker daemon and is
+        # never closed, so its file descriptor leaks on every SSE job. The chunks
+        # were fully buffered in memory anyway, so streaming brought no benefit.
+        _, output = self._container.exec_run(
             ["sh", "-c", cmd],
             user=user,
             stdout=True,
             stderr=True,
-            stream=True,
+            stream=False,
             demux=True,
         )
-
-        # read tar data from chunks
-        tar_data = io.BytesIO()
-        error_msg = ""
-        for stdout, stderr in chunks:
-            if stderr:
-                error_msg += stderr.decode("utf-8", errors="ignore")
-            if stdout:
-                tar_data.write(stdout)
+        stdout_data, stderr_data = output
 
         # if there is any error message
-        if error_msg:
+        if stderr_data:
+            error_msg = stderr_data.decode("utf-8", errors="ignore")
             msg = f"error when getting file from container: {error_msg}"
             raise RuntimeError(msg)
 
         # if no error, save the file
-        tar_data.seek(0)
+        tar_data = io.BytesIO(stdout_data or b"")
         # extract tar file and save to out_path
         with tarfile.open(fileobj=tar_data, mode="r") as tar:
             member = tar.getmember(filename)

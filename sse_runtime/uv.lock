@@ -2692,7 +2692,7 @@ wheels = [
 
 [[package]]
 name = "sse-runtime"
-version = "2.1.1"
+version = "2.2.0"
 source = { virtual = "." }
 dependencies = [
     { name = "cirq" },

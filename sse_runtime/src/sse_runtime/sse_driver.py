@@ -34,7 +34,6 @@ def submit_job(
             returns the OQTOPUS Client Job.
 
     Raises:
-        OSError: If the job data is not set.
         SseRuntimeError: If the job execution fails.
 
     """
@@ -53,11 +52,11 @@ def submit_job(
         )
     )
 
-    # get job data from environment variable
-    job_json = os.environ.get("JOB_JSON")
-    if not job_json:
-        msg = "Could not get job data"
-        raise OSError(msg)
+    # get the parent SSE job id from an environment variable
+    job_id = os.environ.get("JOB_ID")
+    if not job_id:
+        msg = "Could not get JOB_ID from environment"
+        raise SseRuntimeError(msg)
 
     grpc_options = [
         ("grpc.max_receive_message_length", grpc_max_receive),
@@ -69,7 +68,7 @@ def submit_job(
     ) as channel:
         created = _now_utc()
         stub = sse_pb2_grpc.SseEngineServiceStub(channel)
-        request_dict = _make_request(job_json, input_job, upload_info)
+        request_dict = _make_request(job_id, input_job, upload_info)
         # gRPC request
         request = sse_pb2.SseEngineRequest(job_json=json.dumps(request_dict))
         response = stub.SseEngine(request)
@@ -92,13 +91,13 @@ def submit_job(
 
 
 def _make_request(
-    job_json: str,
+    job_id: str,
     input_job: JobsSubmitJobRequest,
     upload_info: JobsS3SubmitJobInfo,
 ) -> dict[str, Any]:
     request = _convert_to_engine_job_model(input_job, upload_info)
     # set job_id of parent SSE job and status
-    request["job_id"] = _load_json_dict(job_json).get("job_id") or ""
+    request["job_id"] = job_id
     request["status"] = "ready"
     return request
 
@@ -132,17 +131,6 @@ def _convert_to_oqtopus_client_job_model(
         msg = f"Could not parse job data: {e}"
         raise SseRuntimeError(msg) from e
     return job
-
-
-def _load_json_dict(raw_json: str | None) -> dict[str, Any]:
-    if not raw_json:
-        return {}
-
-    loaded = json.loads(raw_json)
-    if not isinstance(loaded, dict):
-        msg = "Expected job data to be a JSON object"
-        raise SseRuntimeError(msg)
-    return loaded
 
 
 def _job_message(job: JobsJob) -> str | None:
