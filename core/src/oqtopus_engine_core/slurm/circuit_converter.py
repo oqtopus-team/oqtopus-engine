@@ -111,12 +111,16 @@ def build_execution_request(
         message = f"unsupported SLURM simulator job type: {job.job_type}"
         raise ValueError(message)
     if job.transpile_result is None:
-        message = "transpile_result is required for SLURM simulation"
-        raise ValueError(message)
+        if not job.program:
+            message = "program is required when transpiler is disabled"
+            raise ValueError(message)
+        program = job.program[0]
+    else:
+        program = job.transpile_result.transpiled_program
 
     job_type: Literal["sampling", "estimation"] = job.job_type  # type: ignore[assignment]
     n_qubits, gates, measurement_mapping = convert_transpiled_qasm(
-        job.transpile_result.transpiled_program,
+        program,
         job_type=job_type,
     )
     operators: list[OperatorTerm] = []
@@ -124,11 +128,15 @@ def build_execution_request(
         if not job.operator:
             message = "operator is required for direct estimation"
             raise ValueError(message)
+        if job.transpile_result is None:
+            virtual_to_physical = {index: index for index in range(n_qubits)}
+        else:
+            virtual_to_physical = normalize_qubit_mapping(
+                job.transpile_result.virtual_physical_mapping,
+            )
         operators = map_operator_items(
             job.operator,
-            normalize_qubit_mapping(
-                job.transpile_result.virtual_physical_mapping,
-            ),
+            virtual_to_physical,
             n_qubits=n_qubits,
         )
 

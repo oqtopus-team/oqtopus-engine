@@ -27,6 +27,7 @@ def make_job(job_type: str, program: str) -> Job:
         shots=100,
         job_type=job_type,
         input="https://example.invalid/input.zip",
+        program=[program],
         operator=[OperatorItem(pauli="Z 0", coeff=1.0)],
         transpile_result=TranspileResult(
             transpiled_program=program,
@@ -69,7 +70,7 @@ def test_convert_sampling_qasm_rejects_unmeasured_classical_bits():
 
 
 def test_build_direct_estimation_request_maps_operator_and_is_stable():
-    estimation_qasm = SAMPLING_QASM.split("c[1]")[0]
+    estimation_qasm = SAMPLING_QASM.split("c[1]", maxsplit=1)[0]
     job = make_job("estimation", estimation_qasm)
 
     request = build_execution_request(job, SlurmSimulatorOptions(n_per_node=4))
@@ -80,8 +81,30 @@ def test_build_direct_estimation_request_maps_operator_and_is_stable():
     assert request_hash(request) == request_hash(request.model_copy(deep=True))
 
 
+def test_build_sampling_request_without_transpiler_uses_input_program():
+    job = make_job("sampling", SAMPLING_QASM)
+    job.transpile_result = None
+    job.transpiler_info = {"transpiler_lib": None}
+
+    request = build_execution_request(job, SlurmSimulatorOptions(n_per_node=4))
+
+    assert [gate.name for gate in request.gates] == ["h", "cx"]
+    assert request.measurement_mapping == {1: 0, 0: 1}
+
+
+def test_build_direct_estimation_request_without_transpiler_uses_identity_mapping():
+    estimation_qasm = SAMPLING_QASM.split("c[1]", maxsplit=1)[0]
+    job = make_job("estimation", estimation_qasm)
+    job.transpile_result = None
+    job.transpiler_info = {"transpiler_lib": None}
+
+    request = build_execution_request(job, SlurmSimulatorOptions(n_per_node=4))
+
+    assert request.operators[0].pauli == "Z 0"
+
+
 def test_request_hash_includes_resolved_slurm_resources():
-    estimation_qasm = SAMPLING_QASM.split("c[1]")[0]
+    estimation_qasm = SAMPLING_QASM.split("c[1]", maxsplit=1)[0]
     job = make_job("estimation", estimation_qasm)
     options = SlurmSimulatorOptions(n_nodes=1, n_per_node=1)
     request = build_execution_request(job, options)
