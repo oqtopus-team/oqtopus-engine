@@ -51,7 +51,7 @@ async def test_start_initializes_configured_simulator_device():
         device_info={"qubits": [0, 1], "couplings": [[0, 1]]},
         slurm_client=StubSlurmClient(),
         process_lock=StubProcessLock(),
-        description="Qulacs MPI simulator",
+        description="MPI-Qulacs simulator",
     )
     fetcher.gctx = gctx
 

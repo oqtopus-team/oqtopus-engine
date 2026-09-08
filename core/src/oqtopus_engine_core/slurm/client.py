@@ -5,7 +5,7 @@ from pathlib import Path
 
 # ruff: noqa: DOC201, DOC501
 from .command_runner import CommandResult, CommandRunner
-from .models import SlurmJobStatus, normalize_slurm_state
+from .models import SchedulerJobStatus, normalize_slurm_state
 from .observability import (
     slurm_cancellation_counter,
     slurm_command_error_counter,
@@ -133,7 +133,7 @@ class SlurmClient:
         slurm_submission_counter.add(1)
         return job_id
 
-    async def get_status(self, job_id: str) -> SlurmJobStatus | None:
+    async def get_status(self, job_id: str) -> SchedulerJobStatus | None:
         """Read queue status, falling back to accounting after queue eviction."""
         self._validate_job_id(job_id)
         queue_result = await self._run((
@@ -148,7 +148,7 @@ class SlurmClient:
             if len(fields) != _SQUEUE_FIELD_COUNT:
                 message = "unexpected squeue output"
                 raise SlurmCommandError(message)
-            return SlurmJobStatus(
+            return SchedulerJobStatus(
                 job_id=fields[0],
                 state=normalize_slurm_state(fields[1]),
                 raw_state=fields[1],
@@ -166,7 +166,7 @@ class SlurmClient:
         for line in accounting_result.stdout.splitlines():
             fields = [field.strip() for field in line.split("|")]
             if len(fields) >= _SACCT_FIELD_COUNT and fields[0] == job_id:
-                return SlurmJobStatus(
+                return SchedulerJobStatus(
                     job_id=job_id,
                     state=normalize_slurm_state(fields[1]),
                     raw_state=fields[1],

@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from oqtopus_engine_core.slurm import (
     SlurmSimulatorOptions,
-    SlurmState,
+    SchedulerState,
     normalize_slurm_state,
 )
 
@@ -27,6 +27,33 @@ def test_simulator_options_reject_bool_and_unknown_fields():
         SlurmSimulatorOptions.model_validate({"n_nodes": True})
     with pytest.raises(ValidationError):
         SlurmSimulatorOptions.model_validate({"partition": "admin"})
+
+
+@pytest.mark.parametrize("estimation_method", ["direct", "sampling"])
+def test_simulator_options_accept_estimation_method(estimation_method):
+    options = SlurmSimulatorOptions.model_validate(
+        {"estimation_method": estimation_method}
+    )
+
+    assert options.estimation_method == estimation_method
+
+
+def test_simulator_options_default_to_direct_estimation():
+    assert SlurmSimulatorOptions().estimation_method == "direct"
+
+
+def test_simulator_options_default_to_mpi_qulacs_backend():
+    assert SlurmSimulatorOptions().backend == "mpi-qulacs"
+
+
+def test_simulator_options_reject_legacy_qulacs_mpi_backend():
+    with pytest.raises(ValidationError):
+        SlurmSimulatorOptions.model_validate({"backend": "qulacs_mpi"})
+
+
+def test_simulator_options_reject_unknown_estimation_method():
+    with pytest.raises(ValidationError):
+        SlurmSimulatorOptions.model_validate({"estimation_method": "hybrid"})
 
 
 def test_simulator_options_reject_too_few_nodes():
@@ -57,4 +84,4 @@ def test_simulator_options_reject_non_positive_qubits_per_node():
 
 @pytest.mark.parametrize("state", ["SUSPENDED", "RESIZING", "STOPPED"])
 def test_suspended_allocation_states_remain_active(state):
-    assert normalize_slurm_state(state) is SlurmState.RUNNING
+    assert normalize_slurm_state(state) is SchedulerState.RUNNING

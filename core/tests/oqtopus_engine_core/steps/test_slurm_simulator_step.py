@@ -12,18 +12,22 @@ from oqtopus_engine_core.framework import (
 from oqtopus_engine_core.repositories import NullJobRepository
 from oqtopus_engine_core.slurm import (
     ExecutionState,
-    SlurmJobStatus,
+    SchedulerJobStatus,
     SlurmSimulatorOptions,
-    SlurmState,
+    SchedulerState,
     SlurmSubmissionUncertainError,
     build_execution_request,
     canonical_request_json,
     request_hash,
 )
-from oqtopus_engine_core.steps import SlurmJobCancelledError, SlurmSimulatorStep
+from oqtopus_engine_core.steps import (
+    SessionStep,
+    JobCancelledError,
+    SlurmSimulatorStep,
+)
 
 from ..slurm.in_memory_execution_repository import (
-    InMemorySlurmExecutionRepository as SlurmExecutionRepository,
+    InMemoryExecutionRepository as ExecutionRepository,
 )
 
 SAMPLING_QASM = """
@@ -77,7 +81,11 @@ class RecordingJobRepository(NullJobRepository):
         job.status = status
         return job
 
-    async def update_job_status(self, job: Job) -> None:
+    async def update_job_status(
+        self,
+        job: Job,
+        execution_time: float | None = None,
+    ) -> None:
         self.updated_statuses.append(job.status)
         if self.update_errors:
             raise self.update_errors.pop(0)
@@ -86,7 +94,7 @@ class RecordingJobRepository(NullJobRepository):
 class StubSlurmClient:
     def __init__(
         self,
-        statuses: list[SlurmJobStatus | Exception],
+        statuses: list[SchedulerJobStatus | Exception],
         result: dict | None = None,
         found_job_id: str | None = None,
         cancel_error: Exception | None = None,
@@ -133,7 +141,7 @@ class StubSlurmClient:
 def make_step(tmp_path, client, job_reader):
     return SlurmSimulatorStep(
         slurm_client=client,
-        execution_repository=SlurmExecutionRepository(tmp_path / "repository-placeholder"),
+        execution_repository=ExecutionRepository(tmp_path / "repository-placeholder"),
         job_reader=job_reader,
         work_root=str(tmp_path / "work"),
         batch_script="/opt/oqtopus/run.sh",
@@ -142,12 +150,26 @@ def make_step(tmp_path, client, job_reader):
     )
 
 
+def make_lifecycle_step(step):
+    return SessionStep(
+        execution_repository=step._execution_repository,
+        job_reader=step._job_reader,
+        work_root=str(step._work_root),
+        finalize_retry_count=0,
+    )
+
+
+async def run_root_step(step, gctx, job):
+    await make_lifecycle_step(step).pre_process(gctx, JobContext(), job)
+    return await step.pre_process(gctx, JobContext(), job)
+
+
 @pytest.mark.asyncio
 async def test_sampling_submits_and_restores_result(tmp_path):
     client = StubSlurmClient(
         [
-            SlurmJobStatus("12345", SlurmState.PENDING, "PENDING"),
-            SlurmJobStatus("12345", SlurmState.COMPLETED, "COMPLETED", "0:0"),
+            SchedulerJobStatus("12345", SchedulerState.PENDING, "PENDING"),
+            SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0"),
         ],
         result={
             "schema_version": 1,
@@ -158,7 +180,7 @@ async def test_sampling_submits_and_restores_result(tmp_path):
         },
     )
     repository = RecordingJobRepository(["ready", "running", "running"])
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     step = SlurmSimulatorStep(
         slurm_client=client,
         execution_repository=execution_repository,
@@ -171,9 +193,9 @@ async def test_sampling_submits_and_restores_result(tmp_path):
     job = make_job()
     job.simulator_info = {"n_nodes": 2, "n_per_node": 3}
 
-    await step.pre_process(
+    await run_root_step(
+        step,
         GlobalContext(config={}, job_repository=repository),
-        JobContext(),
         job,
     )
 
@@ -193,7 +215,7 @@ async def test_sampling_submits_and_restores_result(tmp_path):
 @pytest.mark.asyncio
 async def test_execution_start_reconciles_lost_cloud_response(tmp_path):
     client = StubSlurmClient(
-        [SlurmJobStatus("12345", SlurmState.COMPLETED, "COMPLETED", "0:0")],
+        [SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")],
         result={
             "schema_version": 1,
             "status": "succeeded",
@@ -206,9 +228,9 @@ async def test_execution_start_reconciles_lost_cloud_response(tmp_path):
         ["ready", "running", "running"],
         update_errors=[TimeoutError("response lost")],
     )
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
 
-    await SlurmSimulatorStep(
+    step = SlurmSimulatorStep(
         slurm_client=client,
         execution_repository=execution_repository,
         job_reader=repository,
@@ -216,9 +238,10 @@ async def test_execution_start_reconciles_lost_cloud_response(tmp_path):
         batch_script="/opt/oqtopus/run.sh",
         worker_script="/opt/oqtopus/run_qulacs_mpi.py",
         poll_interval_seconds=0,
-    ).pre_process(
+    )
+    await run_root_step(
+        step,
         GlobalContext(config={}, job_repository=repository),
-        JobContext(),
         make_job(),
     )
 
@@ -231,24 +254,20 @@ async def test_execution_start_reconciles_lost_cloud_response(tmp_path):
 @pytest.mark.asyncio
 async def test_execution_start_lost_response_then_cancellation_request(tmp_path):
     client = StubSlurmClient([
-        SlurmJobStatus("12345", SlurmState.RUNNING, "RUNNING"),
-        SlurmJobStatus("12345", SlurmState.CANCELLED, "CANCELLED"),
+        SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING"),
+        SchedulerJobStatus("12345", SchedulerState.CANCELLED, "CANCELLED"),
     ])
     repository = RecordingJobRepository(
         ["ready", "cancelling", "cancelling"],
         update_errors=[TimeoutError("response lost")],
     )
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
 
-    with pytest.raises(SlurmJobCancelledError, match="before SLURM submission"):
-        await SlurmSimulatorStep(
-            slurm_client=client,
+    with pytest.raises(JobCancelledError, match="before SLURM submission"):
+        await SessionStep(
             execution_repository=execution_repository,
             job_reader=repository,
             work_root=str(tmp_path / "work"),
-            batch_script="/opt/oqtopus/run.sh",
-            worker_script="/opt/oqtopus/run_qulacs_mpi.py",
-            poll_interval_seconds=0,
         ).pre_process(
             GlobalContext(config={}, job_repository=repository),
             JobContext(),
@@ -269,17 +288,13 @@ async def test_execution_start_race_with_cloud_cancellation(tmp_path):
         ["ready", "cancelled"],
         update_errors=[RuntimeError("status conflict")],
     )
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
 
-    with pytest.raises(SlurmJobCancelledError, match="before SLURM submission"):
-        await SlurmSimulatorStep(
-            slurm_client=client,
+    with pytest.raises(JobCancelledError, match="before SLURM submission"):
+        await SessionStep(
             execution_repository=execution_repository,
             job_reader=repository,
             work_root=str(tmp_path / "work"),
-            batch_script="/opt/oqtopus/run.sh",
-            worker_script="/opt/oqtopus/run_qulacs_mpi.py",
-            poll_interval_seconds=0,
         ).pre_process(
             GlobalContext(config={}, job_repository=repository),
             JobContext(),
@@ -297,7 +312,7 @@ async def test_poll_recovers_from_transient_cloud_and_slurm_errors(tmp_path):
     client = StubSlurmClient(
         [
             RuntimeError("controller unavailable"),
-            SlurmJobStatus("12345", SlurmState.COMPLETED, "COMPLETED", "0:0"),
+            SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0"),
         ],
         result={
             "schema_version": 1,
@@ -313,9 +328,9 @@ async def test_poll_recovers_from_transient_cloud_and_slurm_errors(tmp_path):
         "running",
         "running",
     ])
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
 
-    await SlurmSimulatorStep(
+    step = SlurmSimulatorStep(
         slurm_client=client,
         execution_repository=execution_repository,
         job_reader=repository,
@@ -323,9 +338,10 @@ async def test_poll_recovers_from_transient_cloud_and_slurm_errors(tmp_path):
         batch_script="/opt/oqtopus/run.sh",
         worker_script="/opt/oqtopus/run_qulacs_mpi.py",
         poll_interval_seconds=0,
-    ).pre_process(
+    )
+    await run_root_step(
+        step,
         GlobalContext(config={}, job_repository=repository),
-        JobContext(),
         make_job(),
     )
 
@@ -339,7 +355,7 @@ async def test_poll_retries_empty_scheduler_observation(tmp_path):
     client = StubSlurmClient(
         [
             None,
-            SlurmJobStatus("12345", SlurmState.COMPLETED, "COMPLETED", "0:0"),
+            SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0"),
         ],
         result={
             "schema_version": 1,
@@ -349,10 +365,10 @@ async def test_poll_retries_empty_scheduler_observation(tmp_path):
             "duration_seconds": 1.0,
         },
     )
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     repository = RecordingJobRepository(["ready", "running", "running"])
 
-    await SlurmSimulatorStep(
+    step = SlurmSimulatorStep(
         slurm_client=client,
         execution_repository=execution_repository,
         job_reader=repository,
@@ -360,12 +376,13 @@ async def test_poll_retries_empty_scheduler_observation(tmp_path):
         batch_script="/opt/oqtopus/run.sh",
         worker_script="/opt/oqtopus/run_qulacs_mpi.py",
         poll_interval_seconds=0,
-    ).pre_process(
+    )
+    await run_root_step(
+        step,
         GlobalContext(
             config={},
             job_repository=repository,
         ),
-        JobContext(),
         make_job(),
     )
 
@@ -378,17 +395,17 @@ async def test_poll_retries_empty_scheduler_observation(tmp_path):
 async def test_cloud_cancel_is_propagated_to_slurm(tmp_path):
     client = StubSlurmClient(
         [
-            SlurmJobStatus("12345", SlurmState.RUNNING, "RUNNING"),
-            SlurmJobStatus("12345", SlurmState.CANCELLED, "CANCELLED"),
+            SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING"),
+            SchedulerJobStatus("12345", SchedulerState.CANCELLED, "CANCELLED"),
         ]
     )
-    repository = RecordingJobRepository(["ready", "cancelling"])
+    repository = RecordingJobRepository(["ready", "running", "cancelling"])
     step = make_step(tmp_path, client, repository)
 
-    with pytest.raises(SlurmJobCancelledError, match="confirmed"):
-        await step.pre_process(
+    with pytest.raises(JobCancelledError, match="confirmed"):
+        await run_root_step(
+            step,
             GlobalContext(config={}, job_repository=repository),
-            JobContext(),
             make_job(),
         )
 
@@ -398,7 +415,7 @@ async def test_cloud_cancel_is_propagated_to_slurm(tmp_path):
 @pytest.mark.asyncio
 async def test_cloud_cancel_does_not_cancel_completed_allocation(tmp_path):
     client = StubSlurmClient(
-        [SlurmJobStatus("12345", SlurmState.COMPLETED, "COMPLETED", "0:0")],
+        [SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")],
         result={
             "schema_version": 1,
             "status": "succeeded",
@@ -407,11 +424,11 @@ async def test_cloud_cancel_does_not_cancel_completed_allocation(tmp_path):
             "duration_seconds": 1.0,
         },
     )
-    repository = RecordingJobRepository(["ready", "cancelling"])
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    repository = RecordingJobRepository(["ready", "running", "cancelling"])
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     job = make_job()
 
-    await SlurmSimulatorStep(
+    step = SlurmSimulatorStep(
         slurm_client=client,
         execution_repository=execution_repository,
         job_reader=repository,
@@ -419,9 +436,10 @@ async def test_cloud_cancel_does_not_cancel_completed_allocation(tmp_path):
         batch_script="/opt/oqtopus/run.sh",
         worker_script="/opt/oqtopus/run_qulacs_mpi.py",
         poll_interval_seconds=0,
-    ).pre_process(
+    )
+    await run_root_step(
+        step,
         GlobalContext(config={}, job_repository=repository),
-        JobContext(),
         job,
     )
 
@@ -442,10 +460,10 @@ async def test_recovered_cancelling_job_accepts_completed_result(tmp_path):
         "duration_seconds": 1.0,
     }
     client = StubSlurmClient([
-        SlurmJobStatus("12345", SlurmState.COMPLETED, "COMPLETED", "0:0")
+        SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")
     ])
     repository = RecordingJobRepository(["cancelling"])
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     work_root = tmp_path / "work"
     work_dir = work_root / hashlib.sha256(b"job-1").hexdigest()[:32]
     work_dir.mkdir(parents=True)
@@ -498,7 +516,7 @@ async def test_recovered_cancelling_job_accepts_completed_result(tmp_path):
 @pytest.mark.asyncio
 async def test_result_ready_missing_artifact_preserves_checkpoint(tmp_path):
     client = StubSlurmClient(
-        [SlurmJobStatus("12345", SlurmState.COMPLETED, "COMPLETED", "0:0")],
+        [SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")],
         result={
             "schema_version": 1,
             "status": "succeeded",
@@ -507,7 +525,7 @@ async def test_result_ready_missing_artifact_preserves_checkpoint(tmp_path):
             "duration_seconds": 1.0,
         },
     )
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     repository = RecordingJobRepository(["ready", "running"])
     step = SlurmSimulatorStep(
         slurm_client=client,
@@ -523,7 +541,7 @@ async def test_result_ready_missing_artifact_preserves_checkpoint(tmp_path):
         job_repository=repository,
     )
 
-    await step.pre_process(gctx, JobContext(), make_job())
+    await run_root_step(step, gctx, make_job())
     record = await execution_repository.get("job-1")
     assert record is not None
     assert record.state is ExecutionState.RESULT_READY
@@ -543,11 +561,11 @@ async def test_result_ready_missing_artifact_preserves_checkpoint(tmp_path):
 @pytest.mark.asyncio
 async def test_cloud_cancel_failure_remains_recoverable(tmp_path):
     client = StubSlurmClient(
-        [SlurmJobStatus("12345", SlurmState.RUNNING, "RUNNING")],
+        [SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING")],
         cancel_error=RuntimeError("controller unavailable"),
     )
-    repository = RecordingJobRepository(["ready", "cancelling"])
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    repository = RecordingJobRepository(["ready", "running", "cancelling"])
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     step = SlurmSimulatorStep(
         slurm_client=client,
         execution_repository=execution_repository,
@@ -559,9 +577,9 @@ async def test_cloud_cancel_failure_remains_recoverable(tmp_path):
     )
 
     with pytest.raises(RuntimeError, match="controller unavailable"):
-        await step.pre_process(
+        await run_root_step(
+            step,
             GlobalContext(config={}, job_repository=repository),
-            JobContext(),
             make_job(),
         )
 
@@ -574,23 +592,24 @@ async def test_cloud_cancel_failure_remains_recoverable(tmp_path):
 @pytest.mark.asyncio
 async def test_cancelling_job_transitions_to_failed_on_slurm_failure(tmp_path):
     client = StubSlurmClient([
-        SlurmJobStatus("12345", SlurmState.FAILED, "TIMEOUT", "1:0")
+        SchedulerJobStatus("12345", SchedulerState.FAILED, "TIMEOUT", "1:0")
     ])
-    repository = RecordingJobRepository(["ready", "cancelling"])
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    repository = RecordingJobRepository(["ready", "running", "cancelling"])
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
 
+    step = SlurmSimulatorStep(
+        slurm_client=client,
+        execution_repository=execution_repository,
+        job_reader=repository,
+        work_root=str(tmp_path / "work"),
+        batch_script="/opt/oqtopus/run.sh",
+        worker_script="/opt/oqtopus/run_qulacs_mpi.py",
+        poll_interval_seconds=0,
+    )
     with pytest.raises(RuntimeError, match="TIMEOUT"):
-        await SlurmSimulatorStep(
-            slurm_client=client,
-            execution_repository=execution_repository,
-            job_reader=repository,
-            work_root=str(tmp_path / "work"),
-            batch_script="/opt/oqtopus/run.sh",
-            worker_script="/opt/oqtopus/run_qulacs_mpi.py",
-            poll_interval_seconds=0,
-        ).pre_process(
+        await run_root_step(
+            step,
             GlobalContext(config={}, job_repository=repository),
-            JobContext(),
             make_job(),
         )
 
@@ -602,7 +621,7 @@ async def test_cancelling_job_transitions_to_failed_on_slurm_failure(tmp_path):
 @pytest.mark.asyncio
 async def test_submitted_job_transitions_through_ready(tmp_path):
     client = StubSlurmClient(
-        [SlurmJobStatus("12345", SlurmState.COMPLETED, "COMPLETED", "0:0")],
+        [SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")],
         result={
             "schema_version": 1,
             "status": "succeeded",
@@ -613,9 +632,10 @@ async def test_submitted_job_transitions_through_ready(tmp_path):
     )
     repository = RecordingJobRepository(["submitted", "running"])
 
-    await make_step(tmp_path, client, repository).pre_process(
+    step = make_step(tmp_path, client, repository)
+    await run_root_step(
+        step,
         GlobalContext(config={}, job_repository=repository),
-        JobContext(),
         make_job(),
     )
 
@@ -640,17 +660,18 @@ async def test_reconciled_allocation_is_not_submitted_again(tmp_path):
     work_dir.mkdir(parents=True)
     (work_dir / "result.json").write_text(json.dumps(result), encoding="utf-8")
     client = StubSlurmClient(
-        [SlurmJobStatus("12345", SlurmState.COMPLETED, "COMPLETED", "0:0")],
+        [SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")],
         found_job_id="12345",
     )
     repository = RecordingJobRepository(["running", "running"])
 
-    await make_step(tmp_path, client, repository).pre_process(
+    step = make_step(tmp_path, client, repository)
+    await run_root_step(
+        step,
         GlobalContext(
             config={},
             job_repository=repository,
         ),
-        JobContext(),
         job,
     )
 
@@ -668,7 +689,7 @@ async def test_uncertain_submission_preserves_submit_intent(tmp_path):
         [],
         submit_error=SlurmSubmissionUncertainError("uncertain"),
     )
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     repository = RecordingJobRepository(["ready"])
     step = SlurmSimulatorStep(
         slurm_client=client,
@@ -681,12 +702,12 @@ async def test_uncertain_submission_preserves_submit_intent(tmp_path):
     )
 
     with pytest.raises(SlurmSubmissionUncertainError):
-        await step.pre_process(
+        await run_root_step(
+            step,
             GlobalContext(
                 config={},
                 job_repository=repository,
             ),
-            JobContext(),
             make_job(),
         )
 
@@ -705,7 +726,7 @@ async def test_recovered_submit_intent_without_match_is_not_resubmitted(tmp_path
     work_dir.mkdir(parents=True)
     request_path = work_dir / "request.json"
     request_path.write_text(canonical_request_json(request), encoding="utf-8")
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     await execution_repository.initialize()
     await execution_repository.claim(job.job_id, job.job_type)
     await execution_repository.prepare(
@@ -771,7 +792,7 @@ async def test_restart_reattaches_from_persisted_request(tmp_path):
         }),
         encoding="utf-8",
     )
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     await execution_repository.initialize()
     await execution_repository.claim(job.job_id, job.job_type)
     await execution_repository.prepare(
@@ -796,7 +817,7 @@ async def test_restart_reattaches_from_persisted_request(tmp_path):
     )
     job.transpile_result = None
     client = StubSlurmClient([
-        SlurmJobStatus("12345", SlurmState.COMPLETED, "COMPLETED", "0:0")
+        SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")
     ])
     repository = RecordingJobRepository(["running", "running"])
 

@@ -8,11 +8,11 @@ from oqtopus_engine_core.framework import Job, JobContext
 from oqtopus_engine_core.framework.job_fetcher import wait_until_fetchable
 from oqtopus_engine_core.slurm import (
     ExecutionRecord,
+    ExecutionRepository,
     ExecutionState,
+    JobReader,
+    SchedulerState,
     SlurmClient,
-    SlurmExecutionRepository,
-    SlurmJobReader,
-    SlurmState,
 )
 from oqtopus_engine_core.slurm.observability import slurm_recovery_counter
 
@@ -26,8 +26,8 @@ class SlurmJobFetcher(RepositoryJobFetcher):
 
     def __init__(  # noqa: PLR0913, PLR0917
         self,
-        execution_repository: SlurmExecutionRepository,
-        job_reader: SlurmJobReader,
+        execution_repository: ExecutionRepository,
+        job_reader: JobReader,
         slurm_client: SlurmClient,
         interval_seconds: float = 5.0,
         limit: int = 10,
@@ -154,15 +154,15 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         if job.status == "cancelled":
             if record.slurm_job_id is not None:
                 status = await self._slurm_client.get_status(record.slurm_job_id)
-                if status is None or status.state is SlurmState.UNKNOWN:
+                if status is None or status.state is SchedulerState.UNKNOWN:
                     message = (
                         "cannot confirm SLURM allocation state while startup "
                         f"cancellation is pending: {record.slurm_job_id}"
                     )
                     raise RuntimeError(message)
                 if status.state in {
-                    SlurmState.PENDING,
-                    SlurmState.RUNNING,
+                    SchedulerState.PENDING,
+                    SchedulerState.RUNNING,
                 }:
                     await self._slurm_client.cancel(record.slurm_job_id)
                     message = (
@@ -170,7 +170,7 @@ class SlurmJobFetcher(RepositoryJobFetcher):
                         f"{record.slurm_job_id}"
                     )
                     raise RuntimeError(message)
-                if status.state is not SlurmState.CANCELLED:
+                if status.state is not SchedulerState.CANCELLED:
                     message = (
                         "Cloud cancellation conflicts with SLURM terminal state "
                         f"{status.raw_state}: {record.slurm_job_id}"

@@ -21,7 +21,7 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
 
-from .execution_repository import ExecutionRecord, SlurmExecutionRepository
+from .execution_repository import ExecutionRecord, ExecutionRepository
 from .models import ExecutionState
 from .observability import record_execution_state_transition
 
@@ -35,7 +35,7 @@ _TERMINAL_STATES = {
 }
 
 
-class SlurmExecutionJobsApi(Protocol):
+class ExecutionJobsApi(Protocol):
     """Generated Jobs API subset required by the execution repository."""
 
     def get_job(
@@ -68,8 +68,8 @@ class SlurmExecutionJobsApi(Protocol):
         ...
 
 
-class OqtopusCloudSlurmExecutionRepository(SlurmExecutionRepository):
-    """Derive SLURM execution views from Cloud jobs and local artifacts."""
+class OqtopusCloudExecutionRepository(ExecutionRepository):
+    """Derive scheduler execution views from Cloud jobs and local artifacts."""
 
     def __init__(  # noqa: PLR0913, PLR0917
         self,
@@ -80,7 +80,7 @@ class OqtopusCloudSlurmExecutionRepository(SlurmExecutionRepository):
         proxy: str | None = None,
         workers: int = 5,
         api_request_timeout_seconds: int = 10,
-        jobs_api: SlurmExecutionJobsApi | None = None,
+        jobs_api: ExecutionJobsApi | None = None,
     ) -> None:
         if jobs_api is None:
             configuration = Configuration()
@@ -209,7 +209,7 @@ class OqtopusCloudSlurmExecutionRepository(SlurmExecutionRepository):
                 return None
             raise
         if response.device_id != self._device_id:
-            message = f"SLURM execution belongs to another device: {response.job_id}"
+            message = f"execution belongs to another device: {response.job_id}"
             raise ValueError(message)
         return response
 
@@ -325,7 +325,7 @@ class OqtopusCloudSlurmExecutionRepository(SlurmExecutionRepository):
 
     def _to_record(self, job: JobsJob | JobsJobDef) -> ExecutionRecord:
         if job.device_id != self._device_id:
-            message = f"SLURM execution belongs to another device: {job.job_id}"
+            message = f"execution belongs to another device: {job.job_id}"
             raise ValueError(message)
         cloud_job_id = str(job.job_id)
         work_dir, request_path, result_path = self._local_paths(cloud_job_id)

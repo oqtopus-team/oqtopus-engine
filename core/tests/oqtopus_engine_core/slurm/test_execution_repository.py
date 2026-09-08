@@ -10,7 +10,7 @@ def test_single_process_lock_rejects_second_owner(tmp_path: Path) -> None:
     second = SingleProcessLock(tmp_path / "engine.lock")
     first.acquire()
     try:
-        with pytest.raises(RuntimeError, match="another SLURM simulator engine"):
+        with pytest.raises(RuntimeError, match="another simulator engine"):
             second.acquire()
     finally:
         first.release()

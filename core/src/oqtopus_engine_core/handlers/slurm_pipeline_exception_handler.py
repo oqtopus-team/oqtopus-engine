@@ -7,14 +7,14 @@ from oqtopus_engine_core.framework import (
     PipelineExceptionHandler,
 )
 from oqtopus_engine_core.slurm import (
+    ExecutionRepository,
     ExecutionState,
-    SlurmExecutionRepository,
-    SlurmJobReader,
+    JobReader,
     SlurmSubmissionUncertainError,
 )
 from oqtopus_engine_core.steps.slurm_simulator_step import (
+    JobCancelledError,
     SlurmCancellationPendingError,
-    SlurmJobCancelledError,
 )
 
 logger = logging.getLogger(__name__)
@@ -25,8 +25,8 @@ class SlurmPipelineExceptionHandler(PipelineExceptionHandler):
 
     def __init__(
         self,
-        execution_repository: SlurmExecutionRepository,
-        job_reader: SlurmJobReader,
+        execution_repository: ExecutionRepository,
+        job_reader: JobReader,
     ) -> None:
         self._execution_repository = execution_repository
         self._job_reader = job_reader
@@ -46,8 +46,12 @@ class SlurmPipelineExceptionHandler(PipelineExceptionHandler):
             )
             return
 
+        if job.parent is not None:
+            await self._handle_internal_child_failure(ex, gctx, job)
+            return
+
         cloud_job = await self._job_reader.get_job(job.job_id)
-        cancelled = isinstance(ex, SlurmJobCancelledError) or (
+        cancelled = isinstance(ex, JobCancelledError) or (
             cloud_job is not None and cloud_job.status == "cancelled"
         )
         record = await self._execution_repository.get(job.job_id)
@@ -140,3 +144,46 @@ class SlurmPipelineExceptionHandler(PipelineExceptionHandler):
         job.status = "failed"
         job.message = str(ex)
         await gctx.job_repository.update_job_status(job)
+
+    async def _handle_internal_child_failure(
+        self,
+        ex: Exception,
+        gctx: GlobalContext,
+        job: Job,
+    ) -> None:
+        parent = job.parent
+        if parent is None or gctx.job_repository is None:  # pragma: no cover
+            return
+        cloud_job = await self._job_reader.get_job(parent.job_id)
+        record = await self._execution_repository.get(parent.job_id)
+        cancelled = isinstance(ex, JobCancelledError) or (
+            cloud_job is not None and cloud_job.status == "cancelled"
+        )
+        target_state = ExecutionState.CANCELLED if cancelled else ExecutionState.FAILED
+        target_status = "cancelled" if cancelled else "failed"
+        if record is not None and record.state not in {
+            ExecutionState.RESULT_READY,
+            ExecutionState.SUCCEEDED,
+            ExecutionState.CANCELLED,
+            ExecutionState.FAILED,
+        }:
+            await self._execution_repository.update(
+                parent.job_id,
+                target_state,
+                expected={record.state},
+                cloud_status=target_status,
+                last_error=str(ex),
+                message=str(ex),
+            )
+        elif record is None:
+            parent.status = target_status
+            parent.message = str(ex)
+            await gctx.job_repository.update_job_status(parent)
+        logger.error(
+            "internal SLURM child failure was applied to the root job",
+            extra={
+                "job_id": job.job_id,
+                "parent_job_id": parent.job_id,
+                "status": target_status,
+            },
+        )

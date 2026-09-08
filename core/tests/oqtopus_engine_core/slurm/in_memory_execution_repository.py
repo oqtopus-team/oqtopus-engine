@@ -14,7 +14,7 @@ _TERMINAL_STATES = {
 }
 
 
-class InMemorySlurmExecutionRepository:
+class InMemoryExecutionRepository:
     """SLURM execution repository test double."""
 
     def __init__(self, _location: object | None = None) -> None:

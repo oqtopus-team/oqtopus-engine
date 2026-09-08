@@ -1,7 +1,7 @@
-# SLURM Qulacs MPI Simulator
+# SLURM MPI-Qulacs Simulator
 
 The SLURM simulator is a dedicated Core execution path for large state-vector
-simulations. It submits Qulacs MPI allocations directly from a SLURM login node
+simulations. It submits MPI-Qulacs allocations directly from a SLURM login node
 without routing execution through Device Gateway. It supports sampling and
 exact estimation while preserving the existing OQTOPUS Cloud job and result
 contracts.
@@ -10,7 +10,7 @@ contracts.
 
 The direct SLURM path is designed to:
 
-- execute distributed Qulacs simulations without introducing a
+- execute distributed MPI-Qulacs simulations without introducing a
   Device Gateway protocol for scheduler operations
 - keep partition, account, QoS, executable paths, and resource limits under
   administrator control
@@ -32,8 +32,8 @@ The direct SLURM path is designed to:
 | Core `SlurmSimulatorStep` | Validates options, builds the worker request, submits or reattaches an allocation, polls status, and restores the result. |
 | Core `SlurmClient` | Executes `sinfo`, `sbatch`, `squeue`, `sacct`, and `scancel` without invoking a shell. |
 | Cloud Provider Job API | Uses the existing job GET, list, and status PATCH operations without SLURM-specific columns or endpoints. |
-| Qulacs MPI worker | Executes the state-vector simulation and atomically writes a versioned result from rank 0. |
-| Core `SlurmResultFinalizeStep` | Uploads the validated result, then finalizes the existing Cloud job status through the existing status PATCH. |
+| MPI-Qulacs worker | Executes the state-vector simulation and atomically writes a versioned result from rank 0. |
+| Core `SessionStep` | Initializes root jobs, uploads the validated result, then finalizes the existing Cloud job status through the existing status PATCH. |
 
 The dedicated pipeline intentionally excludes Device Gateway, Estimator,
 Mitigator, multi-programming steps, and SSE steps.
@@ -47,7 +47,7 @@ sequenceDiagram
     participant Core as Core Pipeline
     participant Tranqu as Tranqu Server
     participant Slurm as SLURM Controller
-    participant Worker as Qulacs MPI Worker
+    participant Worker as MPI-Qulacs Worker
 
     Core->>Cloud: Fetch submitted or stranded ready job
     Cloud-->>Core: Job metadata and input archive
@@ -57,7 +57,7 @@ sequenceDiagram
     Core->>Cloud: Update status to running
     Core->>Slurm: sbatch with fixed launcher and deterministic job name
     Slurm-->>Core: Numeric allocation ID
-    Slurm->>Worker: srun Qulacs MPI request
+    Slurm->>Worker: srun MPI-Qulacs request
 
     loop Until the allocation reaches a terminal state
         Core->>Cloud: Check for user cancellation
@@ -268,7 +268,7 @@ The `simulator_info` object uses strict snake_case fields:
 
 | Field | Meaning |
 | --- | --- |
-| `backend` | Must be `qulacs_mpi`. |
+| `backend` | Must be `mpi-qulacs`. |
 | `n_nodes` | Requested node count; when omitted, Core derives the minimum from the transpiled qubit count. |
 | `n_per_node` | MPI process count reserved and started per node. |
 | `seed_simulation` | Optional deterministic simulation seed. |
@@ -278,7 +278,7 @@ For example:
 
 ```json
 {
-  "backend": "qulacs_mpi",
+  "backend": "mpi-qulacs",
   "n_nodes": 4,
   "n_per_node": 2,
   "seed_simulation": 1234,

@@ -6,8 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class SlurmState(StrEnum):
-    """Engine-facing SLURM state categories."""
+class SchedulerState(StrEnum):
+    """Engine-facing scheduler state categories."""
 
     PENDING = "pending"
     RUNNING = "running"
@@ -18,11 +18,11 @@ class SlurmState(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class SlurmJobStatus:
-    """Normalized status for one SLURM allocation."""
+class SchedulerJobStatus:
+    """Normalized status for one scheduler allocation."""
 
     job_id: str
-    state: SlurmState
+    state: SchedulerState
     raw_state: str
     exit_code: str | None = None
     reason: str | None = None
@@ -40,11 +40,12 @@ class ExecutionState(StrEnum):
 
 
 class SlurmSimulatorOptions(BaseModel):
-    """Validated user-selectable options for the Qulacs MPI backend."""
+    """Validated user-selectable options for the MPI-Qulacs backend."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    backend: Literal["qulacs_mpi"] = "qulacs_mpi"
+    backend: Literal["mpi-qulacs"] = "mpi-qulacs"
+    estimation_method: Literal["direct", "sampling"] = "direct"
     n_nodes: int | None = Field(default=None, ge=1)
     n_per_node: int = Field(default=1, ge=1)
     seed_simulation: int | None = Field(
@@ -164,17 +165,17 @@ _FAILED_STATES = {
 }
 
 
-def normalize_slurm_state(raw_state: str) -> SlurmState:
+def normalize_slurm_state(raw_state: str) -> SchedulerState:
     """Map a SLURM state label to a stable engine-facing category."""
     state = raw_state.strip().upper().rstrip("+")
     if state.startswith("CANCELLED"):
-        return SlurmState.CANCELLED
+        return SchedulerState.CANCELLED
     if state in _PENDING_STATES:
-        return SlurmState.PENDING
+        return SchedulerState.PENDING
     if state in _RUNNING_STATES:
-        return SlurmState.RUNNING
+        return SchedulerState.RUNNING
     if state == "COMPLETED":
-        return SlurmState.COMPLETED
+        return SchedulerState.COMPLETED
     if state in _FAILED_STATES:
-        return SlurmState.FAILED
-    return SlurmState.UNKNOWN
+        return SchedulerState.FAILED
+    return SchedulerState.UNKNOWN

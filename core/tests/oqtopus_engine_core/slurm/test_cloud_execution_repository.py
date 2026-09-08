@@ -12,7 +12,7 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
 from oqtopus_engine_core.slurm import (
     ExecutionState,
-    OqtopusCloudSlurmExecutionRepository,
+    OqtopusCloudExecutionRepository,
 )
 
 
@@ -70,7 +70,7 @@ def _job() -> JobsJob:
         input="input.zip",
         status="ready",
         transpiler_info={},
-        simulator_info={"backend": "qulacs_mpi", "n_nodes": 2},
+        simulator_info={"backend": "mpi-qulacs", "n_nodes": 2},
         mitigation_info={},
         submitted_at=now,
         ready_at=now,
@@ -80,8 +80,8 @@ def _job() -> JobsJob:
 def _repository(
     tmp_path: Path,
     api: StubJobsApi,
-) -> OqtopusCloudSlurmExecutionRepository:
-    return OqtopusCloudSlurmExecutionRepository(
+) -> OqtopusCloudExecutionRepository:
+    return OqtopusCloudExecutionRepository(
         device_id="large-simulator",
         work_root=str(tmp_path / "work"),
         jobs_api=api,

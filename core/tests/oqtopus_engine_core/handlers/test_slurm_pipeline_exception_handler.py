@@ -6,10 +6,10 @@ from oqtopus_engine_core.repositories import NullJobRepository
 from oqtopus_engine_core.slurm import ExecutionState
 from oqtopus_engine_core.steps import (
     SlurmCancellationPendingError,
-    SlurmJobCancelledError,
+    JobCancelledError,
 )
 from ..slurm.in_memory_execution_repository import (
-    InMemorySlurmExecutionRepository as SlurmExecutionRepository,
+    InMemoryExecutionRepository as ExecutionRepository,
 )
 
 
@@ -41,7 +41,7 @@ class RecordingJobRepository(NullJobRepository):
 
 
 async def make_handler(tmp_path, repository: RecordingJobRepository):
-    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     await execution_repository.initialize()
     await execution_repository.claim("job-1", "sampling")
     return (
@@ -126,7 +126,7 @@ async def test_handler_syncs_confirmed_requested_cancellation(tmp_path):
         cloud_status="running",
     )
     await handler.handle_exception(
-        SlurmJobCancelledError("SLURM cancellation confirmed"),
+        JobCancelledError("SLURM cancellation confirmed"),
         GlobalContext(config={}, job_repository=repository),
         JobContext(),
         make_job(),
@@ -216,7 +216,7 @@ async def test_handler_syncs_external_slurm_cancel_to_cloud(tmp_path):
         cloud_status="running",
     )
     await handler.handle_exception(
-        SlurmJobCancelledError("SLURM allocation was cancelled"),
+        JobCancelledError("SLURM allocation was cancelled"),
         GlobalContext(config={}, job_repository=repository),
         JobContext(),
         make_job(),
@@ -227,3 +227,27 @@ async def test_handler_syncs_external_slurm_cancel_to_cloud(tmp_path):
     assert record is not None
     assert record.state is ExecutionState.CANCELLED
     assert record.cloud_status == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_handler_applies_internal_child_failure_to_root(tmp_path):
+    repository = RecordingJobRepository("running")
+    handler, execution_repository = await make_handler(tmp_path, repository)
+    parent = make_job()
+    child = make_job()
+    child.job_id = "job-1-estimation-0"
+    child.parent = parent
+
+    await handler.handle_exception(
+        RuntimeError("child allocation failed"),
+        GlobalContext(config={}, job_repository=repository),
+        JobContext(),
+        child,
+    )
+
+    assert repository.updated_statuses == []
+    record = await execution_repository.get(parent.job_id)
+    assert record is not None
+    assert record.state is ExecutionState.FAILED
+    assert record.cloud_status == "failed"
+    assert record.last_error == "child allocation failed"

@@ -16,15 +16,16 @@ from oqtopus_engine_core.framework import (
 )
 from oqtopus_engine_core.slurm import (
     ExecutionRecord,
+    ExecutionRepository,
     ExecutionState,
+    JobReader,
+    LocalExecutionRepository,
     QulacsExecutionRequest,
+    SchedulerJobStatus,
+    SchedulerState,
     SlurmClient,
-    SlurmExecutionRepository,
-    SlurmJobReader,
-    SlurmJobStatus,
     SlurmReconciliationAmbiguousError,
     SlurmSimulatorOptions,
-    SlurmState,
     SlurmSubmissionUncertainError,
     build_execution_request,
     canonical_request_json,
@@ -35,7 +36,7 @@ from oqtopus_engine_core.slurm import (
 logger = logging.getLogger(__name__)
 
 
-class SlurmJobCancelledError(RuntimeError):
+class JobCancelledError(RuntimeError):
     """Raised when SLURM cancellation has been confirmed."""
 
 
@@ -44,7 +45,7 @@ class SlurmCancellationPendingError(RuntimeError):
 
 
 def _raise_cancelled(message: str) -> None:
-    raise SlurmJobCancelledError(message)
+    raise JobCancelledError(message)
 
 
 def _raise_runtime(message: str) -> Never:
@@ -52,13 +53,13 @@ def _raise_runtime(message: str) -> Never:
 
 
 class SlurmSimulatorStep(Step):
-    """Execute sampling or direct estimation with Qulacs MPI through SLURM."""
+    """Execute sampling or direct estimation with MPI-Qulacs through SLURM."""
 
     def __init__(  # noqa: PLR0913, PLR0917
         self,
         slurm_client: SlurmClient,
-        execution_repository: SlurmExecutionRepository,
-        job_reader: SlurmJobReader,
+        execution_repository: ExecutionRepository,
+        job_reader: JobReader,
         work_root: str,
         batch_script: str,
         worker_script: str,
@@ -69,14 +70,10 @@ class SlurmSimulatorStep(Step):
         max_timeout_seconds: int = 432000,
         max_shots: int = 100000,
         imaginary_tolerance: float = 1e-10,
-        finalize_retry_count: int = 2,
-        finalize_retry_interval_seconds: float = 1.0,
     ) -> None:
-        if finalize_retry_count < 0:
-            message = "finalization retry_count must not be negative"
-            raise ValueError(message)
         self._slurm_client = slurm_client
         self._execution_repository = execution_repository
+        self._internal_execution_repository = LocalExecutionRepository(work_root)
         self._job_reader = job_reader
         self._work_root = Path(work_root)
         self._batch_script = Path(batch_script)
@@ -88,19 +85,15 @@ class SlurmSimulatorStep(Step):
         self._max_timeout_seconds = max_timeout_seconds
         self._max_shots = max_shots
         self._imaginary_tolerance = imaginary_tolerance
-        self._finalize_retry_count = finalize_retry_count
-        self._finalize_retry_interval_seconds = finalize_retry_interval_seconds
 
-    async def pre_process(  # noqa: C901, PLR0912, PLR0915
+    async def pre_process(  # noqa: C901, PLR0912, PLR0914, PLR0915
         self,
-        gctx: GlobalContext,
+        gctx: GlobalContext,  # noqa: ARG002
         jctx: JobContext,  # noqa: ARG002
         job: Job,
     ) -> StepResult:
         """Submit or reattach one execution, then restore its validated result."""
-        if gctx.job_repository is None:
-            message = "job repository is not configured"
-            raise RuntimeError(message)
+        is_internal = job.parent is not None
         if job.job_type not in {"sampling", "estimation"}:
             message = f"unsupported SLURM simulator job type: {job.job_type}"
             raise ValueError(message)
@@ -108,11 +101,20 @@ class SlurmSimulatorStep(Step):
             message = "mitigation is unsupported by the SLURM simulator PoC"
             raise ValueError(message)
 
-        await self._execution_repository.initialize()
-        record = await self._execution_repository.get(job.job_id)
+        execution_repository = (
+            self._internal_execution_repository
+            if is_internal
+            else self._execution_repository
+        )
+        if is_internal:
+            await execution_repository.initialize()
+        record = await execution_repository.get(job.job_id)
         if record is None:
-            await self._execution_repository.claim(job.job_id, job.job_type)
-            record = await self._execution_repository.get(job.job_id)
+            if not is_internal:
+                message = "root SLURM execution was not initialized"
+                raise RuntimeError(message)
+            await execution_repository.claim(job.job_id, job.job_type)
+            record = await execution_repository.get(job.job_id)
         if record is None:  # pragma: no cover
             message = f"failed to claim SLURM execution: {job.job_id}"
             raise RuntimeError(message)
@@ -124,7 +126,7 @@ class SlurmSimulatorStep(Step):
         request_existed = request_path.is_file()
         request, options = self._resolve_request(job, record.options, request_path)
         digest = request_hash(request, options)
-        record = await self._execution_repository.prepare(
+        record = await execution_repository.prepare(
             cloud_job_id=job.job_id,
             request_hash=digest,
             options=options.model_dump(),
@@ -143,16 +145,29 @@ class SlurmSimulatorStep(Step):
             self._restore_result(job, request_path, result_path)
             return StepResult()
 
+        if record.state is ExecutionState.SUCCEEDED:
+            if not result_path.exists():
+                _raise_runtime("completed SLURM result is missing")
+            self._restore_result(job, request_path, result_path)
+            return StepResult()
+
+        if is_internal:
+            if job.parent is None:  # pragma: no cover
+                message = "internal SLURM job is missing its parent"
+                raise RuntimeError(message)
+            cloud_job_id = job.parent.job_id
+        else:
+            cloud_job_id = job.job_id
         cloud_job = await self._get_cloud_job_with_retry(
-            job.job_id,
+            cloud_job_id,
             None,
         )
         if cloud_job is not None and cloud_job.status == "cancelled":
-            await self._execution_repository.update(
+            await execution_repository.update(
                 job.job_id,
                 ExecutionState.CANCELLED,
                 expected={record.state},
-                cloud_status="cancelled",
+                cloud_status=None if is_internal else "cancelled",
             )
             _raise_cancelled("job was cancelled before SLURM submission")
         if (
@@ -160,20 +175,24 @@ class SlurmSimulatorStep(Step):
             and cloud_job.status == "cancelling"
             and not recovered_submit_intent
         ):
-            await self._execution_repository.update(
+            await execution_repository.update(
                 job.job_id,
                 ExecutionState.CANCELLED,
                 expected={record.state},
-                cloud_status="cancelled",
+                cloud_status=None if is_internal else "cancelled",
             )
             _raise_cancelled("job was cancelled before SLURM submission")
 
         if record.state is ExecutionState.READY:
-            record = await self._start_cloud_execution(
-                gctx,
-                job,
-                cloud_job,
-            )
+            if is_internal:
+                record = await execution_repository.update(
+                    job.job_id,
+                    ExecutionState.RUNNING,
+                    expected={ExecutionState.READY},
+                )
+            else:
+                message = "root SLURM execution was not started"
+                raise RuntimeError(message)
         job_token = hashlib.sha256(job.job_id.encode()).hexdigest()[:16]
         job_name = f"oqtopus-{job_token}-{digest[:16]}"
         comment = f"oqtopus:{job_token}:{digest[:16]}"
@@ -211,7 +230,7 @@ class SlurmSimulatorStep(Step):
                 tasks_per_node=options.n_per_node,
                 timeout_seconds=options.timeout_seconds,
             )
-        await self._execution_repository.update(
+        await execution_repository.update(
             job.job_id,
             ExecutionState.RUNNING,
             expected={ExecutionState.RUNNING, ExecutionState.RESULT_READY},
@@ -223,167 +242,31 @@ class SlurmSimulatorStep(Step):
             slurm_job_id,
             request_path,
             result_path,
+            execution_repository=execution_repository,
+            cloud_job_id=cloud_job_id,
         )
         return StepResult()
 
     async def post_process(
         self,
-        gctx: GlobalContext,
+        gctx: GlobalContext,  # noqa: ARG002
         jctx: JobContext,  # noqa: ARG002
         job: Job,
     ) -> StepResult:
-        """Upload the validated result and finalize the Cloud execution."""
-        if gctx.job_repository is None:
-            message = "job repository is not configured"
-            raise RuntimeError(message)
+        """Finalize only internal child execution metadata."""
+        if job.parent is None:
+            return StepResult()
         if job.result is None:
             message = "job result is None"
             raise ValueError(message)
-
-        for attempt in range(self._finalize_retry_count + 1):
-            try:
-                return await self._finalize_once(gctx, job)
-            except Exception:
-                if attempt >= self._finalize_retry_count:
-                    raise
-                logger.warning(
-                    "SLURM result finalization failed and will retry",
-                    extra={"job_id": job.job_id, "attempt": attempt + 1},
-                    exc_info=True,
-                )
-                await asyncio.sleep(self._finalize_retry_interval_seconds)
-        message = "unreachable SLURM finalization retry state"
-        raise AssertionError(message)
-
-    async def _finalize_once(
-        self,
-        gctx: GlobalContext,
-        job: Job,
-    ) -> StepResult:
-        if gctx.job_repository is None or job.result is None:  # pragma: no cover
-            message = "finalization prerequisites changed during retry"
-            raise RuntimeError(message)
-        cloud_job = await self._job_reader.get_job(job.job_id)
-        if cloud_job is not None and cloud_job.status == "succeeded":
-            await self._finalize_execution(job.job_id)
-            return StepResult()
-
-        await gctx.job_repository.upload_job_outputs(
-            job=job,
-            outputs=[("result", job.result.model_dump(), ".json", None)],
-        )
-        job.status = "succeeded"
-        await self._finalize_execution(
-            job.job_id,
-            output_files=job.output_files,
-            message=job.message,
-            execution_time=job.execution_time,
-        )
-        logger.info(
-            "SLURM execution finalized",
-            extra={"job_id": job.job_id, "job_type": job.job_type},
-        )
-        return StepResult()
-
-    async def _finalize_execution(
-        self,
-        job_id: str,
-        *,
-        output_files: list[str] | None = None,
-        message: str | None = None,
-        execution_time: float | None = None,
-    ) -> None:
-        await self._execution_repository.update(
-            job_id,
-            ExecutionState.SUCCEEDED,
-            expected={ExecutionState.RESULT_READY},
-            cloud_status="succeeded",
-            output_files=output_files,
-            message=message,
-            execution_time=execution_time,
-        )
-        try:
-            await self._execution_repository.cleanup_artifacts(
-                job_id,
-                self._work_root,
-            )
-        except Exception:
-            logger.exception(
-                "failed to clean finalized SLURM artifacts",
-                extra={"job_id": job_id},
-            )
-
-    async def _start_cloud_execution(
-        self,
-        gctx: GlobalContext,
-        job: Job,
-        cloud_job: Job | None,
-    ) -> ExecutionRecord:
-        if gctx.job_repository is None:  # pragma: no cover
-            message = "job repository is not configured"
-            raise RuntimeError(message)
-        if cloud_job is not None and cloud_job.status == "submitted":
-            job.status = "ready"
-            await gctx.job_repository.update_job_status(job)
-            await self._execution_repository.update(
+        record = await self._internal_execution_repository.get(job.job_id)
+        if record is not None and record.state is ExecutionState.RESULT_READY:
+            await self._internal_execution_repository.update(
                 job.job_id,
-                ExecutionState.READY,
-                expected={ExecutionState.READY},
-                cloud_status="ready",
+                ExecutionState.SUCCEEDED,
+                expected={ExecutionState.RESULT_READY},
             )
-        if cloud_job is None or cloud_job.status != "running":
-            job.status = "running"
-            try:
-                await gctx.job_repository.update_job_status(job)
-            except Exception:
-                reconciled_cloud_job = await self._get_cloud_job_with_retry(
-                    job.job_id,
-                    None,
-                )
-                if (
-                    reconciled_cloud_job is not None
-                    and reconciled_cloud_job.status == "cancelled"
-                ):
-                    await self._execution_repository.update(
-                        job.job_id,
-                        ExecutionState.CANCELLED,
-                        expected={ExecutionState.READY},
-                        cloud_status="cancelled",
-                    )
-                    _raise_cancelled("job was cancelled before SLURM submission")
-                if (
-                    reconciled_cloud_job is not None
-                    and reconciled_cloud_job.status == "cancelling"
-                ):
-                    await self._execution_repository.update(
-                        job.job_id,
-                        ExecutionState.CANCELLED,
-                        expected={ExecutionState.READY},
-                        cloud_status="cancelled",
-                    )
-                    _raise_cancelled("job was cancelled before SLURM submission")
-                if (
-                    reconciled_cloud_job is None
-                    or reconciled_cloud_job.status != "running"
-                ):
-                    raise
-                cloud_job = reconciled_cloud_job
-        else:
-            job.status = "running"
-        current = await self._execution_repository.get(job.job_id)
-        if current is not None and current.state is ExecutionState.RUNNING:
-            return current
-        return await self._execution_repository.update(
-            job.job_id,
-            ExecutionState.RUNNING,
-            expected={ExecutionState.READY},
-            cloud_status=(
-                cloud_job.status
-                if cloud_job is not None
-                and cloud_job.status in {"running", "cancelling"}
-                else "running"
-            ),
-        )
+        return StepResult()
 
     def _resolve_request(
         self,
@@ -442,12 +325,15 @@ class SlurmSimulatorStep(Step):
                 message = f"persisted SLURM {field} does not match configured root"
                 raise ValueError(message)
 
-    async def _wait_for_result(  # noqa: C901
+    async def _wait_for_result(  # noqa: C901, PLR0913
         self,
         job: Job,
         slurm_job_id: str | None,
         request_path: Path,
         result_path: Path,
+        *,
+        execution_repository: ExecutionRepository,
+        cloud_job_id: str,
     ) -> None:
         if slurm_job_id is None:
             message = "execution record is missing its SLURM job ID"
@@ -455,7 +341,7 @@ class SlurmSimulatorStep(Step):
 
         while True:
             cloud_job = await self._get_cloud_job_with_retry(
-                job.job_id,
+                cloud_job_id,
                 slurm_job_id,
             )
             cancellation_requested = (
@@ -471,29 +357,29 @@ class SlurmSimulatorStep(Step):
                     "SLURM allocation is temporarily absent from queue and accounting",
                     extra={"job_id": job.job_id, "slurm_job_id": slurm_job_id},
                 )
-            elif status.state in {SlurmState.PENDING, SlurmState.RUNNING}:
+            elif status.state in {SchedulerState.PENDING, SchedulerState.RUNNING}:
                 if cancellation_requested:
                     try:
                         await self._slurm_client.cancel(slurm_job_id)
                     except Exception as exc:
                         message = f"SLURM cancellation remains pending: {exc}"
                         raise SlurmCancellationPendingError(message) from exc
-            elif status.state is SlurmState.COMPLETED:
+            elif status.state is SchedulerState.COMPLETED:
                 if status.exit_code not in {None, "0:0"}:
                     message = f"SLURM job completed with exit code {status.exit_code}"
                     raise RuntimeError(message)
                 self._restore_result(job, request_path, result_path)
-                await self._execution_repository.update(
+                await execution_repository.update(
                     job.job_id,
                     ExecutionState.RESULT_READY,
                 )
                 return
-            elif status.state is SlurmState.CANCELLED:
+            elif status.state is SchedulerState.CANCELLED:
                 if cancellation_requested:
                     message = "SLURM cancellation confirmed"
                 else:
                     message = "SLURM allocation was cancelled independently of Cloud"
-                raise SlurmJobCancelledError(message)
+                raise JobCancelledError(message)
             else:
                 message = (
                     f"SLURM job failed with state {status.raw_state}: "
@@ -528,7 +414,7 @@ class SlurmSimulatorStep(Step):
         self,
         job_id: str,
         slurm_job_id: str,
-    ) -> SlurmJobStatus | None:
+    ) -> SchedulerJobStatus | None:
         errors = 0
         while True:
             try:

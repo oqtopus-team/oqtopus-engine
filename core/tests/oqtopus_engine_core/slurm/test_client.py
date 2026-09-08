@@ -7,7 +7,7 @@ from oqtopus_engine_core.slurm import (
     CommandResult,
     SlurmClient,
     SlurmReconciliationAmbiguousError,
-    SlurmState,
+    SchedulerState,
     SlurmSubmissionUncertainError,
 )
 
@@ -103,7 +103,7 @@ async def test_get_status_uses_sacct_when_job_left_queue():
     status = await client.get_status("12345")
 
     assert status is not None
-    assert status.state is SlurmState.COMPLETED
+    assert status.state is SchedulerState.COMPLETED
     assert status.exit_code == "0:0"
     assert [call[0] for call in runner.calls] == ["squeue", "sacct"]
 

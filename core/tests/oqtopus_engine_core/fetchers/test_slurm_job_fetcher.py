@@ -8,11 +8,11 @@ from oqtopus_engine_core.framework import Device, GlobalContext, Job
 from oqtopus_engine_core.repositories import NullJobRepository
 from oqtopus_engine_core.slurm import (
     ExecutionState,
-    SlurmJobStatus,
-    SlurmState,
+    SchedulerJobStatus,
+    SchedulerState,
 )
 from ..slurm.in_memory_execution_repository import (
-    InMemorySlurmExecutionRepository as SlurmExecutionRepository,
+    InMemoryExecutionRepository as ExecutionRepository,
 )
 
 
@@ -69,7 +69,7 @@ class RecordingPipeline:
 class RecordingSlurmClient:
     def __init__(self):
         self.cancelled: list[str] = []
-        self.status = SlurmJobStatus("12345", SlurmState.RUNNING, "RUNNING")
+        self.status = SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING")
 
     async def cancel(self, job_id: str):
         self.cancelled.append(job_id)
@@ -78,7 +78,7 @@ class RecordingSlurmClient:
         return self.status
 
 
-class CloudDerivedReadyExecutionRepository(SlurmExecutionRepository):
+class CloudDerivedReadyExecutionRepository(ExecutionRepository):
     def __init__(self) -> None:
         super().__init__()
         self.claim_count = 0
@@ -98,7 +98,7 @@ def make_fetcher(
     work_root: Path | None = None,
     artifact_ttl_seconds: int = 604800,
 ):
-    execution_repository = SlurmExecutionRepository(database_path)
+    execution_repository = ExecutionRepository(database_path)
     slurm_client = RecordingSlurmClient()
     fetcher = SlurmJobFetcher(
         execution_repository,
@@ -292,9 +292,9 @@ async def test_recover_cancelled_job_after_scheduler_confirmation(tmp_path):
         StubJobRepository(make_job("cancelled")),
         RecordingPipeline(),
     )
-    slurm_client.status = SlurmJobStatus(
+    slurm_client.status = SchedulerJobStatus(
         "12345",
-        SlurmState.CANCELLED,
+        SchedulerState.CANCELLED,
         "CANCELLED",
     )
     await execution_repository.initialize()

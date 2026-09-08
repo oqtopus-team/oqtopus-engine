@@ -14,7 +14,7 @@ from .models import ExecutionState
 
 
 class ExecutionRecord(BaseModel):
-    """Normalized view of one Cloud job's SLURM execution."""
+    """Normalized view of one Cloud job's scheduler-backed execution."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -36,16 +36,16 @@ class ExecutionRecord(BaseModel):
     revision: int
 
 
-class SlurmJobReader(Protocol):
-    """Single-job lookup required only by the direct SLURM runtime."""
+class JobReader(Protocol):
+    """Single-job lookup required by a scheduler-backed runtime."""
 
     async def get_job(self, job_id: str) -> Job | None:
         """Return one Cloud job by identifier."""
         ...
 
 
-class SlurmExecutionRepository(Protocol):
-    """SLURM execution view and lifecycle repository contract."""
+class ExecutionRepository(Protocol):
+    """Execution view and lifecycle repository contract."""
 
     async def initialize(self) -> None:
         """Initialize the repository if required by its implementation."""
@@ -130,7 +130,7 @@ class SingleProcessLock:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             handle.close()
-            message = f"another SLURM simulator engine holds {self._path}"
+            message = f"another simulator engine holds {self._path}"
             raise RuntimeError(message) from exc
         handle.seek(0)
         handle.truncate()

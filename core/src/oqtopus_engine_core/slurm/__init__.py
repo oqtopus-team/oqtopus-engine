@@ -10,23 +10,24 @@ from .client import (
     SlurmReconciliationAmbiguousError,
     SlurmSubmissionUncertainError,
 )
-from .cloud_execution_repository import OqtopusCloudSlurmExecutionRepository
+from .cloud_execution_repository import OqtopusCloudExecutionRepository
 from .command_runner import CommandResult, CommandRunner, CommandTimeoutError
 from .execution_repository import (
     ExecutionRecord,
+    ExecutionRepository,
+    JobReader,
     SingleProcessLock,
-    SlurmExecutionRepository,
-    SlurmJobReader,
 )
+from .local_execution_repository import LocalExecutionRepository
 from .models import (
     ExecutionState,
     OperatorTerm,
     QulacsExecutionRequest,
     QulacsExecutionResult,
     QulacsGate,
-    SlurmJobStatus,
+    SchedulerJobStatus,
+    SchedulerState,
     SlurmSimulatorOptions,
-    SlurmState,
     normalize_slurm_state,
 )
 from .operator_mapping import map_operator_items, normalize_qubit_mapping
@@ -37,21 +38,22 @@ __all__ = [
     "CommandRunner",
     "CommandTimeoutError",
     "ExecutionRecord",
+    "ExecutionRepository",
     "ExecutionState",
+    "JobReader",
+    "LocalExecutionRepository",
     "OperatorTerm",
-    "OqtopusCloudSlurmExecutionRepository",
+    "OqtopusCloudExecutionRepository",
     "QulacsExecutionRequest",
     "QulacsExecutionResult",
     "QulacsGate",
+    "SchedulerJobStatus",
+    "SchedulerState",
     "SingleProcessLock",
     "SlurmClient",
     "SlurmCommandError",
-    "SlurmExecutionRepository",
-    "SlurmJobReader",
-    "SlurmJobStatus",
     "SlurmReconciliationAmbiguousError",
     "SlurmSimulatorOptions",
-    "SlurmState",
     "SlurmSubmissionUncertainError",
     "build_execution_request",
     "canonical_request_json",
