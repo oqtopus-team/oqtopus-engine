@@ -10,12 +10,12 @@ from oqtopus_engine_core.framework import (
 from oqtopus_engine_core.repositories import NullJobRepository
 from oqtopus_engine_core.slurm import (
     ExecutionState,
-    LocalExecutionRepository,
+    LocalSlurmExecutionRepository,
 )
-from oqtopus_engine_core.steps import SimulatorLifecycleStep
+from oqtopus_engine_core.steps import SlurmSessionStep
 
 from ..slurm.in_memory_execution_repository import (
-    InMemoryExecutionRepository as ExecutionRepository,
+    InMemorySlurmExecutionRepository as SlurmExecutionRepository,
 )
 
 
@@ -63,13 +63,8 @@ class RecordingJobRepository(NullJobRepository):
         self.statuses.append(job.status)
 
 
-def make_simulator_lifecycle_step(
-    execution_repository,
-    job_reader,
-    work_root,
-    **kwargs,
-):
-    return SimulatorLifecycleStep(
+def make_finalizer(execution_repository, job_reader, work_root, **kwargs):
+    return SlurmSessionStep(
         execution_repository=execution_repository,
         job_reader=job_reader,
         work_root=str(work_root),
@@ -81,7 +76,7 @@ def make_simulator_lifecycle_step(
 async def test_sampling_parent_starts_cloud_lifecycle_before_estimator_split(
     tmp_path,
 ):
-    execution_repository = ExecutionRepository(
+    execution_repository = SlurmExecutionRepository(
         tmp_path / "repository-placeholder"
     )
     repository = RecordingJobRepository(["submitted"])
@@ -89,7 +84,7 @@ async def test_sampling_parent_starts_cloud_lifecycle_before_estimator_split(
     job.job_type = "estimation"
     job.simulator_info = {"estimation_method": "sampling"}
 
-    await make_simulator_lifecycle_step(
+    await make_finalizer(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -108,7 +103,7 @@ async def test_sampling_parent_starts_cloud_lifecycle_before_estimator_split(
 
 @pytest.mark.asyncio
 async def test_direct_estimation_root_uses_the_same_cloud_lifecycle(tmp_path):
-    execution_repository = ExecutionRepository(
+    execution_repository = SlurmExecutionRepository(
         tmp_path / "repository-placeholder"
     )
     repository = RecordingJobRepository(["submitted"])
@@ -116,7 +111,7 @@ async def test_direct_estimation_root_uses_the_same_cloud_lifecycle(tmp_path):
     job.job_type = "estimation"
     job.simulator_info = {"estimation_method": "direct"}
 
-    await make_simulator_lifecycle_step(
+    await make_finalizer(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -135,7 +130,7 @@ async def test_direct_estimation_root_uses_the_same_cloud_lifecycle(tmp_path):
 
 @pytest.mark.asyncio
 async def test_post_process_closes_metadata_with_cloud_update(tmp_path):
-    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
     work_root = tmp_path / "work"
     work_dir = work_root / "job-token"
     work_dir.mkdir(parents=True)
@@ -159,11 +154,7 @@ async def test_post_process_closes_metadata_with_cloud_update(tmp_path):
     repository = RecordingJobRepository()
     job = make_job()
 
-    await make_simulator_lifecycle_step(
-        execution_repository,
-        repository,
-        work_root,
-    ).post_process(
+    await make_finalizer(execution_repository, repository, work_root).post_process(
         GlobalContext(config={}, job_repository=repository),
         JobContext(),
         job,
@@ -180,7 +171,7 @@ async def test_post_process_closes_metadata_with_cloud_update(tmp_path):
 
 @pytest.mark.asyncio
 async def test_post_process_finalizes_sampling_parent_from_running_state(tmp_path):
-    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
     await execution_repository.initialize()
     await execution_repository.claim("job-1", "estimation")
     await execution_repository.update(
@@ -190,7 +181,7 @@ async def test_post_process_finalizes_sampling_parent_from_running_state(tmp_pat
     )
     repository = RecordingJobRepository()
 
-    await make_simulator_lifecycle_step(
+    await make_finalizer(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -207,7 +198,7 @@ async def test_post_process_finalizes_sampling_parent_from_running_state(tmp_pat
 
 @pytest.mark.asyncio
 async def test_post_process_cleans_sampling_child_artifacts_after_join(tmp_path):
-    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
     await execution_repository.initialize()
     await execution_repository.claim("job-1", "estimation")
     await execution_repository.update(
@@ -215,7 +206,7 @@ async def test_post_process_cleans_sampling_child_artifacts_after_join(tmp_path)
         ExecutionState.RUNNING,
         expected={ExecutionState.READY},
     )
-    child_repository = LocalExecutionRepository(tmp_path / "work")
+    child_repository = LocalSlurmExecutionRepository(tmp_path / "work")
     await child_repository.initialize()
     await child_repository.claim("job-1-estimation-0", "sampling")
     work_dir = tmp_path / "work" / "child-artifacts"
@@ -239,7 +230,7 @@ async def test_post_process_cleans_sampling_child_artifacts_after_join(tmp_path)
     child.job_id = "job-1-estimation-0"
     job.children = [child]
 
-    await make_simulator_lifecycle_step(
+    await make_finalizer(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -253,36 +244,8 @@ async def test_post_process_cleans_sampling_child_artifacts_after_join(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_pre_process_preserves_result_ready_during_cancellation(tmp_path):
-    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
-    await execution_repository.initialize()
-    await execution_repository.claim("job-1", "sampling")
-    await execution_repository.update(
-        "job-1",
-        ExecutionState.RESULT_READY,
-        expected={ExecutionState.READY},
-    )
-    repository = RecordingJobRepository(["cancelling"])
-
-    await make_simulator_lifecycle_step(
-        execution_repository,
-        repository,
-        tmp_path / "work",
-    ).pre_process(
-        GlobalContext(config={}, job_repository=repository),
-        JobContext(),
-        make_job(),
-    )
-
-    assert repository.statuses == []
-    record = await execution_repository.get("job-1")
-    assert record is not None
-    assert record.state is ExecutionState.RESULT_READY
-
-
-@pytest.mark.asyncio
 async def test_result_ready_wins_over_later_cancellation_request(tmp_path):
-    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
     await execution_repository.initialize()
     await execution_repository.claim("job-1", "sampling")
     await execution_repository.update(
@@ -292,7 +255,7 @@ async def test_result_ready_wins_over_later_cancellation_request(tmp_path):
     )
     repository = RecordingJobRepository(["cancelling"])
 
-    await make_simulator_lifecycle_step(
+    await make_finalizer(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -310,7 +273,7 @@ async def test_result_ready_wins_over_later_cancellation_request(tmp_path):
 
 @pytest.mark.asyncio
 async def test_result_ready_finalizes_through_execution_repository(tmp_path):
-    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
     await execution_repository.initialize()
     await execution_repository.claim("job-1", "sampling")
     await execution_repository.update(
@@ -320,7 +283,7 @@ async def test_result_ready_finalizes_through_execution_repository(tmp_path):
     )
     repository = RecordingJobRepository(["cancelled"])
 
-    await make_simulator_lifecycle_step(
+    await make_finalizer(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -339,7 +302,7 @@ async def test_result_ready_finalizes_through_execution_repository(tmp_path):
 
 @pytest.mark.asyncio
 async def test_post_process_retries_transient_upload_failure(tmp_path):
-    execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
+    execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
     await execution_repository.initialize()
     await execution_repository.claim("job-1", "sampling")
     await execution_repository.update(
@@ -351,7 +314,7 @@ async def test_post_process_retries_transient_upload_failure(tmp_path):
         upload_errors=[TimeoutError("storage unavailable")]
     )
 
-    await make_simulator_lifecycle_step(
+    await make_finalizer(
         execution_repository,
         repository,
         tmp_path / "work",

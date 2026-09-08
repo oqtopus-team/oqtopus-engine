@@ -50,31 +50,34 @@ sequenceDiagram
     participant Worker as MPI-Qulacs Worker
 
     Core->>Cloud: Fetch submitted or stranded ready job
-    Cloud-->>Core: Job metadata and input archive
+    Cloud-->>Core: Job metadata
+    Core->>Cloud: Claim job and advance lifecycle to running
+    Core->>Core: Download and validate input archive
     Core->>Tranqu: Transpile OpenQASM 3
     Tranqu-->>Core: Transpiled program and qubit mapping
-    Core->>Core: Validate options and persist canonical request artifact
-    Core->>Cloud: Update status to running
+    Core->>Core: Validate options and atomically persist request artifact
     Core->>Slurm: sbatch with fixed launcher and deterministic job name
     Slurm-->>Core: Numeric allocation ID
     Slurm->>Worker: srun MPI-Qulacs request
 
     loop Until the allocation reaches a terminal state
-        Core->>Cloud: Check for user cancellation
-        Core->>Slurm: Query squeue, then sacct when absent
+      Core->>Cloud: Read Job status
+      Cloud-->>Core: running or cancelling
+      Core->>Slurm: Query squeue, then sacct when absent
+      Slurm-->>Core: PENDING, RUNNING, COMPLETED, CANCELLED, or absent
     end
 
     alt Cancellation is requested while allocation is active
         Core->>Slurm: scancel active allocation
-      Slurm-->>Core: Cancellation confirmed
-      Core->>Cloud: Set cancelled
+      Slurm-->>Core: Cancellation confirmed on a later poll
+      Core->>Cloud: PATCH cancelled via exception handler
     else Allocation succeeds
         Worker-->>Core: Atomic result JSON
-        Core->>Core: Validate and restore JobResult
-        Core->>Cloud: Upload result and set succeeded
+      Core->>Core: Validate, restore JobResult, and mark RESULT_READY
+      Core->>Cloud: Upload result and PATCH succeeded
         Core->>Core: Clean successful local artifacts
     else Allocation fails or disappears
-        Core->>Cloud: Set failed
+      Core->>Cloud: PATCH failed via exception handler
         Core->>Core: Preserve diagnostics and retained artifacts
     end
 ```
@@ -226,18 +229,49 @@ artifacts. `result_ready` below is a derived condition rather than a Cloud
 status. Core derives absolute work, request, and result paths
 from `SLURM_WORK_ROOT` and the Cloud job ID on every process start.
 
-| State or condition | Evidence checked after restart | Recovery action | Next state or condition |
-| --- | --- | --- | --- |
-| `ready` | Derived request path | Atomically update the existing Job status to `running`, then prepare the request. | `running` |
-| `running` | Persisted request plus deterministic job name in `squeue`, then `sacct` | Reattach the single exact allocation match. Never repeat an uncertain submission. | `running`, `result_ready`, `failed`, or `cancelled` |
-| `cancelling` | Cloud Job status and allocation state | Resume reconciliation. Cancel an active allocation; accept a valid result if `COMPLETED` won the race. | `cancelling`, `result_ready`, `cancelled`, or `failed` |
-| `result_ready` | Persisted request and validated result | Skip SLURM execution and retry result upload plus the Cloud `succeeded` update. | `result_ready` until confirmation, then `succeeded` |
-| Unsynchronized `failed` or `cancelled` | Cloud job status | Retry only the matching terminal Cloud status update. | Same terminal state with Cloud synchronization confirmed |
-| Confirmed terminal state | Local work directory and Job `ended_at` | Do not enqueue the job again; clean local artifacts when their TTL expires. | No transition |
+| Cloud Job status | Effective state | Durable evidence | SLURM association | Recovery action | Next state or condition |
+| --- | --- | --- | --- | --- | --- |
+| `submitted` or `ready` | `READY` | No submit intent is required | No allocation is required | Claim the Job, prepare the request, and submit through the normal path. | `running` |
+| `running` | `RUNNING` | No `request.json` | Search for a matching allocation | Build the request, then submit if no match exists. | `running`, `result_ready`, `failed`, or `cancelled` |
+| `running` | `RUNNING` | `request.json`, no result | Recompute the JobName and search `squeue` and `sacct`. | Reattach exactly one match; never resubmit a persisted submit intent. | `running`, `result_ready`, `failed`, or `cancelled` |
+| `running` | `RESULT_READY` | Validated `result.json` | No scheduler association is required | Skip SLURM execution and retry result restoration and finalization. | `result_ready` until confirmation, then `succeeded` |
+| `cancelling` | `RUNNING` | No `request.json` | No durable allocation is expected | Treat it as pre-submit cancellation and do not submit. | `cancelled` |
+| `cancelling` | `RUNNING` | `request.json`, no result | Recompute the JobName and search `squeue` and `sacct`. | Reconcile the allocation. Cancel an active allocation; accept a valid result if `COMPLETED` won the race. | `cancelling`, `result_ready`, `cancelled`, or `failed` |
+| `cancelling` | `RESULT_READY` | Validated `result.json` | No scheduler association is required | Preserve the checkpoint and finalize the result. | `succeeded` |
+| `succeeded`, `failed`, or `cancelled` | Terminal | Cloud terminal status and local work directory | Do not reattach or submit | Keep the terminal state and clean retained artifacts according to the TTL. | No execution transition |
+| Any active status | Cloud Job is missing | No authoritative Cloud record | No automatic scheduler action | Log the missing Job and skip this recovery cycle. | Retry or operator reconciliation |
+| Any active status | Cloud or SLURM observation fails transiently | Existing execution evidence | Keep the existing association if known | Retry without converting an active allocation to a terminal failure. | Same active state |
 
-Before submission, Core assigns a deterministic job name derived from hashes of
-the Cloud job ID and request identity. It also submits the same identity as a
-diagnostic comment, but recovery does not depend on accounting storing comments.
+The Cloud Job, local execution record, and SLURM allocation are linked through
+deterministic identifiers rather than a SLURM-specific Cloud column:
+
+| Layer | Identifier or artifact | Relation to the next layer |
+| --- | --- | --- |
+| Cloud Job | `job_id` | The source identifier for all derived paths and scheduler labels. |
+| Local work directory | `SLURM_WORK_ROOT / sha256(job_id)[:32]` | Contains `request.json`, `result.json`, stdout, and stderr for that Cloud Job. |
+| Request identity | Hash of the canonical request and resolved scheduler options | Recomputed after restart and used to derive the scheduler JobName. |
+| SLURM JobName | `oqtopus-{sha256(job_id)[:16]}-{request_hash[:16]}` | The exact lookup key for reattachment in `squeue` and `sacct`. |
+| SLURM comment | `oqtopus:{sha256(job_id)[:16]}:{request_hash[:16]}` | Diagnostic metadata only; recovery does not depend on accounting comments. |
+| Numeric allocation ID | The `sbatch --parsable` result | Used by `get_status()` and `scancel()` after an allocation is attached. |
+
+The association can be summarized as:
+
+```text
+Cloud job_id
+  -> deterministic work directory
+  -> canonical request + resolved options
+  -> request hash
+  -> exact SLURM JobName
+  -> numeric allocation ID
+```
+
+`find_job()` searches both `squeue --name` and `sacct --name` and accepts only
+one exact allocation match. `get_status()` uses the numeric allocation ID to
+query `squeue` first and `sacct` after queue eviction. The Cloud-backed
+execution repository does not add a scheduler-specific column; after restart,
+the allocation ID is recovered from the deterministic JobName when it is not
+already available in the execution record.
+
 If `sbatch` may have accepted the job without returning a usable response, Core
 does not repeat the command. A later recovery searches accounting from before
 the existing job submission or ready timestamp and may reattach only one exact
@@ -303,6 +337,32 @@ limit violations fail validation before submission.
 - The work root survives Core and login-node restarts, and the process-lock path
   is shared by competing Core processes on the login node.
 - Only one Core process owns a simulator `device_id`.
+
+### 7.1 Local validation
+
+The repository includes an Engine-owned Docker fixture for validating the
+real scheduler and MPI-Qulacs worker. Run it from the Engine repository root:
+
+```bash
+make -C test-infra/scheduler/slurm smoke
+```
+
+The fixture covers a two-node, four-rank MPI probe, sampling, direct
+estimation, accounting comment visibility, controller restart recovery, and
+cancellation. The named Docker volumes remain after `down`; use
+`make -C test-infra/scheduler/slurm down-volumes` when a fresh accounting
+database is needed. The fixture setup and host-Core bridge are documented in
+[`test-infra/scheduler/slurm/README.md`](../../../test-infra/scheduler/slurm/README.md).
+
+The process-level recovery and cancellation tests use a fake scheduler and a
+schema-compatible worker. Run them with:
+
+```bash
+cd core && make test-slurm-process
+```
+
+These tests validate Core lifecycle and scheduler recovery behavior but do not
+replace the real MPI-Qulacs Docker smoke test.
 
 The dedicated runtime uses
 [`core/config/slurm_simulator_config.yaml`](../../../core/config/slurm_simulator_config.yaml).

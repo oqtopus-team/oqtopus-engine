@@ -1,0 +1,142 @@
+name: oqtopus-slurm
+
+x-slurm-image: &slurm-image
+  image: giovtorres/slurm-docker-cluster@sha256:847655c4c487b0f8fea3a0f2a12c03e6c1a5098762ff6753ce1713365e1978e7
+  platform: linux/amd64
+
+x-slurm-runtime: &slurm-runtime
+  image: ${SLURM_RUNTIME_IMAGE:-oqtopus-slurm-qulacs:0.6.14-amd64}
+  platform: linux/amd64
+  build:
+    context: .
+    dockerfile: Dockerfile
+    network: host
+    secrets:
+      - source: host_ca
+        target: host_ca
+
+services:
+  slurm-config-init:
+    <<: *slurm-image
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        cp -a /etc/slurm/. /target/
+        sed -i 's/PartitionName=cpu /PartitionName=intelsv /' /target/slurm.conf
+        printf '\nAccountingStoreFlags=job_comment\n' >> /target/slurm.conf
+    volumes:
+      - slurm-config:/target
+
+  mysql:
+    image: mariadb:12@sha256:4dedfbe3213f352f8924340a61b5cf4146be1e3e539eda4310efe50741a21b8e
+    platform: linux/amd64
+    hostname: mysql
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_DATABASE: slurm_acct_db
+      MYSQL_USER: slurm
+      MYSQL_PASSWORD: password
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  slurmdbd:
+    <<: *slurm-image
+    init: true
+    hostname: slurmdbd
+    command: ["slurmdbd"]
+    environment:
+      MYSQL_USER: slurm
+      MYSQL_PASSWORD: password
+    volumes:
+      - munge-config:/etc/munge
+      - slurm-config:/etc/slurm
+      - slurm-log:/var/log/slurm
+    depends_on:
+      slurm-config-init:
+        condition: service_completed_successfully
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pidof slurmdbd"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  slurmctld:
+    <<: *slurm-runtime
+    init: true
+    hostname: slurmctld
+    command: ["slurmctld"]
+    privileged: true
+    working_dir: /data
+    environment:
+      SSH_ENABLE: "false"
+      OMPI_ALLOW_RUN_AS_ROOT: "1"
+      OMPI_ALLOW_RUN_AS_ROOT_CONFIRM: "1"
+    volumes:
+      - munge-config:/etc/munge
+      - slurm-config:/etc/slurm
+      - slurm-jobs:/data
+      - slurm-log:/var/log/slurm
+      - modulefiles:/opt/modulefiles
+      - spack-root:/opt/spack
+      - ./run_qulacs_mpi_job.sh:/opt/oqtopus/slurm_resources/run_qulacs_mpi_job.sh:ro
+      - ../../../core/slurm_resources/run_qulacs_mpi.py:/opt/oqtopus/slurm_resources/run_qulacs_mpi.py:ro
+    depends_on:
+      slurmdbd:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "scontrol ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  cpu-worker:
+    <<: *slurm-runtime
+    init: true
+    scale: 2
+    command: ["slurmd-cpu"]
+    privileged: true
+    working_dir: /data
+    environment:
+      COMPOSE_PROJECT_NAME: oqtopus-slurm
+    volumes:
+      - munge-config:/etc/munge
+      - slurm-config:/etc/slurm
+      - slurm-jobs:/data
+      - slurm-log:/var/log/slurm
+      - modulefiles:/opt/modulefiles
+      - spack-root:/opt/spack
+      - ./run_qulacs_mpi_job.sh:/opt/oqtopus/slurm_resources/run_qulacs_mpi_job.sh:ro
+      - ../../../core/slurm_resources/run_qulacs_mpi.py:/opt/oqtopus/slurm_resources/run_qulacs_mpi.py:ro
+    depends_on:
+      slurmctld:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pidof slurmd"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  mysql-data:
+  munge-config:
+  slurm-config:
+  slurm-jobs:
+  slurm-log:
+  modulefiles:
+  spack-root:
+
+secrets:
+  host_ca:
+    file: ${OQTOPUS_BUILD_CA:-/etc/ssl/certs/ca-certificates.crt}

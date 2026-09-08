@@ -11,26 +11,26 @@ from oqtopus_engine_core.framework import (
 )
 from oqtopus_engine_core.slurm import (
     ExecutionRecord,
-    ExecutionRepository,
     ExecutionState,
-    JobReader,
-    LocalExecutionRepository,
+    LocalSlurmExecutionRepository,
+    SlurmExecutionRepository,
+    SlurmJobReader,
 )
 
-from .slurm_simulator_step import JobCancelledError
+from .slurm_simulator_step import SlurmJobCancelledError
 
 logger = logging.getLogger(__name__)
 
 # ruff: noqa: DOC201, DOC501
 
 
-class SimulatorLifecycleStep(Step):
-    """Open and close the simulator job lifecycle around pipeline execution."""
+class SlurmSessionStep(Step):
+    """Open and close the root job session around SLURM pipeline execution."""
 
     def __init__(
         self,
-        execution_repository: ExecutionRepository,
-        job_reader: JobReader,
+        execution_repository: SlurmExecutionRepository,
+        job_reader: SlurmJobReader,
         work_root: str,
         finalize_retry_count: int = 2,
         finalize_retry_interval_seconds: float = 1.0,
@@ -39,7 +39,7 @@ class SimulatorLifecycleStep(Step):
             message = "finalization retry_count must not be negative"
             raise ValueError(message)
         self._execution_repository = execution_repository
-        self._internal_execution_repository = LocalExecutionRepository(work_root)
+        self._internal_execution_repository = LocalSlurmExecutionRepository(work_root)
         self._job_reader = job_reader
         self._work_root = Path(work_root)
         self._finalize_retry_count = finalize_retry_count
@@ -57,7 +57,10 @@ class SimulatorLifecycleStep(Step):
             A NONE directive so the pipeline continues to the estimator.
 
         """
-        if job.parent is not None or job.job_type not in {"sampling", "estimation"}:
+        if (
+            job.parent is not None
+            or job.job_type not in {"sampling", "estimation"}
+        ):
             return StepResult()
         if gctx.job_repository is None:
             message = "job repository is not configured"
@@ -69,17 +72,11 @@ class SimulatorLifecycleStep(Step):
             await self._execution_repository.claim(job.job_id, job.job_type)
             record = await self._execution_repository.get(job.job_id)
         if record is None:  # pragma: no cover
-            message = f"failed to claim execution: {job.job_id}"
+            message = f"failed to claim SLURM execution: {job.job_id}"
             raise RuntimeError(message)
 
         cloud_job = await self._job_reader.get_job(job.job_id)
-        if record.state is ExecutionState.RESULT_READY:
-            return StepResult()
-        has_persisted_execution = await self._has_persisted_execution(record)
-        if cloud_job is not None and (
-            cloud_job.status == "cancelled"
-            or (cloud_job.status == "cancelling" and not has_persisted_execution)
-        ):
+        if cloud_job is not None and cloud_job.status in {"cancelled", "cancelling"}:
             await self._execution_repository.update(
                 job.job_id,
                 ExecutionState.CANCELLED,
@@ -87,18 +84,10 @@ class SimulatorLifecycleStep(Step):
                 cloud_status="cancelled",
             )
             message = "job was cancelled before SLURM submission"
-            raise JobCancelledError(message)
+            raise SlurmJobCancelledError(message)
         if record.state is ExecutionState.READY:
             await self._start_cloud_execution(gctx, job, cloud_job)
         return StepResult()
-
-    @staticmethod
-    async def _has_persisted_execution(record: ExecutionRecord) -> bool:
-        if record.state is not ExecutionState.RUNNING:
-            return False
-        if record.request_path is None:
-            return False
-        return await asyncio.to_thread(Path(record.request_path).is_file)
 
     async def _start_cloud_execution(
         self,
@@ -124,10 +113,10 @@ class SimulatorLifecycleStep(Step):
                 await gctx.job_repository.update_job_status(job)
             except Exception as exc:
                 reconciled_cloud_job = await self._job_reader.get_job(job.job_id)
-                if reconciled_cloud_job is not None and reconciled_cloud_job.status in {
-                    "cancelled",
-                    "cancelling",
-                }:
+                if (
+                    reconciled_cloud_job is not None
+                    and reconciled_cloud_job.status in {"cancelled", "cancelling"}
+                ):
                     await self._execution_repository.update(
                         job.job_id,
                         ExecutionState.CANCELLED,
@@ -135,7 +124,7 @@ class SimulatorLifecycleStep(Step):
                         cloud_status="cancelled",
                     )
                     message = "job was cancelled before SLURM submission"
-                    raise JobCancelledError(message) from exc
+                    raise SlurmJobCancelledError(message) from exc
                 if (
                     reconciled_cloud_job is None
                     or reconciled_cloud_job.status != "running"
@@ -181,7 +170,7 @@ class SimulatorLifecycleStep(Step):
                 if attempt >= self._finalize_retry_count:
                     raise
                 logger.warning(
-                    "split-result finalization failed and will retry",
+                    "SLURM split-result finalization failed and will retry",
                     extra={"job_id": job.job_id, "attempt": attempt + 1},
                     exc_info=True,
                 )
@@ -205,14 +194,16 @@ class SimulatorLifecycleStep(Step):
 
         record = await self._execution_repository.get(job.job_id)
         if record is None:
-            message = f"execution record is missing: {job.job_id}"
+            message = f"SLURM execution record is missing: {job.job_id}"
             raise RuntimeError(message)
         if record.state is ExecutionState.SUCCEEDED:
             await self._cleanup_root_artifacts(job.job_id)
             await self._cleanup_child_artifacts(job)
             return StepResult()
         if record.state not in {ExecutionState.RUNNING, ExecutionState.RESULT_READY}:
-            message = f"unexpected execution state for finalization: {record.state}"
+            message = (
+                f"unexpected SLURM execution state for finalization: {record.state}"
+            )
             raise RuntimeError(message)
 
         await gctx.job_repository.upload_job_outputs(
@@ -256,7 +247,7 @@ class SimulatorLifecycleStep(Step):
                 continue
             except Exception:
                 logger.exception(
-                    "failed to clean finalized scheduler child artifacts",
+                    "failed to clean finalized SLURM child artifacts",
                     extra={
                         "job_id": job.job_id,
                         "child_job_id": child.job_id,

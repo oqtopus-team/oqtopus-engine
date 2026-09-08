@@ -2,7 +2,7 @@ SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-.PHONY: install run run-sse run-slurm-simulator format lint test verify help
+.PHONY: install run run-sse run-slurm-simulator format lint test test-slurm-process verify help
 
 install: ## Install dependencies
 	@uv sync --all-groups
@@ -28,6 +28,9 @@ lint: ## Run linting
 
 test: ## Run tests
 	@uv run pytest
+
+test-slurm-process: ## Run the fake-SLURM process integration tests
+	@uv run pytest -q tests/slurm_process_e2e/test_fake_slurm_process.py
 
 verify: format lint test ## Run all verification steps (formatting, linting, testing)
 

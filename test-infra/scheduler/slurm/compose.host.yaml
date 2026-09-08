@@ -1,0 +1,12 @@
+services:
+  slurmctld:
+    volumes:
+      - ${OQTOPUS_ENGINE_ROOT:?OQTOPUS_ENGINE_ROOT must be set}/.cache/oqtopus-slurm-work:${OQTOPUS_ENGINE_ROOT}/.cache/oqtopus-slurm-work
+      - ${OQTOPUS_ENGINE_ROOT}/test-infra/scheduler/slurm:${OQTOPUS_ENGINE_ROOT}/test-infra/scheduler/slurm:ro
+      - ${OQTOPUS_ENGINE_ROOT}/core/slurm_resources:${OQTOPUS_ENGINE_ROOT}/core/slurm_resources:ro
+
+  cpu-worker:
+    volumes:
+      - ${OQTOPUS_ENGINE_ROOT}/.cache/oqtopus-slurm-work:${OQTOPUS_ENGINE_ROOT}/.cache/oqtopus-slurm-work
+      - ${OQTOPUS_ENGINE_ROOT}/test-infra/scheduler/slurm:${OQTOPUS_ENGINE_ROOT}/test-infra/scheduler/slurm:ro
+      - ${OQTOPUS_ENGINE_ROOT}/core/slurm_resources:${OQTOPUS_ENGINE_ROOT}/core/slurm_resources:ro

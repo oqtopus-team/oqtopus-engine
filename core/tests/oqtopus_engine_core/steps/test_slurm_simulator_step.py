@@ -499,9 +499,9 @@ async def test_recovered_cancelling_job_accepts_completed_result(tmp_path):
         cloud_status="cancelling",
     )
 
-    await step.pre_process(
+    await run_root_step(
+        step,
         GlobalContext(config={}, job_repository=repository),
-        JobContext(),
         job,
     )
 

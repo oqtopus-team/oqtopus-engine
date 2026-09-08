@@ -73,13 +73,7 @@ class SimulatorLifecycleStep(Step):
             raise RuntimeError(message)
 
         cloud_job = await self._job_reader.get_job(job.job_id)
-        if record.state is ExecutionState.RESULT_READY:
-            return StepResult()
-        has_persisted_execution = await self._has_persisted_execution(record)
-        if cloud_job is not None and (
-            cloud_job.status == "cancelled"
-            or (cloud_job.status == "cancelling" and not has_persisted_execution)
-        ):
+        if cloud_job is not None and cloud_job.status in {"cancelled", "cancelling"}:
             await self._execution_repository.update(
                 job.job_id,
                 ExecutionState.CANCELLED,
@@ -91,14 +85,6 @@ class SimulatorLifecycleStep(Step):
         if record.state is ExecutionState.READY:
             await self._start_cloud_execution(gctx, job, cloud_job)
         return StepResult()
-
-    @staticmethod
-    async def _has_persisted_execution(record: ExecutionRecord) -> bool:
-        if record.state is not ExecutionState.RUNNING:
-            return False
-        if record.request_path is None:
-            return False
-        return await asyncio.to_thread(Path(record.request_path).is_file)
 
     async def _start_cloud_execution(
         self,
