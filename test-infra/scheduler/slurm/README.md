@@ -4,7 +4,7 @@ This Engine-owned fixture runs a real SLURM controller, accounting daemon, and
 scheduler workers in Docker. It validates the MPI-Qulacs runtime without using
 the workspace-level Makefile.
 
-The cluster registers two compute nodes (`c1` and `c2`) in the `intelsv`
+The cluster registers two compute nodes (`c1` and `c2`) in the `cpu`
 partition. The Docker-only launcher uses `mpirun` because the pinned image
 exposes SLURM PMI-2 while its Rocky Linux OpenMPI package exposes PMIx. The
 production launcher in `core/slurm_resources` remains unchanged and uses

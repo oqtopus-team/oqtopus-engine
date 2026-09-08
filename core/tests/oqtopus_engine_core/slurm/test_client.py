@@ -34,7 +34,7 @@ def command_result(stdout: str = "", stderr: str = "", returncode: int = 0):
 @pytest.mark.asyncio
 async def test_submit_uses_fixed_script_and_parses_job_id():
     runner = StubRunner([command_result("12345;cluster\n")])
-    client = SlurmClient(runner, partition="Batch")
+    client = SlurmClient(runner, partition="test-partition")
 
     job_id = await client.submit(
         job_name="oqtopus-abcd",
@@ -51,7 +51,7 @@ async def test_submit_uses_fixed_script_and_parses_job_id():
     assert runner.calls == [(
         "sbatch",
         "--parsable",
-        "--partition=Batch",
+        "--partition=test-partition",
         "--nodes=4",
         "--ntasks=32",
         "--ntasks-per-node=8",
@@ -75,7 +75,11 @@ async def test_submit_does_not_retry_uncertain_controller_failure():
         ),
         command_result("12346"),
     ])
-    client = SlurmClient(runner, partition="Batch", controller_retry_count=2)
+    client = SlurmClient(
+        runner,
+        partition="test-partition",
+        controller_retry_count=2,
+    )
 
     with pytest.raises(SlurmSubmissionUncertainError, match="reconcile by job name"):
         await client.submit(
@@ -98,7 +102,7 @@ async def test_get_status_uses_sacct_when_job_left_queue():
         command_result(),
         command_result("12345|COMPLETED|0:0|None\n"),
     ])
-    client = SlurmClient(runner, partition="Batch")
+    client = SlurmClient(runner, partition="test-partition")
 
     status = await client.get_status("12345")
 
@@ -115,7 +119,7 @@ async def test_find_job_uses_sacct_when_allocation_left_queue():
         command_result(),
         command_result(f"12345|{job_name}\n"),
     ])
-    client = SlurmClient(runner, partition="Batch")
+    client = SlurmClient(runner, partition="test-partition")
 
     job_id = await client.find_job(
         job_name=job_name,
@@ -136,7 +140,7 @@ async def test_find_job_requires_exact_job_name_match():
         command_result(f"12345|{job_name}-other\n"),
         command_result(f"12345|{job_name}-other\n"),
     ])
-    client = SlurmClient(runner, partition="Batch")
+    client = SlurmClient(runner, partition="test-partition")
 
     assert await client.find_job(job_name=job_name) is None
 
@@ -148,7 +152,7 @@ async def test_find_job_rejects_ambiguous_matches():
         command_result(f"12345|{job_name}\n12346|{job_name}\n"),
         command_result(),
     ])
-    client = SlurmClient(runner, partition="Batch")
+    client = SlurmClient(runner, partition="test-partition")
 
     with pytest.raises(SlurmReconciliationAmbiguousError, match="multiple"):
         await client.find_job(
@@ -163,7 +167,7 @@ async def test_find_job_rejects_matches_split_across_queue_and_accounting():
         command_result(f"12345|{job_name}\n"),
         command_result(f"12346|{job_name}\n"),
     ])
-    client = SlurmClient(runner, partition="Batch")
+    client = SlurmClient(runner, partition="test-partition")
 
     with pytest.raises(SlurmReconciliationAmbiguousError, match="multiple"):
         await client.find_job(
@@ -173,7 +177,7 @@ async def test_find_job_rejects_matches_split_across_queue_and_accounting():
 
 @pytest.mark.asyncio
 async def test_cancel_rejects_non_numeric_job_id():
-    client = SlurmClient(StubRunner([]), partition="Batch")
+    client = SlurmClient(StubRunner([]), partition="test-partition")
 
     with pytest.raises(ValueError, match="invalid SLURM job ID"):
         await client.cancel("123;touch")

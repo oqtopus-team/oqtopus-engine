@@ -6,7 +6,7 @@ from oqtopus_util.di import DiContainer
 
 
 def test_slurm_config_wires_shared_runtime_components(monkeypatch):
-    monkeypatch.setenv("SLURM_PARTITION", "Batch")
+    monkeypatch.setenv("SLURM_PARTITION", "test-partition")
     monkeypatch.setenv("SLURM_DEVICE_N_QUBITS", "40")
     monkeypatch.setenv("SLURM_QUBITS_PER_NODE", "28")
     monkeypatch.setenv("SLURM_DEVICE_INFO", '{"qubits":[0,1]}')

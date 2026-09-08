@@ -23,7 +23,6 @@ services:
       - |
         set -eu
         cp -a /etc/slurm/. /target/
-        sed -i 's/PartitionName=cpu /PartitionName=intelsv /' /target/slurm.conf
         printf '\nAccountingStoreFlags=job_comment\n' >> /target/slurm.conf
     volumes:
       - slurm-config:/target

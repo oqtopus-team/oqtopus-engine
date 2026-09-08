@@ -78,7 +78,7 @@ PY
 topology_job_id="$(allocation_id "$(${controller[@]} sbatch \
   --parsable \
   --wait \
-  --partition=intelsv \
+  --partition=cpu \
   --nodes=2 \
   --ntasks=4 \
   --ntasks-per-node=2 \
@@ -117,7 +117,7 @@ JSON
 sampling_job_id="$(allocation_id "$("${controller[@]}" sbatch \
   --parsable \
   --wait \
-  --partition=intelsv \
+  --partition=cpu \
   --nodes=2 \
   --ntasks=4 \
   --ntasks-per-node=2 \
@@ -151,7 +151,7 @@ JSON
 estimation_job_id="$(allocation_id "$("${controller[@]}" sbatch \
   --parsable \
   --wait \
-  --partition=intelsv \
+  --partition=cpu \
   --nodes=2 \
   --ntasks=4 \
   --ntasks-per-node=2 \
@@ -181,7 +181,7 @@ assert_job_topology "$estimation_job_id" 2 4 2
 
 recovery_job_id="$(allocation_id "$("${controller[@]}" sbatch \
   --parsable \
-  --partition=intelsv \
+  --partition=cpu \
   --nodes=1 \
   --ntasks=1 \
   --comment=oqtopus-recovery-smoke \
