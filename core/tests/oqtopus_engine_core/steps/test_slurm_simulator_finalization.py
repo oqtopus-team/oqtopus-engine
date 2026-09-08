@@ -9,7 +9,7 @@ from oqtopus_engine_core.framework import (
 )
 from oqtopus_engine_core.repositories import NullJobRepository
 from oqtopus_engine_core.slurm import ExecutionState
-from oqtopus_engine_core.steps import SlurmResultFinalizeStep
+from oqtopus_engine_core.steps import SlurmSimulatorStep
 
 from ..slurm.in_memory_execution_repository import (
     InMemorySlurmExecutionRepository as SlurmExecutionRepository,
@@ -40,8 +40,8 @@ class RecordingJobRepository(NullJobRepository):
         super().__init__()
         self.cloud_statuses = cloud_statuses or ["running"]
         self.upload_errors = upload_errors or []
-        self.uploads = []
-        self.statuses = []
+        self.uploads: list[object] = []
+        self.statuses: list[str] = []
 
     async def get_job(self, job_id: str):
         status = (
@@ -60,8 +60,24 @@ class RecordingJobRepository(NullJobRepository):
         self.statuses.append(job.status)
 
 
+class NoopSlurmClient:
+    pass
+
+
+def make_step(execution_repository, job_reader, work_root, **kwargs):
+    return SlurmSimulatorStep(
+        slurm_client=NoopSlurmClient(),
+        execution_repository=execution_repository,
+        job_reader=job_reader,
+        work_root=str(work_root),
+        batch_script="/opt/oqtopus/run.sh",
+        worker_script="/opt/oqtopus/run_qulacs_mpi.py",
+        **kwargs,
+    )
+
+
 @pytest.mark.asyncio
-async def test_finalizer_closes_metadata_with_cloud_update(tmp_path):
+async def test_post_process_closes_metadata_with_cloud_update(tmp_path):
     execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
     work_root = tmp_path / "work"
     work_dir = work_root / "job-token"
@@ -86,11 +102,7 @@ async def test_finalizer_closes_metadata_with_cloud_update(tmp_path):
     repository = RecordingJobRepository()
     job = make_job()
 
-    await SlurmResultFinalizeStep(
-        execution_repository,
-        repository,
-        str(work_root),
-    ).post_process(
+    await make_step(execution_repository, repository, work_root).post_process(
         GlobalContext(config={}, job_repository=repository),
         JobContext(),
         job,
@@ -117,7 +129,7 @@ async def test_result_ready_wins_over_later_cancellation_request(tmp_path):
     )
     repository = RecordingJobRepository(["cancelling"])
 
-    await SlurmResultFinalizeStep(execution_repository, repository).post_process(
+    await make_step(execution_repository, repository, tmp_path / "work").post_process(
         GlobalContext(config={}, job_repository=repository),
         JobContext(),
         make_job(),
@@ -141,10 +153,11 @@ async def test_result_ready_finalizes_through_execution_repository(tmp_path):
     )
     repository = RecordingJobRepository(["cancelled"])
 
-    await SlurmResultFinalizeStep(
+    await make_step(
         execution_repository,
         repository,
-        retry_count=0,
+        tmp_path / "work",
+        finalize_retry_count=0,
     ).post_process(
         GlobalContext(config={}, job_repository=repository),
         JobContext(),
@@ -158,7 +171,7 @@ async def test_result_ready_finalizes_through_execution_repository(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_finalizer_retries_transient_upload_failure(tmp_path):
+async def test_post_process_retries_transient_upload_failure(tmp_path):
     execution_repository = SlurmExecutionRepository(tmp_path / "repository-placeholder")
     await execution_repository.initialize()
     await execution_repository.claim("job-1", "sampling")
@@ -171,11 +184,12 @@ async def test_finalizer_retries_transient_upload_failure(tmp_path):
         upload_errors=[TimeoutError("storage unavailable")]
     )
 
-    await SlurmResultFinalizeStep(
+    await make_step(
         execution_repository,
         repository,
-        retry_count=1,
-        retry_interval_seconds=0,
+        tmp_path / "work",
+        finalize_retry_count=1,
+        finalize_retry_interval_seconds=0,
     ).post_process(
         GlobalContext(config={}, job_repository=repository),
         JobContext(),

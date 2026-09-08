@@ -8,7 +8,6 @@ pipeline_manager:
     - name: slurm_simulator
       if: job.job_type == "sampling" || job.job_type == "estimation"
       steps:
-        - slurm_result_finalize_step
         - tranqu_step
         - buffer
         - slurm_simulator_step
@@ -133,14 +132,8 @@ di_container:
       max_timeout_seconds: ${SLURM_MAX_TIMEOUT_SECONDS, 432000}
       max_shots: ${SLURM_MAX_SHOTS, 100000}
       imaginary_tolerance: ${SLURM_IMAGINARY_TOLERANCE, 1e-10}
-
-    slurm_result_finalize_step:
-      _target_: oqtopus_engine_core.steps.SlurmResultFinalizeStep
-      execution_repository: "@slurm_execution_repository"
-      job_reader: "@slurm_execution_repository"
-      work_root: ${SLURM_WORK_ROOT}
-      retry_count: ${SLURM_FINALIZE_RETRY_COUNT, 2}
-      retry_interval_seconds: ${SLURM_FINALIZE_RETRY_INTERVAL_SECONDS, 1}
+      finalize_retry_count: ${SLURM_FINALIZE_RETRY_COUNT, 2}
+      finalize_retry_interval_seconds: ${SLURM_FINALIZE_RETRY_INTERVAL_SECONDS, 1}
 
     pipeline_exception_handler:
       _target_: oqtopus_engine_core.handlers.SlurmPipelineExceptionHandler
