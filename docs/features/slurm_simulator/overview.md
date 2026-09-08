@@ -33,7 +33,7 @@ The direct SLURM path is designed to:
 | Core `SlurmClient` | Executes `sinfo`, `sbatch`, `squeue`, `sacct`, and `scancel` without invoking a shell. |
 | Cloud Provider Job API | Uses the existing job GET, list, and status PATCH operations without SLURM-specific columns or endpoints. |
 | MPI-Qulacs worker | Executes the state-vector simulation and atomically writes a versioned result from rank 0. |
-| Core `SessionStep` | Initializes root jobs, uploads the validated result, then finalizes the existing Cloud job status through the existing status PATCH. |
+| Core `SimulatorLifecycleStep` | Initializes root jobs, uploads the validated result, then finalizes the existing Cloud job status through the existing status PATCH. |
 
 The dedicated pipeline intentionally excludes Device Gateway, Estimator,
 Mitigator, multi-programming steps, and SSE steps.

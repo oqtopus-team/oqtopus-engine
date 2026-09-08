@@ -8,7 +8,7 @@ pipeline_manager:
     - name: slurm_simulator
       if: job.job_type == "sampling" || job.job_type == "estimation"
       steps:
-        - session_step
+        - simulator_lifecycle_step
         - tranqu_step
         - estimator_step
         - buffer
@@ -134,8 +134,8 @@ di_container:
         - "delay"
         - "measure"
 
-    session_step:
-      _target_: oqtopus_engine_core.steps.SessionStep
+    simulator_lifecycle_step:
+      _target_: oqtopus_engine_core.steps.SimulatorLifecycleStep
       execution_repository: "@execution_repository"
       job_reader: "@execution_repository"
       work_root: ${SLURM_WORK_ROOT}

@@ -21,8 +21,8 @@ from oqtopus_engine_core.slurm import (
     request_hash,
 )
 from oqtopus_engine_core.steps import (
-    SessionStep,
     JobCancelledError,
+    SimulatorLifecycleStep,
     SlurmSimulatorStep,
 )
 
@@ -150,8 +150,8 @@ def make_step(tmp_path, client, job_reader):
     )
 
 
-def make_lifecycle_step(step):
-    return SessionStep(
+def make_simulator_lifecycle_step(step):
+    return SimulatorLifecycleStep(
         execution_repository=step._execution_repository,
         job_reader=step._job_reader,
         work_root=str(step._work_root),
@@ -160,7 +160,7 @@ def make_lifecycle_step(step):
 
 
 async def run_root_step(step, gctx, job):
-    await make_lifecycle_step(step).pre_process(gctx, JobContext(), job)
+    await make_simulator_lifecycle_step(step).pre_process(gctx, JobContext(), job)
     return await step.pre_process(gctx, JobContext(), job)
 
 
@@ -264,7 +264,7 @@ async def test_execution_start_lost_response_then_cancellation_request(tmp_path)
     execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
 
     with pytest.raises(JobCancelledError, match="before SLURM submission"):
-        await SessionStep(
+        await SimulatorLifecycleStep(
             execution_repository=execution_repository,
             job_reader=repository,
             work_root=str(tmp_path / "work"),
@@ -291,7 +291,7 @@ async def test_execution_start_race_with_cloud_cancellation(tmp_path):
     execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
 
     with pytest.raises(JobCancelledError, match="before SLURM submission"):
-        await SessionStep(
+        await SimulatorLifecycleStep(
             execution_repository=execution_repository,
             job_reader=repository,
             work_root=str(tmp_path / "work"),

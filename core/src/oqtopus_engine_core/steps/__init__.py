@@ -4,7 +4,7 @@ from .estimator_step import EstimatorStep
 from .job_repository_update_step import JobRepositoryUpdateStep
 from .multi_manual_step import MultiManualStep
 from .ro_error_mitigation_step import ReadoutErrorMitigationStep
-from .session_step import SessionStep
+from .simulator_lifecycle_step import SimulatorLifecycleStep
 from .slurm_simulator_step import (
     JobCancelledError,
     SlurmCancellationPendingError,
@@ -21,7 +21,7 @@ __all__ = [
     "JobRepositoryUpdateStep",
     "MultiManualStep",
     "ReadoutErrorMitigationStep",
-    "SessionStep",
+    "SimulatorLifecycleStep",
     "SlurmCancellationPendingError",
     "SlurmSimulatorStep",
     "SseStep",

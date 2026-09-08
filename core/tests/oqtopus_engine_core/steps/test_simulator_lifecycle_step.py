@@ -12,7 +12,7 @@ from oqtopus_engine_core.slurm import (
     ExecutionState,
     LocalExecutionRepository,
 )
-from oqtopus_engine_core.steps import SessionStep
+from oqtopus_engine_core.steps import SimulatorLifecycleStep
 
 from ..slurm.in_memory_execution_repository import (
     InMemoryExecutionRepository as ExecutionRepository,
@@ -63,8 +63,13 @@ class RecordingJobRepository(NullJobRepository):
         self.statuses.append(job.status)
 
 
-def make_session_step(execution_repository, job_reader, work_root, **kwargs):
-    return SessionStep(
+def make_simulator_lifecycle_step(
+    execution_repository,
+    job_reader,
+    work_root,
+    **kwargs,
+):
+    return SimulatorLifecycleStep(
         execution_repository=execution_repository,
         job_reader=job_reader,
         work_root=str(work_root),
@@ -84,7 +89,7 @@ async def test_sampling_parent_starts_cloud_lifecycle_before_estimator_split(
     job.job_type = "estimation"
     job.simulator_info = {"estimation_method": "sampling"}
 
-    await make_session_step(
+    await make_simulator_lifecycle_step(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -111,7 +116,7 @@ async def test_direct_estimation_root_uses_the_same_cloud_lifecycle(tmp_path):
     job.job_type = "estimation"
     job.simulator_info = {"estimation_method": "direct"}
 
-    await make_session_step(
+    await make_simulator_lifecycle_step(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -154,7 +159,11 @@ async def test_post_process_closes_metadata_with_cloud_update(tmp_path):
     repository = RecordingJobRepository()
     job = make_job()
 
-    await make_session_step(execution_repository, repository, work_root).post_process(
+    await make_simulator_lifecycle_step(
+        execution_repository,
+        repository,
+        work_root,
+    ).post_process(
         GlobalContext(config={}, job_repository=repository),
         JobContext(),
         job,
@@ -181,7 +190,7 @@ async def test_post_process_finalizes_sampling_parent_from_running_state(tmp_pat
     )
     repository = RecordingJobRepository()
 
-    await make_session_step(
+    await make_simulator_lifecycle_step(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -230,7 +239,7 @@ async def test_post_process_cleans_sampling_child_artifacts_after_join(tmp_path)
     child.job_id = "job-1-estimation-0"
     job.children = [child]
 
-    await make_session_step(
+    await make_simulator_lifecycle_step(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -255,7 +264,7 @@ async def test_result_ready_wins_over_later_cancellation_request(tmp_path):
     )
     repository = RecordingJobRepository(["cancelling"])
 
-    await make_session_step(
+    await make_simulator_lifecycle_step(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -283,7 +292,7 @@ async def test_result_ready_finalizes_through_execution_repository(tmp_path):
     )
     repository = RecordingJobRepository(["cancelled"])
 
-    await make_session_step(
+    await make_simulator_lifecycle_step(
         execution_repository,
         repository,
         tmp_path / "work",
@@ -314,7 +323,7 @@ async def test_post_process_retries_transient_upload_failure(tmp_path):
         upload_errors=[TimeoutError("storage unavailable")]
     )
 
-    await make_session_step(
+    await make_simulator_lifecycle_step(
         execution_repository,
         repository,
         tmp_path / "work",

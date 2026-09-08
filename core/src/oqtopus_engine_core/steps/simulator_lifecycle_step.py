@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 # ruff: noqa: DOC201, DOC501
 
 
-class SessionStep(Step):
-    """Open and close the root job session around pipeline execution."""
+class SimulatorLifecycleStep(Step):
+    """Open and close the simulator job lifecycle around pipeline execution."""
 
     def __init__(
         self,

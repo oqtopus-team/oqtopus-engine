@@ -33,7 +33,7 @@ def test_slurm_config_wires_shared_runtime_components(monkeypatch):
     assert getattr(simulator_step, "_qubits_per_node") == 28
     assert pipeline.job_buffer is container.get("buffer")
     assert config["pipeline_manager"]["pipelines"][0]["steps"] == [
-        "session_step",
+        "simulator_lifecycle_step",
         "tranqu_step",
         "estimator_step",
         "buffer",
