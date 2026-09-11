@@ -166,6 +166,8 @@ class OqtopusCloudJobRepository(JobRepository):
         self,
         job_id: str,
         coroutine: Coroutine[Any, Any, Any],
+        *,
+        propagate: bool = False,
     ) -> None:
         """Schedule a coroutine for the given job_id while preserving execution order.
 
@@ -209,6 +211,14 @@ class OqtopusCloudJobRepository(JobRepository):
                 The coroutine that performs the actual operation
                 (typically an HTTP request).
 
+            propagate:
+                If ``True``, an exception raised by ``coroutine`` (not by a
+                previous task in the chain) is re-raised after being logged,
+                so it reaches the caller awaiting this method. If ``False``
+                (default), the exception is only logged and swallowed, and
+                subsequent operations for the same ``job_id`` proceed as if
+                nothing happened.
+
         """
         async with self._job_tails_lock:
             previous = self._job_tails.get(job_id)
@@ -237,6 +247,8 @@ class OqtopusCloudJobRepository(JobRepository):
                         "job task failed",
                         extra={"job_id": job_id},
                     )
+                    if propagate:
+                        raise
 
             # Create the new task and set it as the new tail.
             task = asyncio.create_task(runner())
@@ -677,6 +689,46 @@ class OqtopusCloudJobRepository(JobRepository):
             label="PATCH /jobs/{job_id}/status",
             extra={"job_id": job.job_id, "job_type": job.job_type},
         )
+
+    async def update_job_status_ordered(
+        self,
+        job: Job,
+        *,
+        include_output_files: bool = True,
+    ) -> None:
+        """Send a PATCH request to update job status, awaiting the result.
+
+        Preserves the same per-``job_id`` FIFO ordering as
+        `update_job_status_nowait` (so this update waits for any previously
+        queued output uploads or status updates for the same job to finish
+        before its own `job.output_files` snapshot is taken), but unlike that
+        method, this one is awaited directly by the caller and re-raises any
+        exception instead of only logging it. Intended for terminal status
+        transitions where the caller must know whether the update succeeded.
+
+        Args:
+            job: The job to patch
+            include_output_files:
+                Forwarded to :meth:`update_job_status`; see there for details.
+
+        """
+        # Take a shallow copy immediately to capture 'status', 'message' and
+        # 'execution_time' as they are at call time, so they cannot change
+        # while this task is waiting in the per-job queue.
+        job_snapshot = job.model_copy(deep=False)
+
+        async def _patch() -> None:
+            if include_output_files:
+                # See the identical comment in update_job_status_nowait:
+                # reading 'output_files' here (at execution time) instead of
+                # at call time relies on this task's position in the
+                # per-job_id queue to guarantee prior uploads have finished.
+                job_snapshot.output_files = list(job.output_files)
+            await self.update_job_status(
+                job_snapshot, include_output_files=include_output_files
+            )
+
+        await self._enqueue_and_run(job.job_id, _patch(), propagate=True)
 
     async def update_job_transpiler_info(
         self,

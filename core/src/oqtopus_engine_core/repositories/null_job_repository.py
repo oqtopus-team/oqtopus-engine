@@ -141,6 +141,19 @@ class NullJobRepository(JobRepository):
             preserve_order=preserve_order,
         )
 
+    async def update_job_status_ordered(
+        self,
+        job: Job,
+        *,
+        include_output_files: bool = True,
+    ) -> None:
+        """Log and discard the ordered status update request."""
+        self._log_noop(
+            "update_job_status_ordered",
+            job_id=job.job_id,
+            include_output_files=include_output_files,
+        )
+
     async def update_job_transpiler_info(self, job: Job) -> None:
         """Log and discard the transpiler info update request."""
         self._log_noop("update_job_transpiler_info", job_id=job.job_id)
