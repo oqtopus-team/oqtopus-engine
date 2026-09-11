@@ -5,7 +5,10 @@ SHELL := bash
 SHARE_DIR ?= .
 LOG_DIR ?= logs
 
-.PHONY: run, format, lint, test, verify, grpcurl-list, build, up, down, help
+.PHONY: install run format lint test verify grpcurl-list build up down help
+
+install: ## Install dependencies
+	@uv sync --all-groups
 
 run: ## Run application
 	@COMBINER_WORKERS=10 COMBINER_ADDRESS="localhost:51013" IDLE_QUBITS_INSERTION_ENABLED=false uv run python -m oqtopus_engine_combiner.app -c config/config.yaml -l config/logging.yaml
