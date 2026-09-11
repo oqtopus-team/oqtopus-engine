@@ -1,4 +1,5 @@
 import logging
+from http import HTTPStatus
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -8,6 +9,7 @@ from oqtopus_engine_core.framework import (
     Step,
     StepResult,
 )
+from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
 
 logger = logging.getLogger(__name__)
 
@@ -99,5 +101,36 @@ class JobRepositoryUpdateStep(Step):
         )
 
         job.status = "succeeded"
-        await job_repository.update_job_status_nowait(job)
+        try:
+            await job_repository.update_job_status_ordered(job)
+        except Exception as e:
+            logger.exception(
+                "failed to report succeeded status; falling back to failed",
+                extra={"job_id": job.job_id, "job_type": job.job_type},
+            )
+            job.status = "failed"
+            job.message = f"engine could not report succeeded status: {e}"
+            try:
+                await job_repository.update_job_status_ordered(
+                    job, include_output_files=False
+                )
+            except ApiException as fallback_ex:
+                if fallback_ex.status == HTTPStatus.CONFLICT:
+                    # The job already reached a terminal state through
+                    # another path (e.g. cancelled by the user). Not an
+                    # engine-side failure, so this is not raised to ERROR.
+                    logger.info(
+                        "fallback to failed status rejected; job already terminal",
+                        extra={"job_id": job.job_id, "job_type": job.job_type},
+                    )
+                else:
+                    logger.exception(
+                        "failed to fall back to failed status",
+                        extra={"job_id": job.job_id, "job_type": job.job_type},
+                    )
+            except Exception:
+                logger.exception(
+                    "failed to fall back to failed status",
+                    extra={"job_id": job.job_id, "job_type": job.job_type},
+                )
         return StepResult()

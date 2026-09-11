@@ -1,3 +1,4 @@
+from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -10,6 +11,7 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     JobsJobInfoUploadPresignedURL,
     JobsJobInfoUploadPresignedURLFields,
 )
+from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
 from oqtopus_engine_core.repositories.oqtopus_cloud_job_repository import (
     OqtopusCloudJobRepository,
 )
@@ -52,7 +54,7 @@ async def test_post_process_uses_configured_sse_log_filename() -> None:
         },
         job_repository=SimpleNamespace(
             upload_job_outputs=AsyncMock(),
-            update_job_status_nowait=AsyncMock(),
+            update_job_status_ordered=AsyncMock(),
         ),
     )
 
@@ -100,7 +102,7 @@ async def test_post_process_uploads_to_file_urls(tmp_path: Path) -> None:
         200,
         {},
     )
-    repository.update_job_status_nowait = AsyncMock()  # type: ignore[method-assign]
+    repository.update_job_status_ordered = AsyncMock()  # type: ignore[method-assign]
     gctx = SimpleNamespace(
         config={
             "di_container": {
@@ -123,3 +125,104 @@ async def test_post_process_uploads_to_file_urls(tmp_path: Path) -> None:
         assert archive.read("result.json")
     with ZipFile(log_path) as archive:
         assert archive.read("sse.log") == job.sse_log.encode()
+
+
+def _make_gctx(job_repository: SimpleNamespace) -> SimpleNamespace:
+    return SimpleNamespace(
+        config={"di_container": {"registry": {}}},
+        job_repository=job_repository,
+    )
+
+
+@pytest.mark.asyncio
+async def test_post_process_falls_back_to_failed_status_on_update_failure() -> None:
+    """If reporting 'succeeded' fails, the step must fall back to 'failed'."""
+    step = JobRepositoryUpdateStep()
+    job = _make_job()
+    statuses_when_called: list[str] = []
+
+    async def fake_update(job_arg: Job, *, include_output_files: bool = True) -> None:
+        statuses_when_called.append(job_arg.status)
+        if len(statuses_when_called) == 1:
+            message = "succeeded update failed"
+            raise RuntimeError(message)
+
+    update_mock = AsyncMock(side_effect=fake_update)
+    gctx = _make_gctx(
+        SimpleNamespace(
+            upload_job_outputs=AsyncMock(),
+            update_job_status_ordered=update_mock,
+        )
+    )
+
+    await step.post_process(gctx, JobContext(), job)
+
+    assert statuses_when_called == ["succeeded", "failed"]
+    assert job.status == "failed"
+    assert "engine could not report succeeded status" in (job.message or "")
+    assert update_mock.await_count == 2
+    _, second_kwargs = update_mock.await_args_list[1]
+    assert second_kwargs.get("include_output_files") is False
+
+
+@pytest.mark.asyncio
+async def test_post_process_logs_when_fallback_to_failed_also_fails(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """If both the 'succeeded' and the fallback 'failed' update fail, log it."""
+    step = JobRepositoryUpdateStep()
+    job = _make_job()
+    update_mock = AsyncMock(side_effect=RuntimeError("still failing"))
+    gctx = _make_gctx(
+        SimpleNamespace(
+            upload_job_outputs=AsyncMock(),
+            update_job_status_ordered=update_mock,
+        )
+    )
+
+    with caplog.at_level("ERROR"):
+        await step.post_process(gctx, JobContext(), job)
+
+    assert update_mock.await_count == 2
+    assert any(
+        "failed to fall back to failed status" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_post_process_fallback_conflict_is_not_logged_as_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A 409 on the fallback PATCH means the job is already terminal elsewhere.
+
+    This is expected (not an engine-side failure), so it must not be logged
+    at ERROR level.
+    """
+    step = JobRepositoryUpdateStep()
+    job = _make_job()
+    conflict = ApiException(status=HTTPStatus.CONFLICT, reason="Conflict")
+    update_mock = AsyncMock(
+        side_effect=[RuntimeError("succeeded update failed"), conflict]
+    )
+    gctx = _make_gctx(
+        SimpleNamespace(
+            upload_job_outputs=AsyncMock(),
+            update_job_status_ordered=update_mock,
+        )
+    )
+
+    with caplog.at_level("INFO"):
+        await step.post_process(gctx, JobContext(), job)
+
+    assert update_mock.await_count == 2
+    error_records = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert not any(
+        "failed to fall back to failed status" in r.getMessage()
+        for r in error_records
+    )
+    assert any(
+        "fallback to failed status rejected" in r.getMessage()
+        and r.levelname == "INFO"
+        for r in caplog.records
+    )
