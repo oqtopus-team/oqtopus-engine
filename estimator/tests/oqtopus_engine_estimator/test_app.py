@@ -10,7 +10,6 @@ import grpc  # type: ignore[import-untyped]
 import numpy as np
 import pytest
 from qiskit import qasm3  # type: ignore[import-untyped]
-from qiskit.circuit import QuantumCircuit  # type: ignore[import-untyped]
 from qiskit.circuit.random import random_circuit  # type: ignore[import-untyped]
 from qiskit.primitives import StatevectorSampler  # type: ignore[import-untyped]
 from qiskit.providers.fake_provider import (  # type: ignore[import-untyped]
@@ -244,9 +243,7 @@ def test_random_circuits_with_random_op(estimator):
     mapping_list = [0, 1, 2, 3]
 
     for i in range(1):
-        circuit: QuantumCircuit = random_circuit(
-            num_qubits=num_qubits, depth=10, seed=i
-        ).decompose()
+        circuit = random_circuit(num_qubits=num_qubits, depth=10, seed=i).decompose()
 
         op = random_hermitian(dims=2**num_qubits, seed=i)
         observable = SparsePauliOp.from_operator(op)
@@ -289,9 +286,7 @@ def test_random_circuits_with_transpiler(estimator):
     backend = GenericBackendV2(num_qubits=10, basis_gates=basis_gates)
 
     for i in range(1):
-        circuit: QuantumCircuit = random_circuit(
-            num_qubits=num_qubits, depth=10, seed=i
-        )
+        circuit = random_circuit(num_qubits=num_qubits, depth=10, seed=i)
         pm = generate_preset_pass_manager(optimization_level=2, backend=backend)
         transpiled_qc = pm.run(circuit)
         layout = transpiled_qc.layout
