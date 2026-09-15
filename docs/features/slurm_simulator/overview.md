@@ -14,7 +14,8 @@ The direct SLURM path is designed to:
   Device Gateway protocol for scheduler operations
 - keep partition, account, QoS, executable paths, and resource limits under
   administrator control
-- convert transpiled OpenQASM 3 into a versioned, data-only worker request
+- convert input OpenQASM 3, or a program supplied by an optional transpilation
+  step, into a versioned, data-only worker request
   instead of generating executable Python or shell source from job input
 - prevent duplicate allocations across Core crashes and uncertain `sbatch`
   responses
@@ -28,7 +29,7 @@ The direct SLURM path is designed to:
 | OQTOPUS Cloud | Owns job input, user-visible status, cancellation requests, and result storage through the existing Job fields. |
 | Core `ConfiguredDeviceFetcher` | Publishes configured simulator metadata and marks the device available only while SLURM health checks succeed. |
 | Core `SlurmJobFetcher` | Claims new jobs, rejects unsupported requests, and restores execution-owned jobs after restart. |
-| Tranqu Server | Transpiles sampling and estimation circuits for the configured simulator topology. |
+| Optional Tranqu Server | Transpiles circuits only when a custom pipeline includes `TranquStep`. |
 | Core `SlurmSimulatorStep` | Validates options, builds the worker request, submits or reattaches an allocation, polls status, and restores the result. |
 | Core `SlurmClient` | Executes `sinfo`, `sbatch`, `squeue`, `sacct`, and `scancel` without invoking a shell. |
 | Cloud Provider Job API | Uses the existing job GET, list, and status PATCH operations without SLURM-specific columns or endpoints. |
@@ -45,7 +46,6 @@ sequenceDiagram
     autonumber
     participant Cloud as OQTOPUS Cloud
     participant Core as Core Pipeline
-    participant Tranqu as Tranqu Server
     participant Slurm as SLURM Controller
     participant Worker as MPI-Qulacs Worker
 
@@ -53,8 +53,6 @@ sequenceDiagram
     Cloud-->>Core: Job metadata
     Core->>Cloud: Claim job and advance lifecycle to running
     Core->>Core: Download and validate input archive
-    Core->>Tranqu: Transpile OpenQASM 3
-    Tranqu-->>Core: Transpiled program and qubit mapping
     Core->>Core: Validate options and atomically persist request artifact
     Core->>Slurm: sbatch with fixed launcher and deterministic job name
     Slurm-->>Core: Numeric allocation ID
@@ -84,6 +82,9 @@ sequenceDiagram
 
 Cloud uses `running` for both SLURM `PENDING` and `RUNNING`; this path does not
 add scheduler-specific states to the Cloud API.
+The default SLURM pipeline does not include `TranquStep` and parses the input
+OpenQASM directly. A custom pipeline can add `TranquStep` when transpilation is
+required.
 
 ## 4. Detailed Flow
 
@@ -92,7 +93,8 @@ add scheduler-specific states to the Cloud API.
 The simulator device is defined by Core configuration rather than Device
 Gateway discovery. `ConfiguredDeviceFetcher` supplies the device ID, qubit
 count, basis gates, instructions, description, and complete device information
-used by Tranqu. The corresponding Cloud device row must already exist. Core
+used by the SLURM pipeline and, when configured, Tranqu. The corresponding Cloud
+device row must already exist. Core
 updates its qubit count and availability but does not create the row or upload a
 Device Gateway calibration archive.
 
@@ -102,19 +104,22 @@ update before scheduling pipeline work. The existing job `device_id` identifies
 the runtime that owns recovery. Jobs outside `sampling` and `estimation`, and
 jobs with an enabled mitigation method, are rejected before execution.
 
-### 4.2 Transpilation and Worker Request
+### 4.2 Input Conversion and Worker Request
 
-Both supported job types pass through Tranqu. Core parses the transpiled
-OpenQASM 3 and converts only allowlisted static operations into a versioned JSON
-request. It rejects unsupported operations before submitting an allocation.
+By default, neither supported job type passes through Tranqu. Core parses the
+input OpenQASM 3 and converts only allowlisted static operations into a
+versioned JSON request. It rejects unsupported operations before submitting an
+allocation. If a custom pipeline adds `TranquStep`, Core uses its transpiled
+program and qubit mapping when building the request.
 
 For sampling, the request contains the shot count, optional seed, gate list,
 and terminal measurement mapping. Every declared classical bit must be measured
 exactly once so that result bit-string width is unambiguous.
 
 For estimation, the request contains no measurements or shot count. Core maps
-each observable from logical to physical qubit indices using Tranqu's qubit
-mapping and includes the resulting Pauli terms in the worker request.
+each observable using the persisted Tranqu qubit mapping when one is available;
+otherwise it uses the identity mapping. It includes the resulting Pauli terms in
+the worker request.
 
 The canonical worker request and resolved scheduler resources form a SHA-256
 request identity. Core persists the request under `SLURM_WORK_ROOT` and
@@ -232,16 +237,13 @@ API input:
     "timeout_seconds": 300
   },
   "transpiler_info": {
-    "transpiler_lib": "qiskit",
-    "transpiler_options": {
-      "optimization_level": 1
-    }
+    "transpiler_lib": null
   }
 }
 ```
 
-Tranqu transpiles the API program first. Core maps the resulting gate
-operations to `QuantumCircuit` and the Pauli terms to
+The default SLURM pipeline consumes the uploaded OpenQASM directly. Core maps
+the gate operations to `QuantumCircuit` and the Pauli terms to
 `GeneralQuantumOperator`; estimation does not use a `shots` field.
 
 ```python
@@ -434,7 +436,7 @@ The `simulator_info` object uses strict snake_case fields:
 | Field | Meaning |
 | --- | --- |
 | `backend` | Must be `mpi-qulacs`. |
-| `n_nodes` | Requested node count; when omitted, Core derives the minimum from the transpiled qubit count. |
+| `n_nodes` | Requested node count; when omitted, Core derives the minimum from the input or transpiled qubit count. |
 | `n_per_node` | MPI process count reserved and started per node. |
 | `seed_simulation` | Optional deterministic simulation seed. |
 | `timeout_seconds` | SLURM allocation time limit in seconds. |
@@ -458,7 +460,8 @@ limit violations fail validation before submission.
 
 - Core runs as one process on a SLURM login node.
 - `sinfo`, `sbatch`, `squeue`, `sacct`, and `scancel` are available to Core.
-- Tranqu Server and OQTOPUS Cloud are reachable from the login node.
+- OQTOPUS Cloud is reachable from the login node. A Tranqu Server is required
+  only when a custom pipeline enables `TranquStep`.
 - The batch script, worker script, and per-job work root are visible at the
   same absolute paths on login and compute nodes.
 - Compute nodes provide Python 3, `mpi4py`, and an MPI-enabled Qulacs build.
@@ -503,7 +506,7 @@ Set these required environment variables:
 | --- | --- |
 | `SLURM_PARTITION` | Partition used for health checks and submissions |
 | `SLURM_DEVICE_N_QUBITS` | Maximum logical qubit count advertised to Cloud |
-| `SLURM_DEVICE_INFO` | Complete OQTOPUS device JSON consumed by Tranqu |
+| `SLURM_DEVICE_INFO` | Complete OQTOPUS device JSON used by the simulator and optional Tranqu step |
 | `SLURM_WORK_ROOT` | Shared, durable per-job work directory |
 | `SLURM_BATCH_SCRIPT` | Shared path to `run_qulacs_mpi_job.sh` |
 | `SLURM_WORKER_SCRIPT` | Shared path to `run_qulacs_mpi.py` |

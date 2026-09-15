@@ -9,7 +9,6 @@ pipeline_manager:
       if: job.job_type == "sampling" || job.job_type == "estimation"
       steps:
         - simulator_lifecycle_step
-        - tranqu_step
         - estimator_step
         - buffer
         - slurm_simulator_step

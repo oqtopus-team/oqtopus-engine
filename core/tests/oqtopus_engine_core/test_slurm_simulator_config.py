@@ -34,7 +34,6 @@ def test_slurm_config_wires_shared_runtime_components(monkeypatch):
     assert pipeline.job_buffer is container.get("buffer")
     assert config["pipeline_manager"]["pipelines"][0]["steps"] == [
         "simulator_lifecycle_step",
-        "tranqu_step",
         "estimator_step",
         "buffer",
         "slurm_simulator_step",
