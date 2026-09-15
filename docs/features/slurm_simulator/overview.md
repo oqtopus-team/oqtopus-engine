@@ -537,6 +537,12 @@ Structured logs identify the Cloud job, SLURM allocation, normalized state,
 recovery reason, and cancellation reason without logging program or operator
 content.
 
+At DEBUG level, the submission path also records the sanitized `sbatch` command,
+the configured batch and worker script contents, and the resulting allocation
+ID. Script output is size-limited and secret-like assignment values are replaced
+with `<redacted>`. The input QASM and Qulacs `request.json` contents are not
+written to the Engine log; they remain in the per-job work directory.
+
 When monitoring is enabled, Core emits OpenTelemetry metrics under the
 `oqtopus.slurm.*` namespace for:
 

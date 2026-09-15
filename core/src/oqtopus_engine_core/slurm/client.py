@@ -1,5 +1,7 @@
 import asyncio
+import logging
 import re
+import shlex
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -18,6 +20,48 @@ _CONTROLLER_FAILURE = "Unable to contact slurm controller"
 _SQUEUE_FIELD_COUNT = 3
 _SACCT_FIELD_COUNT = 4
 _RECONCILIATION_FIELD_COUNT = 2
+_MAX_DEBUG_SCRIPT_CHARS = 65536
+_SECRET_KEY_PATTERN = re.compile(
+    r"(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)",
+    re.IGNORECASE,
+)
+_ASSIGNMENT_PATTERN = re.compile(
+    r"(?P<key>[A-Za-z_][A-Za-z0-9_]*)(?P<separator>\s*=\s*)"
+    r"(?P<quote>['\"]?)(?P<value>.*?)(?P=quote)(?=\s|$|[;#])",
+    re.MULTILINE,
+)
+_SENSITIVE_OPTION_PATTERN = re.compile(
+    r"(?P<prefix>--?(?:password|passwd|secret|token|api[_-]?key|"
+    r"access[_-]?key|private[_-]?key)=)(?P<value>[^\s]+)",
+    re.IGNORECASE,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _redact_debug_text(content: str) -> str:
+    def redact_assignment(match: re.Match[str]) -> str:
+        key = match.group("key")
+        if not _SECRET_KEY_PATTERN.search(key):
+            return match.group(0)
+        return (
+            f"{key}{match.group('separator')}"
+            f"{match.group('quote')}<redacted>{match.group('quote')}"
+        )
+
+    content = _ASSIGNMENT_PATTERN.sub(redact_assignment, content)
+    return _SENSITIVE_OPTION_PATTERN.sub(r"\g<prefix><redacted>", content)
+
+
+def _read_debug_script(path: Path) -> str:
+    try:
+        with path.open(encoding="utf-8") as stream:
+            content = stream.read(_MAX_DEBUG_SCRIPT_CHARS + 1)
+    except OSError as exc:
+        return f"<unavailable: {type(exc).__name__}>"
+    if len(content) > _MAX_DEBUG_SCRIPT_CHARS:
+        content = content[:_MAX_DEBUG_SCRIPT_CHARS] + "\n<truncated>"
+    return _redact_debug_text(content)
 
 
 class SlurmCommandError(RuntimeError):
@@ -120,6 +164,16 @@ class SlurmClient:
         if self._qos is not None:
             argv.append(f"--qos={self._qos}")
         argv.extend((str(batch_script), str(worker_script)))
+        logger.debug(
+            "SLURM submission command prepared",
+            extra={
+                "slurm_command": shlex.join(
+                    _redact_debug_text(argument) for argument in argv
+                ),
+                "batch_script_content": _read_debug_script(batch_script),
+                "worker_script_content": _read_debug_script(worker_script),
+            },
+        )
 
         try:
             result = await self._run(tuple(argv), retry_controller=False)
@@ -130,6 +184,13 @@ class SlurmClient:
                 "sbatch result is uncertain; reconcile by job name before retrying"
             )
             raise SlurmSubmissionUncertainError(message) from exc
+        logger.debug(
+            "SLURM allocation submitted",
+            extra={
+                "slurm_job_id": job_id,
+                "slurm_job_name": job_name,
+            },
+        )
         slurm_submission_counter.add(1)
         return job_id
 

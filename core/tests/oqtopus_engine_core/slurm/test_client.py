@@ -1,13 +1,15 @@
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from oqtopus_engine_core.slurm import (
     CommandResult,
+    SchedulerState,
     SlurmClient,
     SlurmReconciliationAmbiguousError,
-    SchedulerState,
     SlurmSubmissionUncertainError,
 )
 
@@ -64,6 +66,56 @@ async def test_submit_uses_fixed_script_and_parses_job_id():
         "/opt/oqtopus/run.sh",
         "/opt/oqtopus/run_qulacs_mpi.py",
     )]
+
+
+@pytest.mark.asyncio
+async def test_submit_logs_command_and_redacted_script_contents(
+    caplog: Any,
+    tmp_path: Path,
+) -> None:
+    batch_script = tmp_path / "run.sh"
+    batch_script.write_text(
+        "#!/bin/sh\necho safe\nexport API_TOKEN=do-not-log\n",
+        encoding="utf-8",
+    )
+    worker_script = tmp_path / "worker.py"
+    worker_script.write_text(
+        'TOKEN = "also-do-not-log"\nprint("worker")\n',
+        encoding="utf-8",
+    )
+    runner = StubRunner([command_result("12345")])
+    client = SlurmClient(
+        runner,
+        partition="test-partition",
+        account="test-account",
+        qos="test-qos",
+    )
+    caplog.set_level(logging.DEBUG, logger="oqtopus_engine_core.slurm.client")
+
+    await client.submit(
+        job_name="oqtopus-abcd",
+        comment="oqtopus:abcd:1234",
+        work_dir=tmp_path,
+        batch_script=batch_script,
+        worker_script=worker_script,
+        nodes=1,
+        tasks_per_node=2,
+        timeout_seconds=90,
+    )
+
+    record = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "SLURM submission command prepared"
+    )
+    assert "sbatch" in record.slurm_command
+    assert "--nodes=1" in record.slurm_command
+    assert "safe" in record.batch_script_content
+    assert "worker" in record.worker_script_content
+    assert "do-not-log" not in record.batch_script_content
+    assert "also-do-not-log" not in record.worker_script_content
+    assert "<redacted>" in record.batch_script_content
+    assert "<redacted>" in record.worker_script_content
 
 
 @pytest.mark.asyncio
