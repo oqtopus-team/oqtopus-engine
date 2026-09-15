@@ -20,10 +20,10 @@ grpc_options: &grpc_options
 di_container:
   registry:
     command_runner:
-      _target_: oqtopus_engine_core.slurm.CommandRunner
+      _target_: oqtopus_engine_core.simulator.scheduler.slurm.CommandRunner
 
     slurm_client:
-      _target_: oqtopus_engine_core.slurm.SlurmClient
+      _target_: oqtopus_engine_core.simulator.scheduler.slurm.SlurmClient
       runner: "@command_runner"
       partition: ${SLURM_PARTITION}
       account: ${SLURM_ACCOUNT, null}
@@ -34,7 +34,7 @@ di_container:
       reconciliation_lookback_seconds: ${SLURM_RECONCILIATION_LOOKBACK_SECONDS, 86400}
 
     execution_repository:
-      _target_: oqtopus_engine_core.slurm.OqtopusCloudExecutionRepository
+      _target_: oqtopus_engine_core.simulator.execution.OqtopusCloudExecutionRepository
       url: ${JOB_REPOSITORY_URL, "http://localhost:8888"}
       api_key: ${JOB_REPOSITORY_API_KEY, ""}
       workers: ${JOB_REPOSITORY_WORKERS, 10}
@@ -43,7 +43,7 @@ di_container:
       work_root: ${SLURM_WORK_ROOT}
 
     process_lock:
-      _target_: oqtopus_engine_core.slurm.SingleProcessLock
+      _target_: oqtopus_engine_core.simulator.execution.SingleProcessLock
       path: ${SLURM_PROCESS_LOCK_PATH, "~/.local/state/oqtopus-engine/slurm/engine.lock"}
 
     job_fetcher:

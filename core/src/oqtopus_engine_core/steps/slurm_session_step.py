@@ -9,12 +9,12 @@ from oqtopus_engine_core.framework import (
     Step,
     StepResult,
 )
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator import (
     ExecutionRecord,
-    ExecutionState,
-    LocalExecutionRepository,
     ExecutionRepository,
+    ExecutionState,
     JobReader,
+    LocalExecutionRepository,
 )
 
 from .slurm_simulator_step import JobCancelledError

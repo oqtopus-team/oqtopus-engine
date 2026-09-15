@@ -2,7 +2,7 @@ import sys
 
 import pytest
 
-from oqtopus_engine_core.slurm import CommandRunner
+from oqtopus_engine_core.simulator import CommandRunner
 
 
 @pytest.mark.asyncio

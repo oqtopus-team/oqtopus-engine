@@ -2,7 +2,7 @@ from datetime import datetime
 
 from opentelemetry import metrics
 
-from .models import ExecutionState
+from oqtopus_engine_core.simulator.execution.models import ExecutionState
 
 _meter = metrics.get_meter(__name__)
 

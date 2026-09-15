@@ -6,10 +6,12 @@ from oqtopus_engine_core.framework import (
     JobContext,
     PipelineExceptionHandler,
 )
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator.execution import (
     ExecutionRepository,
     ExecutionState,
     JobReader,
+)
+from oqtopus_engine_core.simulator.scheduler.slurm import (
     SlurmSubmissionUncertainError,
 )
 from oqtopus_engine_core.steps.slurm_simulator_step import (

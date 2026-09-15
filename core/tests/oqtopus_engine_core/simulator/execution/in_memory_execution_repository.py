@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from oqtopus_engine_core.slurm import ExecutionRecord, ExecutionState
+from oqtopus_engine_core.simulator import ExecutionRecord, ExecutionState
 
 # ruff: noqa: ASYNC240, PLR0913
 

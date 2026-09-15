@@ -8,13 +8,13 @@ from oqtopus_engine_core.framework import (
     SamplingResult,
 )
 from oqtopus_engine_core.repositories import NullJobRepository
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator import (
     ExecutionState,
     LocalSlurmExecutionRepository,
 )
 from oqtopus_engine_core.steps import SlurmSessionStep
 
-from ..slurm.in_memory_execution_repository import (
+from ..simulator.execution.in_memory_execution_repository import (
     InMemorySlurmExecutionRepository as SlurmExecutionRepository,
 )
 

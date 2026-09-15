@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator import (
     SlurmSimulatorOptions,
     SchedulerState,
     normalize_slurm_state,

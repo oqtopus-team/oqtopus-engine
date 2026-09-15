@@ -1,42 +1,7 @@
-from dataclasses import dataclass
-from enum import StrEnum
 from typing import Literal
 
 # ruff: noqa: DOC201, DOC501
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class SchedulerState(StrEnum):
-    """Engine-facing scheduler state categories."""
-
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    FAILED = "failed"
-    UNKNOWN = "unknown"
-
-
-@dataclass(frozen=True, slots=True)
-class SchedulerJobStatus:
-    """Normalized status for one scheduler allocation."""
-
-    job_id: str
-    state: SchedulerState
-    raw_state: str
-    exit_code: str | None = None
-    reason: str | None = None
-
-
-class ExecutionState(StrEnum):
-    """Durable lifecycle states for one Cloud-to-SLURM execution."""
-
-    READY = "ready"
-    RUNNING = "running"
-    RESULT_READY = "result_ready"
-    CANCELLED = "cancelled"
-    FAILED = "failed"
-    SUCCEEDED = "succeeded"
 
 
 class SlurmSimulatorOptions(BaseModel):
@@ -133,49 +98,3 @@ class QulacsExecutionResult(BaseModel):
     counts: dict[str, int] | None = None
     exp_value: list[float] | None = None
     duration_seconds: float = Field(ge=0)
-
-
-_PENDING_STATES = {
-    "CONFIGURING",
-    "PENDING",
-    "REQUEUED",
-    "REQUEUE_FED",
-    "REQUEUE_HOLD",
-    "RESV_DEL_HOLD",
-}
-_RUNNING_STATES = {
-    "COMPLETING",
-    "RESIZING",
-    "RUNNING",
-    "SIGNALING",
-    "STAGE_OUT",
-    "STOPPED",
-    "SUSPENDED",
-}
-_FAILED_STATES = {
-    "BOOT_FAIL",
-    "DEADLINE",
-    "FAILED",
-    "NODE_FAIL",
-    "OUT_OF_MEMORY",
-    "PREEMPTED",
-    "REVOKED",
-    "SPECIAL_EXIT",
-    "TIMEOUT",
-}
-
-
-def normalize_slurm_state(raw_state: str) -> SchedulerState:
-    """Map a SLURM state label to a stable engine-facing category."""
-    state = raw_state.strip().upper().rstrip("+")
-    if state.startswith("CANCELLED"):
-        return SchedulerState.CANCELLED
-    if state in _PENDING_STATES:
-        return SchedulerState.PENDING
-    if state in _RUNNING_STATES:
-        return SchedulerState.RUNNING
-    if state == "COMPLETED":
-        return SchedulerState.COMPLETED
-    if state in _FAILED_STATES:
-        return SchedulerState.FAILED
-    return SchedulerState.UNKNOWN

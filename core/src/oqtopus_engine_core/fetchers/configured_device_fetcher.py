@@ -5,7 +5,8 @@ from typing import Any
 
 # ruff: noqa: DOC501
 from oqtopus_engine_core.framework import Device, DeviceFetcher
-from oqtopus_engine_core.slurm import SingleProcessLock, SlurmClient
+from oqtopus_engine_core.simulator.execution import SingleProcessLock
+from oqtopus_engine_core.simulator.scheduler.slurm import SlurmClient
 
 logger = logging.getLogger(__name__)
 

@@ -1,6 +1,6 @@
 import pytest
 
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator import (
     OperatorTerm,
     QulacsExecutionRequest,
     read_worker_result,

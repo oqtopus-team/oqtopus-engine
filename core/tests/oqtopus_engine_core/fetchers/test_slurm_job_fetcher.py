@@ -6,12 +6,12 @@ import pytest
 from oqtopus_engine_core.fetchers import SlurmJobFetcher
 from oqtopus_engine_core.framework import Device, GlobalContext, Job
 from oqtopus_engine_core.repositories import NullJobRepository
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator import (
     ExecutionState,
     SchedulerJobStatus,
     SchedulerState,
 )
-from ..slurm.in_memory_execution_repository import (
+from ..simulator.execution.in_memory_execution_repository import (
     InMemoryExecutionRepository as ExecutionRepository,
 )
 

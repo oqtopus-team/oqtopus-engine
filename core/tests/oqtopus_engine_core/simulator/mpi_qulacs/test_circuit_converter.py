@@ -1,7 +1,7 @@
 import pytest
 
 from oqtopus_engine_core.framework import Job, OperatorItem, TranspileResult
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator import (
     SlurmSimulatorOptions,
     build_execution_request,
     convert_transpiled_qasm,

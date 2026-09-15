@@ -20,10 +20,12 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
     JobsJobStatusUpdateResponse,
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
+from oqtopus_engine_core.simulator.scheduler.slurm.observability import (
+    record_execution_state_transition,
+)
 
 from .execution_repository import ExecutionRecord, ExecutionRepository
 from .models import ExecutionState
-from .observability import record_execution_state_transition
 
 # ruff: noqa: DOC201, DOC501
 T = TypeVar("T")

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from oqtopus_engine_core.slurm import SingleProcessLock
+from oqtopus_engine_core.simulator import SingleProcessLock
 
 
 def test_single_process_lock_rejects_second_owner(tmp_path: Path) -> None:

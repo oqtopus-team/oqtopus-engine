@@ -10,7 +10,7 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
     JobsJobStatusUpdateResponse,
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator import (
     ExecutionState,
     OqtopusCloudExecutionRepository,
 )

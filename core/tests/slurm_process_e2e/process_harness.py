@@ -19,7 +19,7 @@ from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
 )
 from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
 from oqtopus_engine_core.repositories import NullJobRepository
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator import (
     OqtopusCloudExecutionRepository,
     SingleProcessLock,
     SlurmClient,

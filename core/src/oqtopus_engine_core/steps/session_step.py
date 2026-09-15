@@ -9,7 +9,7 @@ from oqtopus_engine_core.framework import (
     Step,
     StepResult,
 )
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator.execution import (
     ExecutionRecord,
     ExecutionRepository,
     ExecutionState,

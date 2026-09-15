@@ -6,15 +6,17 @@ from pathlib import Path
 # ruff: noqa: DOC201, DOC501
 from oqtopus_engine_core.framework import Job, JobContext
 from oqtopus_engine_core.framework.job_fetcher import wait_until_fetchable
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator.execution import (
     ExecutionRecord,
     ExecutionRepository,
     ExecutionState,
     JobReader,
-    SchedulerState,
-    SlurmClient,
 )
-from oqtopus_engine_core.slurm.observability import slurm_recovery_counter
+from oqtopus_engine_core.simulator.scheduler import SchedulerState
+from oqtopus_engine_core.simulator.scheduler.slurm import SlurmClient
+from oqtopus_engine_core.simulator.scheduler.slurm.observability import (
+    slurm_recovery_counter,
+)
 
 from .repository_job_fetcher import RepositoryJobFetcher
 

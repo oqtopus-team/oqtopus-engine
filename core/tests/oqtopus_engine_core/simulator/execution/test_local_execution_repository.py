@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from oqtopus_engine_core.slurm import ExecutionState, LocalExecutionRepository
+from oqtopus_engine_core.simulator import ExecutionState, LocalExecutionRepository
 
 
 @pytest.mark.asyncio

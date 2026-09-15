@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from oqtopus_engine_core.slurm import (
+from oqtopus_engine_core.simulator import (
     CommandResult,
     SchedulerState,
     SlurmClient,
@@ -90,7 +90,10 @@ async def test_submit_logs_command_and_redacted_script_contents(
         account="test-account",
         qos="test-qos",
     )
-    caplog.set_level(logging.DEBUG, logger="oqtopus_engine_core.slurm.client")
+    caplog.set_level(
+        logging.DEBUG,
+        logger="oqtopus_engine_core.simulator.scheduler.slurm.client",
+    )
 
     await client.submit(
         job_name="oqtopus-abcd",

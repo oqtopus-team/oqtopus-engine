@@ -3,12 +3,12 @@ import pytest
 from oqtopus_engine_core.framework import GlobalContext, Job, JobContext
 from oqtopus_engine_core.handlers import SlurmPipelineExceptionHandler
 from oqtopus_engine_core.repositories import NullJobRepository
-from oqtopus_engine_core.slurm import ExecutionState
+from oqtopus_engine_core.simulator import ExecutionState
 from oqtopus_engine_core.steps import (
     SlurmCancellationPendingError,
     JobCancelledError,
 )
-from ..slurm.in_memory_execution_repository import (
+from ..simulator.execution.in_memory_execution_repository import (
     InMemoryExecutionRepository as ExecutionRepository,
 )
 

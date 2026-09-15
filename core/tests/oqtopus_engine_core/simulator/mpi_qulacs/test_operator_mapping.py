@@ -1,7 +1,7 @@
 import pytest
 
 from oqtopus_engine_core.framework import OperatorItem
-from oqtopus_engine_core.slurm import map_operator_items, normalize_qubit_mapping
+from oqtopus_engine_core.simulator import map_operator_items, normalize_qubit_mapping
 
 
 def test_map_operator_items_uses_logical_to_physical_mapping():

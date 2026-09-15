@@ -6,8 +6,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # ruff: noqa: DOC201, DOC501
+from oqtopus_engine_core.simulator.scheduler.models import SchedulerJobStatus
+from oqtopus_engine_core.simulator.scheduler.slurm.state import normalize_slurm_state
+
 from .command_runner import CommandResult, CommandRunner
-from .models import SchedulerJobStatus, normalize_slurm_state
 from .observability import (
     slurm_cancellation_counter,
     slurm_command_error_counter,
