@@ -136,7 +136,138 @@ classical-bit mapping. Direct estimation constructs a
 `GeneralQuantumOperator` and evaluates its expectation value inside the MPI
 allocation. Only rank 0 writes the result, using `fsync` and an atomic rename.
 
-### 4.4 Result Finalization
+### 4.4 MPI-Qulacs Program Examples
+
+Core converts the input circuit into Qulacs gate operations before the worker
+starts. The following snippets show the corresponding MPI-Qulacs programs.
+`use_multi_cpu=True` enables the distributed state vector, and rank 0 writes
+the result artifact.
+
+#### Sampling
+
+The input circuit applies a CNOT to the initial `|00>` state and measures both
+qubits. The Qulacs worker executes the equivalent circuit and samples 1000
+shots.
+
+API input:
+
+```json
+{
+  "job_type": "sampling",
+  "job_info": {
+    "program": [
+      "OPENQASM 3;\ninclude \"stdgates.inc\";\nqubit[2] q;\nbit[2] c;\ncx q[0], q[1];\nc = measure q;\n"
+    ]
+  },
+  "shots": 1000,
+  "simulator_info": {
+    "backend": "mpi-qulacs",
+    "n_nodes": 2,
+    "n_per_node": 2,
+    "seed_simulation": 7,
+    "timeout_seconds": 300
+  },
+  "transpiler_info": {
+    "transpiler_lib": null
+  }
+}
+```
+
+Core converts the uploaded OpenQASM directly in this case. `shots` and
+`seed_simulation` become the arguments used by `state.sampling()`, while the
+node and timeout settings are used by SLURM to reserve the MPI allocation.
+
+```python
+from collections import Counter
+
+from mpi4py import MPI
+from qulacs import QuantumCircuit, QuantumState
+
+shots = 1000
+circuit = QuantumCircuit(2)
+circuit.add_CNOT_gate(0, 1)
+
+state = QuantumState(2, use_multi_cpu=True)
+circuit.update_quantum_state(state)
+
+counts = Counter()
+for sample in state.sampling(shots, 7):
+  bitstring = "".join(str((sample >> qubit) & 1) for qubit in (1, 0))
+  counts[bitstring] += 1
+
+if MPI.COMM_WORLD.Get_rank() == 0:
+  print({"counts": dict(counts)})
+```
+
+The output is deterministic for this circuit:
+
+```json
+{"counts": {"00": 1000}}
+```
+
+#### Estimation
+
+The input circuit prepares the Bell state and evaluates
+$1.5(X_0X_1)+1.2(Y_0Z_1)$. The Qulacs worker constructs the same operator and
+evaluates its expectation value inside the MPI allocation.
+
+API input:
+
+```json
+{
+  "job_type": "estimation",
+  "job_info": {
+    "program": [
+      "OPENQASM 3;\ninclude \"stdgates.inc\";\nqubit[2] q;\nh q[0];\ncx q[0], q[1];\n"
+    ],
+    "operator": [
+      {"pauli": "X 0 X 1", "coeff": 1.5},
+      {"pauli": "Y 0 Z 1", "coeff": 1.2}
+    ]
+  },
+  "simulator_info": {
+    "backend": "mpi-qulacs",
+    "n_nodes": 2,
+    "n_per_node": 2,
+    "timeout_seconds": 300
+  },
+  "transpiler_info": {
+    "transpiler_lib": "qiskit",
+    "transpiler_options": {
+      "optimization_level": 1
+    }
+  }
+}
+```
+
+Tranqu transpiles the API program first. Core maps the resulting gate
+operations to `QuantumCircuit` and the Pauli terms to
+`GeneralQuantumOperator`; estimation does not use a `shots` field.
+
+```python
+from mpi4py import MPI
+from qulacs import GeneralQuantumOperator, QuantumCircuit, QuantumState
+
+circuit = QuantumCircuit(2)
+circuit.add_H_gate(0)
+circuit.add_CNOT_gate(0, 1)
+
+state = QuantumState(2, use_multi_cpu=True)
+circuit.update_quantum_state(state)
+
+operator = GeneralQuantumOperator(2)
+operator.add_operator(1.5, "X 0 X 1")
+operator.add_operator(1.2, "Y 0 Z 1")
+exp_value = operator.get_expectation_value(state)
+
+if MPI.COMM_WORLD.Get_rank() == 0:
+  print({"exp_value": [exp_value.real, exp_value.imag]})
+```
+
+The worker output is approximately `{"exp_value": [1.5, 0.0]}`. Core
+publishes the real component as `exp_value: 1.5` with `stds: 0.0`.
+
+### 4.5 Result Finalization
 
 Core validates the worker result before updating the job:
 
