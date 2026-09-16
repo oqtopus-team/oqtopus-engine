@@ -62,7 +62,7 @@ sequenceDiagram
   Submitter->>Cloud: Claim job and advance lifecycle to running
   Submitter->>Submitter: Download and validate input archive
   Submitter->>Submitter: Validate options and persist request artifact
-  Submitter->>Slurm: sbatch with fixed launcher and deterministic job name
+  Submitter->>Slurm: sbatch with configured launcher and deterministic job name
   Slurm-->>Submitter: Numeric allocation ID
   Submitter->>Submitter: Persist allocation ID and submit checkpoint
   Note over Submitter: Monitoring continues asynchronously after submission
@@ -72,7 +72,7 @@ sequenceDiagram
 
 After the submission checkpoint is persisted, the monitor worker operates
 independently of the synchronous submission phase. SLURM starts the MPI-Qulacs
-worker from the fixed batch launcher while the monitor observes both Cloud and
+worker from the configured batch launcher while the monitor observes both Cloud and
 SLURM state.
 
 ```mermaid
@@ -84,7 +84,7 @@ sequenceDiagram
   participant Worker as MPI-Qulacs Worker
   participant WorkDir as Per-job work directory
 
-  Slurm->>Worker: Start fixed launcher with srun MPI-Qulacs request
+  Slurm->>Worker: Start configured launcher with MPI-Qulacs request
 
   loop Until the allocation reaches a terminal state
     Monitor->>Cloud: Read Job status
@@ -159,9 +159,30 @@ Core invokes `sbatch --parsable` with the resolved node count, total MPI task
 count, tasks per node, time limit, and administrator-configured resources. The
 total MPI task count is `n_nodes * n_per_node`, so SLURM reserves the MPI
 topology when it creates the allocation. Job-controlled values are not inserted
-into shell source or passed as scheduler configuration. The launcher starts the
-fixed Python worker with `srun --ntasks-per-node=n_per_node`; the request and
-result paths are located in a shared per-job work directory.
+into shell source or passed as scheduler configuration. The configured batch
+script starts the worker with the request and result paths in the shared
+per-job work directory. Core does not select an MPI launcher: the deployment
+may use `srun`, `mpirun`, or a site-specific wrapper inside that script.
+
+The execution adapter contract is:
+
+- `SLURM_BATCH_SCRIPT` points to an executable visible at the same absolute
+  path from the login node and every compute node. SLURM invokes it with the
+  configured worker path as its only positional argument and with the per-job
+  work directory as its current directory.
+- `SLURM_WORKER_SCRIPT` points to the worker visible at the same absolute path.
+  The batch script must start it with `request.json` and `result.json` as its
+  two positional arguments, once for every MPI rank.
+- The adapter must start the requested `n_per_node` ranks per node within the
+  allocation already reserved by Core. It must not submit another SLURM job.
+- The worker constructs the state-vector simulation and rank 0 writes the
+  result artifact according to the worker protocol below.
+
+The repository's `core/slurm_resources/run_qulacs_mpi_job.sh` is a reference
+adapter using `srun`. Deployments may replace it with an adapter for their MPI
+implementation, CPU architecture, NUMA layout, or site wrapper without
+changing Core. Such deployment-specific adapters are not part of the Engine
+source tree.
 
 The worker constructs a Qulacs `QuantumCircuit` and a multi-CPU
 `QuantumState`. Sampling calls Qulacs state sampling and applies the persisted
@@ -355,7 +376,7 @@ with `stds` set to `0.0`.
 
 ## 5. Recovery and Cancellation
 
-The Cloud-visible states remain the same as the `develop` job state transition
+The Cloud-visible states remain the same as the job state transition
 diagram. `RESULT_READY` is a local derived condition represented by a
 `running` Cloud job with a validated atomic result artifact:
 
@@ -572,12 +593,19 @@ limit violations fail validation before submission.
 
 ## 7. Deployment Requirements
 
+For environment-specific setup, runtime construction, adapter selection, and
+customization guidance, see [SLURM MPI-Qulacs Deployment Guide](deployment.md).
+
 - Core runs as one process on a SLURM login node.
 - `sinfo`, `sbatch`, `squeue`, `sacct`, and `scancel` are available to Core.
 - OQTOPUS Cloud is reachable from the login node. A Tranqu Server is required
   only when a custom pipeline enables `TranquStep`.
-- The batch script, worker script, and per-job work root are visible at the
-  same absolute paths on login and compute nodes.
+- The configured batch adapter, worker script, and per-job work root are
+  visible at the same absolute paths on login and compute nodes.
+- The configured batch adapter starts the worker inside the existing
+  allocation. Core does not require a particular MPI launcher; the adapter is
+  responsible for the site's `srun`, `mpirun`, MPI environment, and NUMA
+  settings.
 - Compute nodes provide Python 3, `mpi4py`, and an MPI-enabled Qulacs build.
 - No SLURM-specific Cloud database migration is required.
 - The existing Cloud Provider `GET /jobs`, `GET /jobs/{job_id}`, and
@@ -622,8 +650,15 @@ Set these required environment variables:
 | `SLURM_DEVICE_N_QUBITS` | Maximum logical qubit count advertised to Cloud |
 | `SLURM_DEVICE_INFO` | Complete OQTOPUS device JSON used by the simulator and optional Tranqu step |
 | `SLURM_WORK_ROOT` | Shared, durable per-job work directory |
-| `SLURM_BATCH_SCRIPT` | Shared path to `run_qulacs_mpi_job.sh` |
-| `SLURM_WORKER_SCRIPT` | Shared path to `run_qulacs_mpi.py` |
+| `SLURM_BATCH_SCRIPT` | Shared executable path to the deployment's SLURM execution adapter |
+| `SLURM_WORKER_SCRIPT` | Shared worker path passed to the batch adapter |
+
+The Engine repository includes a portable `srun` adapter as a reference and
+uses a Docker-specific adapter for its scheduler fixture. A production site
+may set `SLURM_BATCH_SCRIPT` to an external adapter that selects `mpirun`, an
+architecture-specific Python environment, MPI library settings, or NUMA
+binding. Keep that adapter outside the Engine repository when it contains
+site-local configuration.
 
 `SLURM_QUBITS_PER_NODE` optionally configures the state-vector qubit capacity
 of one node and defaults to `30`. When `n_nodes` is omitted, Core derives the

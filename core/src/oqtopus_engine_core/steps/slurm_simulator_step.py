@@ -59,7 +59,7 @@ def _raise_runtime(message: str) -> Never:
 
 
 class SlurmSimulatorStep(Step):
-    """Execute sampling or direct estimation with MPI-Qulacs through SLURM."""
+    """Run MPI-Qulacs through a configured SLURM execution adapter."""
 
     def __init__(  # noqa: PLR0913, PLR0917
         self,

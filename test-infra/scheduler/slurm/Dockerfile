@@ -52,7 +52,7 @@ ARG SCIPY_VERSION=1.18.1
 
 ENV PATH="/opt/oqtopus-venv/bin:/usr/lib64/openmpi/bin:${PATH}"
 ENV LD_LIBRARY_PATH="/usr/lib64/openmpi/lib"
-ENV OQTOPUS_QULACS_PYTHON="/opt/oqtopus-venv/bin/python"
+ENV OQTOPUS_WORKER_PYTHON="/opt/oqtopus-venv/bin/python"
 
 RUN dnf install -y \
         openmpi \

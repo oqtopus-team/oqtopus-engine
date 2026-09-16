@@ -12,7 +12,7 @@ if [[ -z "${SLURM_NTASKS:-}" ]]; then
 fi
 
 worker_script="$1"
-python_executable="${OQTOPUS_QULACS_PYTHON:-python3}"
+python_executable="${OQTOPUS_WORKER_PYTHON:-python3}"
 n_per_node="$($python_executable -c 'import json; print(json.load(open("request.json", encoding="utf-8"))["n_per_node"])')"
 
 exec mpirun \

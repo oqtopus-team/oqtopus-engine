@@ -139,7 +139,7 @@ def fake_slurm(tmp_path: Path) -> Iterator[FakeSlurmEnvironment]:
         "FAKE_SLURM_STATE_DIR": str(state_path.parent),
         "FAKE_SLURM_SBATCH_RESPONSE_GATE": str(response_gate),
         "FAKE_SLURM_WORKER_RELEASE": str(worker_release),
-        "OQTOPUS_QULACS_PYTHON": sys.executable,
+        "OQTOPUS_WORKER_PYTHON": sys.executable,
     })
     instance = FakeSlurmEnvironment(
         root=tmp_path,

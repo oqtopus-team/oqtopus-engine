@@ -137,7 +137,7 @@ class SlurmClient:
         tasks_per_node: int,
         timeout_seconds: int,
     ) -> str:
-        """Submit a fixed batch script and return its numeric allocation ID."""
+        """Submit the configured batch adapter and return its allocation ID."""
         for label in (job_name, comment):
             if not _SAFE_LABEL.fullmatch(label):
                 message = f"unsafe SLURM job label: {label!r}"

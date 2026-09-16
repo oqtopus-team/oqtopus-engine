@@ -34,7 +34,7 @@ def command_result(stdout: str = "", stderr: str = "", returncode: int = 0):
 
 
 @pytest.mark.asyncio
-async def test_submit_uses_fixed_script_and_parses_job_id():
+async def test_submit_uses_configured_scripts_and_parses_job_id():
     runner = StubRunner([command_result("12345;cluster\n")])
     client = SlurmClient(runner, partition="test-partition")
 
