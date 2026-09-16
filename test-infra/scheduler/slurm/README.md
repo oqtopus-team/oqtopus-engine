@@ -7,7 +7,7 @@ the workspace-level Makefile.
 The cluster registers two compute nodes (`c1` and `c2`) in the `cpu`
 partition. The Docker-only launcher uses `mpirun` because the pinned image
 exposes SLURM PMI-2 while its Rocky Linux OpenMPI package exposes PMIx. The
-production launcher in `core/slurm_resources` remains unchanged and uses
+production launcher in `deployment/slurm` remains unchanged and uses
 `srun`.
 
 ## Architecture

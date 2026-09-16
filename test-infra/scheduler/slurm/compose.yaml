@@ -87,8 +87,8 @@ services:
       - slurm-log:/var/log/slurm
       - modulefiles:/opt/modulefiles
       - spack-root:/opt/spack
-      - ./run_qulacs_mpi_job.sh:/opt/oqtopus/slurm_resources/run_qulacs_mpi_job.sh:ro
-      - ../../../core/slurm_resources/run_qulacs_mpi.py:/opt/oqtopus/slurm_resources/run_qulacs_mpi.py:ro
+      - ./run_qulacs_mpi_job.sh:/opt/oqtopus/test-infra/scheduler/slurm/run_qulacs_mpi_job.sh:ro
+      - ../../../deployment/slurm/run_qulacs_mpi.py:/opt/oqtopus/deployment/slurm/run_qulacs_mpi.py:ro
     depends_on:
       slurmdbd:
         condition: service_healthy
@@ -115,8 +115,8 @@ services:
       - slurm-log:/var/log/slurm
       - modulefiles:/opt/modulefiles
       - spack-root:/opt/spack
-      - ./run_qulacs_mpi_job.sh:/opt/oqtopus/slurm_resources/run_qulacs_mpi_job.sh:ro
-      - ../../../core/slurm_resources/run_qulacs_mpi.py:/opt/oqtopus/slurm_resources/run_qulacs_mpi.py:ro
+      - ./run_qulacs_mpi_job.sh:/opt/oqtopus/test-infra/scheduler/slurm/run_qulacs_mpi_job.sh:ro
+      - ../../../deployment/slurm/run_qulacs_mpi.py:/opt/oqtopus/deployment/slurm/run_qulacs_mpi.py:ro
     depends_on:
       slurmctld:
         condition: service_healthy

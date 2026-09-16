@@ -178,7 +178,7 @@ The execution adapter contract is:
 - The worker constructs the state-vector simulation and rank 0 writes the
   result artifact according to the worker protocol below.
 
-The repository's `core/slurm_resources/run_qulacs_mpi_job.sh` is a reference
+The repository's `deployment/slurm/run_qulacs_mpi_job.sh` is a reference
 adapter using `srun`. Deployments may replace it with an adapter for their MPI
 implementation, CPU architecture, NUMA layout, or site wrapper without
 changing Core. Such deployment-specific adapters are not part of the Engine

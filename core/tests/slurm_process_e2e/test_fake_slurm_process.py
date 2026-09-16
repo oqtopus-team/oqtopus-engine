@@ -15,8 +15,9 @@ from .process_support import read_json, replace_json, update_json
 
 INTEGRATION_DIR = Path(__file__).parent
 CORE_ROOT = INTEGRATION_DIR.parents[1]
+ENGINE_ROOT = CORE_ROOT.parent
 WORKER = INTEGRATION_DIR / "fake_worker.py"
-BATCH_SCRIPT = CORE_ROOT / "slurm_resources" / "run_qulacs_mpi_job.sh"
+BATCH_SCRIPT = ENGINE_ROOT / "deployment" / "slurm" / "run_qulacs_mpi_job.sh"
 
 
 @dataclass

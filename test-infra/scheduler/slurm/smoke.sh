@@ -126,8 +126,8 @@ sampling_job_id="$(allocation_id "$("${controller[@]}" sbatch \
   --output=stdout.log \
   --error=stderr.log \
   --comment=oqtopus-sampling-smoke \
-  /opt/oqtopus/slurm_resources/run_qulacs_mpi_job.sh \
-  /opt/oqtopus/slurm_resources/run_qulacs_mpi.py)" )"
+  /opt/oqtopus/test-infra/scheduler/slurm/run_qulacs_mpi_job.sh \
+  /opt/oqtopus/deployment/slurm/run_qulacs_mpi.py) )"
 
 "${controller[@]}" python - <<'PY'
 import json
@@ -160,8 +160,8 @@ estimation_job_id="$(allocation_id "$("${controller[@]}" sbatch \
   --output=stdout.log \
   --error=stderr.log \
   --comment=oqtopus-estimation-smoke \
-  /opt/oqtopus/slurm_resources/run_qulacs_mpi_job.sh \
-  /opt/oqtopus/slurm_resources/run_qulacs_mpi.py)" )"
+  /opt/oqtopus/test-infra/scheduler/slurm/run_qulacs_mpi_job.sh \
+  /opt/oqtopus/deployment/slurm/run_qulacs_mpi.py) )"
 
 "${controller[@]}" python - <<'PY'
 import json

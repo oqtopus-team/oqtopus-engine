@@ -169,7 +169,7 @@ the deployment adapter or its runtime wrapper.
 ## 4. Adapter Requirements and Launcher Choice
 
 The repository's reference adapter
-[`core/slurm_resources/run_qulacs_mpi_job.sh`](../../../core/slurm_resources/run_qulacs_mpi_job.sh)
+[`deployment/slurm/run_qulacs_mpi_job.sh`](../../../deployment/slurm/run_qulacs_mpi_job.sh)
 is a portable `srun` reference. It reads `n_per_node` from `request.json` and
 executes:
 
@@ -273,7 +273,7 @@ make -C core run-slurm-simulator
 | `SLURM_DEVICE_N_QUBITS` | `16` |
 | `SLURM_WORK_ROOT` | `<engine-repository>/.cache/oqtopus-slurm-work` |
 | `SLURM_BATCH_SCRIPT` | `<engine-repository>/test-infra/scheduler/slurm/run_qulacs_mpi_job.sh` |
-| `SLURM_WORKER_SCRIPT` | `<engine-repository>/core/slurm_resources/run_qulacs_mpi.py` |
+| `SLURM_WORKER_SCRIPT` | `<engine-repository>/deployment/slurm/run_qulacs_mpi.py` |
 | `SLURM_QUBITS_PER_NODE` | `30` |
 | `SLURM_POLL_INTERVAL_SECONDS` | `5` |
 
@@ -396,7 +396,7 @@ export SLURM_DEVICE_N_QUBITS=32
 export SLURM_DEVICE_INFO="$(cat /shared/oqtopus/qsim-device-info.json)"
 export SLURM_WORK_ROOT=/shared/oqtopus/slurm-work
 export SLURM_BATCH_SCRIPT=/shared/oqtopus/slurm/run_qulacs_mpi_job.sh
-export SLURM_WORKER_SCRIPT=/shared/oqtopus/oqtopus-engine/core/slurm_resources/run_qulacs_mpi.py
+export SLURM_WORKER_SCRIPT=/shared/oqtopus/oqtopus-engine/deployment/slurm/run_qulacs_mpi.py
 export SLURM_QUBITS_PER_NODE=30
 export OQTOPUS_WORKER_PYTHON=/home/<user>/gateway/jobs/venv_exec/bin/python
 ```
