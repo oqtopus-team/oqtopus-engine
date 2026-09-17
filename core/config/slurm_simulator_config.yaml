@@ -1,0 +1,169 @@
+monitoring:
+  enabled: ${MONITORING_ENABLED, false}
+
+pipeline_manager:
+  job_buffer: buffer
+  exception_handler: pipeline_exception_handler
+  pipelines:
+    - name: slurm_simulator
+      if: job.job_type == "sampling" || job.job_type == "estimation"
+      steps:
+        - simulator_lifecycle_step
+        - estimator_step
+        - buffer
+        - slurm_simulator_step
+
+grpc_options: &grpc_options
+  - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
+  - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
+
+di_container:
+  registry:
+    command_runner:
+      _target_: oqtopus_engine_core.simulator.scheduler.slurm.CommandRunner
+
+    slurm_client:
+      _target_: oqtopus_engine_core.simulator.scheduler.slurm.SlurmClient
+      runner: "@command_runner"
+      partition: ${SLURM_PARTITION}
+      account: ${SLURM_ACCOUNT, null}
+      qos: ${SLURM_QOS, null}
+      command_timeout_seconds: ${SLURM_COMMAND_TIMEOUT_SECONDS, 30}
+      controller_retry_count: ${SLURM_CONTROLLER_RETRY_COUNT, 2}
+      controller_retry_interval_seconds: ${SLURM_CONTROLLER_RETRY_INTERVAL_SECONDS, 1}
+      reconciliation_lookback_seconds: ${SLURM_RECONCILIATION_LOOKBACK_SECONDS, 86400}
+
+    execution_repository:
+      _target_: oqtopus_engine_core.simulator.execution.OqtopusCloudExecutionRepository
+      url: ${JOB_REPOSITORY_URL, "http://localhost:8888"}
+      api_key: ${JOB_REPOSITORY_API_KEY, ""}
+      workers: ${JOB_REPOSITORY_WORKERS, 10}
+      api_request_timeout_seconds: ${JOB_API_REQUEST_TIMEOUT_SECONDS, 10}
+      device_id: ${SLURM_DEVICE_ID, "large-simulator"}
+      work_root: ${SLURM_WORK_ROOT}
+
+    process_lock:
+      _target_: oqtopus_engine_core.simulator.execution.SingleProcessLock
+      path: ${SLURM_PROCESS_LOCK_PATH, "~/.local/state/oqtopus-engine/slurm/engine.lock"}
+
+    job_fetcher:
+      _target_: oqtopus_engine_core.fetchers.SlurmJobFetcher
+      execution_repository: "@execution_repository"
+      job_reader: "@execution_repository"
+      slurm_client: "@slurm_client"
+      interval_seconds: ${JOB_FETCHER_INTERVAL_SECONDS, 10}
+      limit: ${JOB_FETCHER_LIMIT, 10}
+      job_fetch_threshold: ${JOB_FETCHER_THRESHOLD, 10}
+      work_root: ${SLURM_WORK_ROOT}
+      artifact_ttl_seconds: ${SLURM_ARTIFACT_TTL_SECONDS, 604800}
+      batch_script: ${SLURM_BATCH_SCRIPT}
+      worker_script: ${SLURM_WORKER_SCRIPT}
+      qubits_per_node: ${SLURM_QUBITS_PER_NODE, 30}
+      max_nodes: ${SLURM_MAX_NODES, 1024}
+      max_n_per_node: ${SLURM_MAX_TASKS_PER_NODE, 48}
+      max_timeout_seconds: ${SLURM_MAX_TIMEOUT_SECONDS, 432000}
+
+    device_fetcher:
+      _target_: oqtopus_engine_core.fetchers.ConfiguredDeviceFetcher
+      device_id: ${SLURM_DEVICE_ID, "large-simulator"}
+      n_qubits: ${SLURM_DEVICE_N_QUBITS}
+      basis_gates:
+        - cx
+        - cz
+        - h
+        - id
+        - p
+        - rx
+        - ry
+        - rz
+        - s
+        - sdg
+        - swap
+        - sx
+        - sxdg
+        - t
+        - tdg
+        - x
+        - y
+        - z
+      instructions:
+        - measure
+      device_info: ${SLURM_DEVICE_INFO}
+      slurm_client: "@slurm_client"
+      process_lock: "@process_lock"
+      description: ${SLURM_DEVICE_DESCRIPTION, "MPI-Qulacs simulator"}
+      healthcheck_interval_seconds: ${SLURM_HEALTHCHECK_INTERVAL_SECONDS, 30}
+
+    job_repository:
+      _target_: oqtopus_engine_core.repositories.OqtopusCloudJobRepository
+      url: ${JOB_REPOSITORY_URL, "http://localhost:8888"}
+      api_key: ${JOB_REPOSITORY_API_KEY, ""}
+      workers: ${JOB_REPOSITORY_WORKERS, 10}
+      api_request_timeout_seconds: ${JOB_API_REQUEST_TIMEOUT_SECONDS, 10}
+      file_op_timeout_seconds: ${JOB_FILE_OP_TIMEOUT_SECONDS, 60}
+      max_file_size: ${MAX_FILE_SIZE, 10485760}
+
+    device_repository:
+      _target_: oqtopus_engine_core.repositories.OqtopusCloudDeviceRepository
+      url: ${DEVICE_REPOSITORY_URL, "http://localhost:8888"}
+      api_key: ${DEVICE_REPOSITORY_API_KEY, ""}
+      workers: ${DEVICE_REPOSITORY_WORKERS, 1}
+      api_request_timeout_seconds: ${DEVICE_REPOSITORY_API_REQUEST_TIMEOUT_SECONDS, 10}
+      max_file_size: ${MAX_FILE_SIZE, 10485760}
+
+    buffer:
+      _target_: oqtopus_engine_core.buffers.QueueBuffer
+      max_concurrency: ${SLURM_MAX_CONCURRENCY, 1}
+
+    tranqu_step:
+      _target_: oqtopus_engine_core.steps.TranquStep
+      tranqu_address: ${TRANQU_ADDRESS, "localhost:51020"}
+      grpc_options: *grpc_options
+      default_transpiler_info:
+        transpiler_lib: qiskit
+        transpiler_options:
+          optimization_level: 1
+
+    estimator_step:
+      _target_: oqtopus_engine_core.steps.EstimatorStep
+      estimator_address: ${ESTIMATOR_ADDRESS, "localhost:51012"}
+      grpc_options: *grpc_options
+      skip_direct_estimation: true
+      basis_gates:
+        - "cx"
+        - "id"
+        - "rz"
+        - "sx"
+        - "x"
+        - "reset"
+        - "delay"
+        - "measure"
+
+    simulator_lifecycle_step:
+      _target_: oqtopus_engine_core.steps.SimulatorLifecycleStep
+      execution_repository: "@execution_repository"
+      job_reader: "@execution_repository"
+      work_root: ${SLURM_WORK_ROOT}
+      finalize_retry_count: ${SLURM_FINALIZE_RETRY_COUNT, 2}
+      finalize_retry_interval_seconds: ${SLURM_FINALIZE_RETRY_INTERVAL_SECONDS, 1}
+
+    slurm_simulator_step:
+      _target_: oqtopus_engine_core.steps.SlurmSimulatorStep
+      slurm_client: "@slurm_client"
+      execution_repository: "@execution_repository"
+      job_reader: "@execution_repository"
+      work_root: ${SLURM_WORK_ROOT}
+      batch_script: ${SLURM_BATCH_SCRIPT}
+      worker_script: ${SLURM_WORKER_SCRIPT}
+      poll_interval_seconds: ${SLURM_POLL_INTERVAL_SECONDS, 5}
+      qubits_per_node: ${SLURM_QUBITS_PER_NODE, 30}
+      max_nodes: ${SLURM_MAX_NODES, 1024}
+      max_n_per_node: ${SLURM_MAX_TASKS_PER_NODE, 48}
+      max_timeout_seconds: ${SLURM_MAX_TIMEOUT_SECONDS, 432000}
+      max_shots: ${SLURM_MAX_SHOTS, 100000}
+      imaginary_tolerance: ${SLURM_IMAGINARY_TOLERANCE, 1e-10}
+
+    pipeline_exception_handler:
+      _target_: oqtopus_engine_core.handlers.SlurmPipelineExceptionHandler
+      execution_repository: "@execution_repository"
+      job_reader: "@execution_repository"

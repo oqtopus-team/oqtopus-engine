@@ -197,6 +197,8 @@ class EstimatorStep(Step):
         estimator_address: str = "localhost:52012",
         basis_gates: list[str] | None = None,
         grpc_options: Sequence[tuple[str, Any]] | None = None,
+        *,
+        skip_direct_estimation: bool = False,
     ) -> None:
         self._channel = grpc.aio.insecure_channel(
             estimator_address,
@@ -204,12 +206,14 @@ class EstimatorStep(Step):
         )
         self._stub = estimator_pb2_grpc.EstimatorServiceStub(self._channel)
         self._basis_gates = basis_gates
+        self._skip_direct_estimation = skip_direct_estimation
         logger.info(
             "EstimatorStep was initialized",
             extra={
                 "estimator_address": estimator_address,
                 "basis_gates": self._basis_gates,
                 "grpc_options": grpc_options,
+                "skip_direct_estimation": skip_direct_estimation,
             },
         )
 
@@ -221,12 +225,12 @@ class EstimatorStep(Step):
     ) -> StepResult:
         """Split an estimation job into sampling child jobs during pre-process.
 
-        Raises:
-            ValueError: If the estimation operator is not specified.
-
         Returns:
             StepResult: SPLIT_FOR_JOIN with child jobs for estimation parents;
                 NONE for all other cases.
+
+        Raises:
+            ValueError: If the estimation operator is not specified.
 
         """
         if job.job_type != "estimation":
@@ -235,6 +239,25 @@ class EstimatorStep(Step):
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
             return StepResult()
+
+        if self._skip_direct_estimation:
+            estimation_method = job.simulator_info.get(
+                "estimation_method",
+                "direct",
+            )
+            if estimation_method not in {"direct", "sampling"}:
+                message = f"unsupported estimation method: {estimation_method}"
+                raise ValueError(message)
+            if estimation_method == "direct":
+                logger.debug(
+                    "direct estimation skips EstimatorStep",
+                    extra={
+                        "job_id": job.job_id,
+                        "job_type": job.job_type,
+                        "estimation_method": estimation_method,
+                    },
+                )
+                return StepResult()
 
         if ESTIMATION_CHILD_INDEX_KEY in jctx:
             logger.debug(
