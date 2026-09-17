@@ -371,14 +371,16 @@ Core validates the worker result before updating the job:
 
 After validation, the atomic result artifact represents `RESULT_READY`. Core
 uploads the existing `JobResult` JSON representation and synchronously updates
-the job to `succeeded`. Exact estimation returns the real expectation value
-with `stds` set to `0.0`.
+the job to `succeeded`. A terminal Cloud `cancelled` job with a retained valid
+result is recovered as `RESULT_READY` and is never resubmitted. Exact
+estimation returns the real expectation value with `stds` set to `0.0`.
 
 ## 5. Recovery and Cancellation
 
 The Cloud-visible states remain the same as the job state transition
-diagram. `RESULT_READY` is a local derived condition represented by a
-`running` Cloud job with a validated atomic result artifact:
+diagram. `RESULT_READY` is a local derived condition represented by an active
+Cloud job, or by a terminal `cancelled` job recovered with a validated atomic
+result artifact:
 
 ```mermaid
 stateDiagram-v2
@@ -413,7 +415,8 @@ cannot replace the result.
 
 Engine restart does not cause a state transition and is intentionally omitted
 from the diagram. Recovery resumes observation in `RUNNING` or `cancelling`,
-or retries Cloud finalization in `RESULT_READY`.
+or restores a retained result from a terminal `cancelled` job. A recovered
+cancelled result is never submitted again.
 
 For a running job, the User API atomically changes the Cloud status from
 `running` to `cancelling`. Engine then confirms `succeeded`, `failed`, or
@@ -427,7 +430,7 @@ derives the following effective execution states:
 | --- | --- |
 | `READY` | The Cloud job is `submitted` or `ready`. |
 | `RUNNING` | The Cloud job is `running` or `cancelling` and has no result artifact. |
-| `RESULT_READY` | The Cloud job is `running` or `cancelling` and its atomic result artifact exists and validates. |
+| `RESULT_READY` | The Cloud job is `running` or `cancelling`, or is `cancelled` with a retained atomic result artifact that exists and validates. |
 | `SUCCEEDED` | The Cloud job is `succeeded`. |
 | `FAILED` | The Cloud job is `failed`. |
 | `CANCELLED` | The Cloud job is `cancelled`. |
@@ -470,7 +473,12 @@ edge cases.
 flowchart TD
   Start["Recovery starts"] --> Cloud{"[Cloud] Job record and status"}
   Cloud -->|missing| Missing["No authoritative Cloud record<br/>[Action] skip this cycle"]
-  Cloud -->|succeeded, failed, cancelled| Terminal["Terminal Cloud state<br/>[Action] do not reattach or submit"]
+  Cloud -->|succeeded, failed| Terminal["Terminal Cloud state<br/>[Action] do not reattach or submit"]
+  Cloud -->|cancelled| CancelledCloud{"[Local] result.json exists?"}
+  CancelledCloud -->|yes| CancelledResult{"[Local] Valid result.json?"}
+  CancelledResult -->|yes| Return
+  CancelledResult -->|no| InvalidResult["Retained checkpoint<br/>[Action] preserve and retry validation"]
+  CancelledCloud -->|no| CancelledTerminal["Terminal cancellation<br/>[Action] do not reattach or submit"]
   Cloud -->|submitted, ready, running, cancelling| Result{"[Local] Valid result.json?"}
 
   Result -->|yes| Return["RESULT_READY checkpoint<br/>[Action] restore result and finalize"]
@@ -507,6 +515,9 @@ The corresponding decision matrix keeps each raw input in its own column. The
 | `cancelling` | present | absent | `COMPLETED` and valid result | Completion won the cancellation race. | **Return result**: validate the result, preserve `RESULT_READY`, and finalize success. |
 | `cancelling` | present | absent | `CANCELLED` | SLURM confirmed the requested cancellation. | **Confirm cancellation**: advance to `cancelled`. |
 | `running` or `cancelling` | present or absent | valid result | not queried | The local result checkpoint is authoritative for finalization. | **Return result**: skip scheduler actions and retry restoration and finalization. |
+| `cancelled` | any | valid result | not queried | Completion left a usable checkpoint after Cloud cancellation. | **Return result**: restore the result, finalize success, and never resubmit. |
+| `cancelled` | any | present but invalid | not queried | A retained checkpoint exists, but validation must succeed before finalization. | **Preserve checkpoint**: retain `RESULT_READY`, report the validation error, and retry repair or finalization. |
+| `cancelled` | any | absent | not queried | Cloud cancellation is terminal and no result checkpoint exists. | **Confirm cancellation**: keep `cancelled` and clean retained artifacts after the normal retention period. |
 | any active status | any | any | allocation absent from both `squeue` and `sacct`, or observation failed transiently | No authoritative terminal state exists yet. | **Retry observation**: keep the active state and never resubmit a persisted submit intent. |
 | any active status | any | any | Cloud Job is missing | There is no authoritative Cloud record for a safe update. | **Skip recovery**: log the condition and wait for retry or operator reconciliation. |
 

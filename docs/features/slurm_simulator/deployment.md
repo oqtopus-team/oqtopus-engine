@@ -87,6 +87,10 @@ launcher supplies equivalent defaults outside the Engine configuration.
 | `SLURM_BATCH_SCRIPT` | none | Absolute path to the deployment-owned execution adapter | The launcher, runtime, or site wrapper changes |
 | `SLURM_WORKER_SCRIPT` | none | Absolute path to `run_qulacs_mpi.py` | The worker is installed at another shared path |
 
+The runtime expands a leading `~` in these path settings during startup before
+validating and using them. The resulting paths must still be absolute and
+visible at the same location on the login node and every compute node.
+
 `SLURM_DEVICE_ID` defaults to `large-simulator`. Set it explicitly when the
 Cloud device row has another ID. The Cloud device row must already exist; Core
 publishes the configured device information but does not create the row.

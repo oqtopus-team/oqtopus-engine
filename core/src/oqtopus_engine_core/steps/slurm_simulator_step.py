@@ -82,9 +82,9 @@ class SlurmSimulatorStep(Step):
         self._execution_repository = execution_repository
         self._internal_execution_repository = LocalExecutionRepository(work_root)
         self._job_reader = job_reader
-        self._work_root = Path(work_root)
-        self._batch_script = Path(batch_script)
-        self._worker_script = Path(worker_script)
+        self._work_root = Path(work_root).expanduser()
+        self._batch_script = Path(batch_script).expanduser()
+        self._worker_script = Path(worker_script).expanduser()
         self._poll_interval_seconds = poll_interval_seconds
         self._qubits_per_node = qubits_per_node
         self._max_nodes = max_nodes
@@ -330,7 +330,7 @@ class SlurmSimulatorStep(Step):
                 message = f"persisted SLURM {field} does not match configured root"
                 raise ValueError(message)
 
-    async def _wait_for_result(  # noqa: C901, PLR0913
+    async def _wait_for_result(  # noqa: C901, PLR0912, PLR0913
         self,
         job: Job,
         slurm_job_id: str | None,
@@ -380,6 +380,13 @@ class SlurmSimulatorStep(Step):
                 )
                 return
             elif status.state is SchedulerState.CANCELLED:
+                if await asyncio.to_thread(result_path.is_file):
+                    self._restore_result(job, request_path, result_path)
+                    await execution_repository.update(
+                        job.job_id,
+                        ExecutionState.RESULT_READY,
+                    )
+                    return
                 if cancellation_requested:
                     message = "SLURM cancellation confirmed"
                 else:

@@ -159,6 +159,44 @@ async def test_running_job_with_result_artifact_is_result_ready(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_cancelled_job_with_result_artifact_is_result_ready(tmp_path: Path):
+    api = StubJobsApi()
+    api.job.status = "cancelled"
+    work_dir, _, result_path = _local_paths(tmp_path)
+    work_dir.mkdir(parents=True)
+    result_path.write_text("{}", encoding="utf-8")
+
+    repository = _repository(tmp_path, api)
+    record = await repository.get("job-1")
+    unfinished = await repository.list_unfinished()
+
+    assert record is not None
+    assert record.state is ExecutionState.RESULT_READY
+    assert [item.cloud_job_id for item in unfinished] == ["job-1"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_result_artifact_can_finalize_as_succeeded(tmp_path: Path):
+    api = StubJobsApi()
+    api.job.status = "cancelled"
+    work_dir, _, result_path = _local_paths(tmp_path)
+    work_dir.mkdir(parents=True)
+    result_path.write_text("{}", encoding="utf-8")
+
+    repository = _repository(tmp_path, api)
+    record = await repository.update(
+        "job-1",
+        ExecutionState.SUCCEEDED,
+        expected={ExecutionState.RESULT_READY},
+        cloud_status="succeeded",
+        output_files=["job-1/result.zip"],
+    )
+
+    assert api.patch_calls[-1].status == "succeeded"
+    assert record.state is ExecutionState.SUCCEEDED
+
+
+@pytest.mark.asyncio
 async def test_cancelling_job_is_recoverable_running_execution(tmp_path: Path):
     api = StubJobsApi()
     api.job.status = "cancelling"
@@ -171,7 +209,7 @@ async def test_cancelling_job_is_recoverable_running_execution(tmp_path: Path):
     assert record.state is ExecutionState.RUNNING
     assert record.cloud_status == "cancelling"
     assert [item.cloud_job_id for item in unfinished] == ["job-1"]
-    assert api.listed_statuses == ["running", "cancelling"]
+    assert api.listed_statuses == ["running", "cancelling", "cancelled"]
 
 
 @pytest.mark.asyncio

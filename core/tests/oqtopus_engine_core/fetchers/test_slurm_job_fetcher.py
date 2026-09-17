@@ -160,8 +160,10 @@ def make_fetcher(
     database_path: Path,
     repository: StubJobRepository,
     pipeline: RecordingPipeline,
-    work_root: Path | None = None,
+    work_root: str | Path | None = None,
     artifact_ttl_seconds: int = 604800,
+    batch_script: str | None = None,
+    worker_script: str | None = None,
 ):
     execution_repository = ExecutionRepository(database_path)
     slurm_client = RecordingSlurmClient()
@@ -171,6 +173,8 @@ def make_fetcher(
         slurm_client,  # type: ignore[arg-type]
         work_root=str(work_root) if work_root is not None else None,
         artifact_ttl_seconds=artifact_ttl_seconds,
+        batch_script=batch_script,
+        worker_script=worker_script,
     )
     fetcher.gctx = GlobalContext(
         config={},
@@ -258,6 +262,31 @@ def test_runtime_path_preflight_rejects_relative_work_root(tmp_path):
 
     with pytest.raises(ValueError, match="work root must be absolute"):
         fetcher.validate_runtime_paths()
+
+
+def test_runtime_path_preflight_expands_user_paths(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    batch_script = home / "batch.sh"
+    batch_script.write_text("#!/bin/sh\n", encoding="utf-8")
+    batch_script.chmod(0o755)
+    (home / "worker.py").write_text("", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+
+    fetcher, _, _ = make_fetcher(
+        tmp_path / "repository-placeholder",
+        StubJobRepository(make_job("running")),
+        RecordingPipeline(),
+        work_root="~/work",
+        batch_script="~/batch.sh",
+        worker_script="~/worker.py",
+    )
+
+    fetcher.validate_runtime_paths()
+
+    assert fetcher._work_root == home / "work"
+    assert fetcher._batch_script == home / "batch.sh"
+    assert fetcher._worker_script == home / "worker.py"
 
 
 @pytest.mark.asyncio

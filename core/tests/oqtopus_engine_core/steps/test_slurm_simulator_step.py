@@ -159,6 +159,65 @@ def make_simulator_lifecycle_step(step):
     )
 
 
+def test_step_expands_user_paths(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+    step = SlurmSimulatorStep(
+        slurm_client=StubSlurmClient([]),
+        execution_repository=ExecutionRepository(tmp_path / "repository-placeholder"),
+        job_reader=RecordingJobRepository([]),
+        work_root="~/work",
+        batch_script="~/batch.sh",
+        worker_script="~/worker.py",
+    )
+
+    assert step._work_root == home / "work"
+    assert step._batch_script == home / "batch.sh"
+    assert step._worker_script == home / "worker.py"
+
+
+@pytest.mark.asyncio
+async def test_step_submits_expanded_user_paths(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    client = StubSlurmClient(
+        [SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")],
+        result={
+            "schema_version": 1,
+            "status": "succeeded",
+            "job_type": "sampling",
+            "counts": {"1": 10},
+            "duration_seconds": 1.0,
+        },
+    )
+    repository = RecordingJobRepository(["ready", "running", "running"])
+    step = SlurmSimulatorStep(
+        slurm_client=client,
+        execution_repository=ExecutionRepository(tmp_path / "repository-placeholder"),
+        job_reader=repository,
+        work_root="~/work",
+        batch_script="~/batch.sh",
+        worker_script="~/worker.py",
+        poll_interval_seconds=0,
+    )
+
+    await run_root_step(
+        step,
+        GlobalContext(config={}, job_repository=repository),
+        make_job(),
+    )
+
+    assert (
+        client.submit_calls[0]["work_dir"]
+        == home / "work" / hashlib.sha256(b"job-1").hexdigest()[:32]
+    )
+    assert client.submit_calls[0]["batch_script"] == home / "batch.sh"
+    assert client.submit_calls[0]["worker_script"] == home / "worker.py"
+
+
 async def run_root_step(step, gctx, job):
     await make_simulator_lifecycle_step(step).pre_process(gctx, JobContext(), job)
     return await step.pre_process(gctx, JobContext(), job)
@@ -393,12 +452,10 @@ async def test_poll_retries_empty_scheduler_observation(tmp_path):
 
 @pytest.mark.asyncio
 async def test_cloud_cancel_is_propagated_to_slurm(tmp_path):
-    client = StubSlurmClient(
-        [
-            SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING"),
-            SchedulerJobStatus("12345", SchedulerState.CANCELLED, "CANCELLED"),
-        ]
-    )
+    client = StubSlurmClient([
+        SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING"),
+        SchedulerJobStatus("12345", SchedulerState.CANCELLED, "CANCELLED"),
+    ])
     repository = RecordingJobRepository(["ready", "running", "cancelling"])
     step = make_step(tmp_path, client, repository)
 
@@ -410,6 +467,43 @@ async def test_cloud_cancel_is_propagated_to_slurm(tmp_path):
         )
 
     assert client.cancelled == ["12345"]
+
+
+@pytest.mark.asyncio
+async def test_cloud_cancel_preserves_completed_result_artifact(tmp_path):
+    client = StubSlurmClient(
+        [
+            SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING"),
+            SchedulerJobStatus("12345", SchedulerState.CANCELLED, "CANCELLED"),
+        ],
+        result={
+            "schema_version": 1,
+            "status": "succeeded",
+            "job_type": "sampling",
+            "counts": {"1": 10},
+            "duration_seconds": 1.0,
+        },
+    )
+    repository = RecordingJobRepository([
+        "ready",
+        "running",
+        "cancelling",
+        "cancelling",
+    ])
+    step = make_step(tmp_path, client, repository)
+    job = make_job()
+
+    await run_root_step(
+        step,
+        GlobalContext(config={}, job_repository=repository),
+        job,
+    )
+
+    assert client.cancelled == ["12345"]
+    assert job.result is not None
+    record = await step._execution_repository.get(job.job_id)
+    assert record is not None
+    assert record.state is ExecutionState.RESULT_READY
 
 
 @pytest.mark.asyncio
@@ -678,9 +772,7 @@ async def test_reconciled_allocation_is_not_submitted_again(tmp_path):
     assert client.submit_count == 0
     assert len(client.find_calls) == 1
     assert set(client.find_calls[0]) == {"job_name", "start_time"}
-    assert client.find_calls[0]["job_name"] == (
-        f"oqtopus-{job_token}-{digest[:16]}"
-    )
+    assert client.find_calls[0]["job_name"] == (f"oqtopus-{job_token}-{digest[:16]}")
 
 
 @pytest.mark.asyncio

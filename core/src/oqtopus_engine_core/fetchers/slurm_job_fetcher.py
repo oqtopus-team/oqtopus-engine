@@ -58,10 +58,16 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         self._job_reader = job_reader
         self._slurm_client = slurm_client
         self._scheduled_job_ids: set[str] = set()
-        self._work_root = Path(work_root) if work_root is not None else None
+        self._work_root = (
+            Path(work_root).expanduser() if work_root is not None else None
+        )
         self._artifact_ttl_seconds = artifact_ttl_seconds
-        self._batch_script = Path(batch_script) if batch_script is not None else None
-        self._worker_script = Path(worker_script) if worker_script is not None else None
+        self._batch_script = (
+            Path(batch_script).expanduser() if batch_script is not None else None
+        )
+        self._worker_script = (
+            Path(worker_script).expanduser() if worker_script is not None else None
+        )
         self._qubits_per_node = qubits_per_node
         self._max_nodes = max_nodes
         self._max_n_per_node = max_n_per_node
@@ -107,7 +113,7 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         if self._work_root is None:
             message = "SLURM work root must be configured before startup."
             raise RuntimeError(message)
-        work_root = self._work_root.expanduser()
+        work_root = self._work_root
         if not work_root.is_absolute():
             message = f"SLURM work root must be absolute: {work_root}"
             raise ValueError(message)
@@ -123,7 +129,7 @@ class SlurmJobFetcher(RepositoryJobFetcher):
             if configured_script is None:
                 message = f"SLURM {label} script must be configured before startup."
                 raise RuntimeError(message)
-            script = configured_script.expanduser()
+            script = configured_script
             if not script.is_absolute():
                 message = f"SLURM {label} script must be absolute: {script}"
                 raise ValueError(message)

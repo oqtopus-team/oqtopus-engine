@@ -218,7 +218,7 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
     async def list_unfinished(self) -> list[ExecutionRecord]:
         """Return recoverable executions for this device."""
         records: list[ExecutionRecord] = []
-        for status in ("running", "cancelling"):
+        for status in ("running", "cancelling", "cancelled"):
             call: Callable[[], list[JobsJob]] = partial(
                 self._jobs_api.get_jobs,
                 device_id=self._device_id,
@@ -227,7 +227,11 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
             )
             response = await self._request(call)
             records.extend(self._to_record(item) for item in response)
-        return records
+        return [
+            record
+            for record in records
+            if record.state in {ExecutionState.RUNNING, ExecutionState.RESULT_READY}
+        ]
 
     async def list_cleanup_candidates(
         self,
@@ -250,7 +254,8 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
         return [
             record
             for record in records
-            if record.artifact_retained
+            if record.state in _TERMINAL_STATES
+            and record.artifact_retained
             and record.finalized_at is not None
             and datetime.fromisoformat(record.finalized_at) <= finalized_before
         ]
@@ -343,7 +348,10 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
             "cancelled": ExecutionState.CANCELLED,
         }
         state = state_by_status[cloud_status]
-        if state is ExecutionState.RUNNING and result_path.is_file():
+        if (
+            cloud_status in {"running", "cancelling", "cancelled"}
+            and result_path.is_file()
+        ):
             state = ExecutionState.RESULT_READY
         created_at = job.running_at or job.ready_at or job.submitted_at
         if created_at is None:
