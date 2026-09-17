@@ -1,5 +1,6 @@
 from .circuit_converter import (
     build_execution_request,
+    build_slurm_job_labels,
     canonical_request_json,
     convert_transpiled_qasm,
     request_hash,
@@ -21,6 +22,7 @@ __all__ = [
     "QulacsGate",
     "SlurmSimulatorOptions",
     "build_execution_request",
+    "build_slurm_job_labels",
     "canonical_request_json",
     "convert_transpiled_qasm",
     "map_operator_items",

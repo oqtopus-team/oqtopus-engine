@@ -114,7 +114,7 @@ assert_accounting "$topology_job_id" COMPLETED oqtopus-topology-smoke
 {"schema_version":1,"job_type":"sampling","n_qubits":4,"shots":256,"n_per_node":2,"seed_simulation":7,"gates":[{"name":"h","qubits":[0],"params":[]},{"name":"cx","qubits":[0,1],"params":[]}],"measurement_mapping":{"0":0,"1":1}}
 JSON
 
-sampling_job_id="$(allocation_id "$("${controller[@]}" sbatch \
+sampling_submission="$("${controller[@]}" sbatch \
   --parsable \
   --wait \
   --partition=cpu \
@@ -127,7 +127,8 @@ sampling_job_id="$(allocation_id "$("${controller[@]}" sbatch \
   --error=stderr.log \
   --comment=oqtopus-sampling-smoke \
   /opt/oqtopus/test-infra/scheduler/slurm/run_qulacs_mpi_job.sh \
-  /opt/oqtopus/deployment/slurm/run_qulacs_mpi.py) )"
+  /opt/oqtopus/deployment/slurm/run_qulacs_mpi.py)"
+sampling_job_id="$(allocation_id "$sampling_submission")"
 
 "${controller[@]}" python - <<'PY'
 import json
@@ -148,7 +149,7 @@ assert_job_topology "$sampling_job_id" 2 4 2
 {"schema_version":1,"job_type":"estimation","n_qubits":4,"n_per_node":2,"seed_simulation":7,"gates":[{"name":"h","qubits":[0],"params":[]}],"operators":[{"coeff":1.0,"pauli":"X 0"}]}
 JSON
 
-estimation_job_id="$(allocation_id "$("${controller[@]}" sbatch \
+estimation_submission="$("${controller[@]}" sbatch \
   --parsable \
   --wait \
   --partition=cpu \
@@ -161,7 +162,8 @@ estimation_job_id="$(allocation_id "$("${controller[@]}" sbatch \
   --error=stderr.log \
   --comment=oqtopus-estimation-smoke \
   /opt/oqtopus/test-infra/scheduler/slurm/run_qulacs_mpi_job.sh \
-  /opt/oqtopus/deployment/slurm/run_qulacs_mpi.py) )"
+  /opt/oqtopus/deployment/slurm/run_qulacs_mpi.py)"
+estimation_job_id="$(allocation_id "$estimation_submission")"
 
 "${controller[@]}" python - <<'PY'
 import json
@@ -179,13 +181,14 @@ PY
 assert_accounting "$estimation_job_id" COMPLETED oqtopus-estimation-smoke
 assert_job_topology "$estimation_job_id" 2 4 2
 
-recovery_job_id="$(allocation_id "$("${controller[@]}" sbatch \
+recovery_submission="$("${controller[@]}" sbatch \
   --parsable \
   --partition=cpu \
   --nodes=1 \
   --ntasks=1 \
   --comment=oqtopus-recovery-smoke \
-  --wrap='sleep 120')")"
+  --wrap='sleep 120')"
+recovery_job_id="$(allocation_id "$recovery_submission")"
 "${controller[@]}" squeue --noheader --jobs="$recovery_job_id" \
   --format='%i|%T|%k'
 

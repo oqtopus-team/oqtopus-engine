@@ -1,13 +1,18 @@
+import hashlib
+from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
+from oqtopus_engine_core.interfaces.oqtopus_cloud.models import JobsJob
 from oqtopus_engine_core.fetchers import SlurmJobFetcher
 from oqtopus_engine_core.framework import Device, GlobalContext, Job
 from oqtopus_engine_core.repositories import NullJobRepository
 from oqtopus_engine_core.simulator import (
     ExecutionState,
+    OqtopusCloudExecutionRepository,
     SchedulerJobStatus,
     SchedulerState,
 )
@@ -69,6 +74,7 @@ class RecordingPipeline:
 class RecordingSlurmClient:
     def __init__(self):
         self.cancelled: list[str] = []
+        self.reconciled_job_names: list[str] = []
         self.status = SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING")
 
     async def cancel(self, job_id: str):
@@ -76,6 +82,65 @@ class RecordingSlurmClient:
 
     async def get_status(self, job_id: str):
         return self.status
+
+    async def find_job(self, *, job_name: str, start_time: datetime | None = None):
+        _ = start_time
+        self.reconciled_job_names.append(job_name)
+        return "12345"
+
+
+class CloudCancellationRaceApi:
+    def __init__(self) -> None:
+        now = datetime.now(UTC)
+        self.job = JobsJob(
+            job_id="job-1",
+            device_id="large-simulator",
+            job_type="sampling",
+            shots=1,
+            input="input.zip",
+            status="running",
+            transpiler_info={},
+            simulator_info={
+                "backend": "mpi-qulacs",
+                "n_nodes": 1,
+                "n_per_node": 1,
+            },
+            mitigation_info={},
+            submitted_at=now,
+            ready_at=now,
+            running_at=now,
+        )
+
+    def get_job(self, *, job_id: str, **_kwargs: object) -> JobsJob:
+        assert job_id == self.job.job_id
+        self.job.status = "cancelled"
+        return self.job
+
+    def get_jobs(
+        self,
+        *,
+        device_id: str,
+        status: str | None = None,
+        **_kwargs: object,
+    ) -> list[JobsJob]:
+        assert device_id == self.job.device_id
+        if status == "running":
+            return [deepcopy(self.job)]
+        return []
+
+
+def write_recovery_request(tmp_path: Path) -> Path:
+    token = hashlib.sha256(b"job-1").hexdigest()[:32]
+    work_dir = tmp_path / "work" / token
+    work_dir.mkdir(parents=True)
+    request_path = work_dir / "request.json"
+    request_path.write_text(
+        '{"schema_version":1,"job_type":"sampling","n_qubits":1,'
+        '"gates":[],"measurement_mapping":{"0":0},"shots":1,'
+        '"operators":[],"seed_simulation":7,"n_per_node":1}',
+        encoding="utf-8",
+    )
+    return request_path
 
 
 class CloudDerivedReadyExecutionRepository(ExecutionRepository):
@@ -183,6 +248,18 @@ async def test_startup_recovery_retries_transient_failure(tmp_path):
     assert fetcher.recover_unfinished.await_count == 2
 
 
+def test_runtime_path_preflight_rejects_relative_work_root(tmp_path):
+    fetcher, _, _ = make_fetcher(
+        tmp_path / "repository-placeholder",
+        StubJobRepository(make_job("running")),
+        RecordingPipeline(),
+    )
+    fetcher._work_root = Path("relative/work")
+
+    with pytest.raises(ValueError, match="work root must be absolute"):
+        fetcher.validate_runtime_paths()
+
+
 @pytest.mark.asyncio
 async def test_poll_claims_submitted_job_only_once(tmp_path):
     pipeline = RecordingPipeline()
@@ -283,6 +360,74 @@ async def test_recover_cancelled_job_waits_for_scheduler_confirmation(tmp_path):
     record = await execution_repository.get("job-1")
     assert record is not None
     assert record.state is ExecutionState.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_recover_cloud_cancelled_job_reconciles_missing_slurm_id(tmp_path):
+    api = CloudCancellationRaceApi()
+    execution_repository = OqtopusCloudExecutionRepository(
+        device_id="large-simulator",
+        work_root=str(tmp_path / "work"),
+        jobs_api=api,
+    )
+    write_recovery_request(tmp_path)
+    slurm_client = RecordingSlurmClient()
+    fetcher = SlurmJobFetcher(
+        execution_repository,
+        execution_repository,
+        slurm_client,  # type: ignore[arg-type]
+    )
+    fetcher.gctx = GlobalContext(
+        config={},
+        job_repository=NullJobRepository(),
+        device=Device(
+            device_id="large-simulator",
+            device_type="simulator",
+            status="active",
+            n_qubits=1,
+            basis_gates=[],
+            instructions=[],
+            description="",
+            is_connected=True,
+        ),
+    )
+    fetcher.pipeline = RecordingPipeline()  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="pending scheduler confirmation"):
+        await fetcher.recover_unfinished()
+
+    assert len(slurm_client.reconciled_job_names) == 1
+    assert slurm_client.reconciled_job_names[0].startswith("oqtopus-")
+    assert slurm_client.cancelled == ["12345"]
+
+
+@pytest.mark.asyncio
+async def test_recover_unsynchronized_cancelled_record_checks_scheduler(tmp_path):
+    work_root = tmp_path / "work"
+    fetcher, execution_repository, slurm_client = make_fetcher(
+        tmp_path / "repository-placeholder",
+        StubJobRepository(make_job("cancelled")),
+        RecordingPipeline(),
+        work_root,
+    )
+    await execution_repository.initialize()
+    await execution_repository.claim("job-1", "sampling")
+    request_path = write_recovery_request(tmp_path)
+    await execution_repository.prepare(
+        cloud_job_id="job-1",
+        request_hash="digest",
+        options={"backend": "mpi-qulacs", "n_nodes": 1, "n_per_node": 1},
+        work_dir=work_root / request_path.parent.name,
+        request_path=request_path,
+        result_path=request_path.parent / "result.json",
+    )
+    await execution_repository.update("job-1", ExecutionState.CANCELLED)
+
+    with pytest.raises(RuntimeError, match="pending scheduler confirmation"):
+        await fetcher.recover_unfinished()
+
+    assert len(slurm_client.reconciled_job_names) == 1
+    assert slurm_client.cancelled == ["12345"]
 
 
 @pytest.mark.asyncio

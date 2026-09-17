@@ -25,6 +25,7 @@ from oqtopus_engine_core.simulator.mpi_qulacs import (
     QulacsExecutionRequest,
     SlurmSimulatorOptions,
     build_execution_request,
+    build_slurm_job_labels,
     canonical_request_json,
     read_worker_result,
     request_hash,
@@ -199,9 +200,7 @@ class SlurmSimulatorStep(Step):
             else:
                 message = "root SLURM execution was not started"
                 raise RuntimeError(message)
-        job_token = hashlib.sha256(job.job_id.encode()).hexdigest()[:16]
-        job_name = f"oqtopus-{job_token}-{digest[:16]}"
-        comment = f"oqtopus:{job_token}:{digest[:16]}"
+        job_name, comment = build_slurm_job_labels(job.job_id, digest)
         slurm_job_id = record.slurm_job_id
         if slurm_job_id is None:
             try:

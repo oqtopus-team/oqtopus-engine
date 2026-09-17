@@ -174,3 +174,10 @@ def request_hash(
             separators=(",", ":"),
         )
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def build_slurm_job_labels(job_id: str, digest: str) -> tuple[str, str]:
+    """Build the deterministic SLURM JobName and accounting comment."""
+    job_token = hashlib.sha256(job_id.encode()).hexdigest()[:16]
+    digest_token = digest[:16]
+    return f"oqtopus-{job_token}-{digest_token}", f"oqtopus:{job_token}:{digest_token}"

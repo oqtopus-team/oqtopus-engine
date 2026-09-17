@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -12,8 +13,17 @@ from oqtopus_engine_core.simulator.execution import (
     ExecutionState,
     JobReader,
 )
+from oqtopus_engine_core.simulator.mpi_qulacs import (
+    QulacsExecutionRequest,
+    SlurmSimulatorOptions,
+    build_slurm_job_labels,
+    request_hash,
+)
 from oqtopus_engine_core.simulator.scheduler import SchedulerState
-from oqtopus_engine_core.simulator.scheduler.slurm import SlurmClient
+from oqtopus_engine_core.simulator.scheduler.slurm import (
+    SlurmClient,
+    SlurmReconciliationAmbiguousError,
+)
 from oqtopus_engine_core.simulator.scheduler.slurm.observability import (
     slurm_recovery_counter,
 )
@@ -36,6 +46,12 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         job_fetch_threshold: int = 10,
         work_root: str | None = None,
         artifact_ttl_seconds: int = 604800,
+        batch_script: str | None = None,
+        worker_script: str | None = None,
+        qubits_per_node: int = 30,
+        max_nodes: int = 1024,
+        max_n_per_node: int = 48,
+        max_timeout_seconds: int = 432000,
     ) -> None:
         super().__init__(interval_seconds, limit, job_fetch_threshold)
         self._execution_repository = execution_repository
@@ -44,6 +60,12 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         self._scheduled_job_ids: set[str] = set()
         self._work_root = Path(work_root) if work_root is not None else None
         self._artifact_ttl_seconds = artifact_ttl_seconds
+        self._batch_script = Path(batch_script) if batch_script is not None else None
+        self._worker_script = Path(worker_script) if worker_script is not None else None
+        self._qubits_per_node = qubits_per_node
+        self._max_nodes = max_nodes
+        self._max_n_per_node = max_n_per_node
+        self._max_timeout_seconds = max_timeout_seconds
 
     async def start(self) -> None:
         """Recover execution-owned work before polling Cloud for new jobs."""
@@ -56,6 +78,7 @@ class SlurmJobFetcher(RepositoryJobFetcher):
             message = "Job repository must be set before starting the fetcher."
             raise RuntimeError(message)
 
+        self.validate_runtime_paths()
         await self._execution_repository.initialize()
         await wait_until_fetchable(
             gctx,
@@ -78,6 +101,38 @@ class SlurmJobFetcher(RepositoryJobFetcher):
             except Exception:
                 logger.exception("unexpected error during SLURM job fetch")
                 await asyncio.sleep(self._interval_seconds)
+
+    def validate_runtime_paths(self) -> None:
+        """Validate local paths required before submitting a SLURM allocation."""
+        if self._work_root is None:
+            message = "SLURM work root must be configured before startup."
+            raise RuntimeError(message)
+        work_root = self._work_root.expanduser()
+        if not work_root.is_absolute():
+            message = f"SLURM work root must be absolute: {work_root}"
+            raise ValueError(message)
+        work_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if not work_root.is_dir() or not os.access(work_root, os.W_OK | os.X_OK):
+            message = f"SLURM work root is not writable: {work_root}"
+            raise PermissionError(message)
+
+        for label, configured_script, require_execute in (
+            ("batch", self._batch_script, True),
+            ("worker", self._worker_script, False),
+        ):
+            if configured_script is None:
+                message = f"SLURM {label} script must be configured before startup."
+                raise RuntimeError(message)
+            script = configured_script.expanduser()
+            if not script.is_absolute():
+                message = f"SLURM {label} script must be absolute: {script}"
+                raise ValueError(message)
+            if not script.is_file() or not os.access(script, os.R_OK):
+                message = f"SLURM {label} script is not readable: {script}"
+                raise FileNotFoundError(message)
+            if require_execute and not os.access(script, os.X_OK):
+                message = f"SLURM {label} script is not executable: {script}"
+                raise PermissionError(message)
 
     async def _recover_until_ready(self) -> None:
         while True:
@@ -108,10 +163,12 @@ class SlurmJobFetcher(RepositoryJobFetcher):
                     extra={"job_id": record.cloud_job_id},
                 )
                 continue
-            if record.state in {
-                ExecutionState.CANCELLED,
-                ExecutionState.FAILED,
-            }:
+            if record.state is ExecutionState.FAILED:
+                await self._reconcile_unsynchronized_terminal(job, record)
+                continue
+            if record.state is ExecutionState.CANCELLED:
+                if await self._reconcile_terminal_job(job, record):
+                    continue
                 await self._reconcile_unsynchronized_terminal(job, record)
                 continue
             if await self._reconcile_terminal_job(job, record):
@@ -154,30 +211,30 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         if record.state is ExecutionState.RESULT_READY and job.status != "succeeded":
             return False
         if job.status == "cancelled":
-            if record.slurm_job_id is not None:
-                status = await self._slurm_client.get_status(record.slurm_job_id)
-                if status is None or status.state is SchedulerState.UNKNOWN:
-                    message = (
-                        "cannot confirm SLURM allocation state while startup "
-                        f"cancellation is pending: {record.slurm_job_id}"
-                    )
-                    raise RuntimeError(message)
-                if status.state in {
-                    SchedulerState.PENDING,
-                    SchedulerState.RUNNING,
-                }:
-                    await self._slurm_client.cancel(record.slurm_job_id)
-                    message = (
-                        "startup cancellation is pending scheduler confirmation: "
-                        f"{record.slurm_job_id}"
-                    )
-                    raise RuntimeError(message)
-                if status.state is not SchedulerState.CANCELLED:
-                    message = (
-                        "Cloud cancellation conflicts with SLURM terminal state "
-                        f"{status.raw_state}: {record.slurm_job_id}"
-                    )
-                    raise RuntimeError(message)
+            slurm_job_id = await self._resolve_slurm_job_id(record)
+            status = await self._slurm_client.get_status(slurm_job_id)
+            if status is None or status.state is SchedulerState.UNKNOWN:
+                message = (
+                    "cannot confirm SLURM allocation state while startup "
+                    f"cancellation is pending: {slurm_job_id}"
+                )
+                raise RuntimeError(message)
+            if status.state in {
+                SchedulerState.PENDING,
+                SchedulerState.RUNNING,
+            }:
+                await self._slurm_client.cancel(slurm_job_id)
+                message = (
+                    "startup cancellation is pending scheduler confirmation: "
+                    f"{slurm_job_id}"
+                )
+                raise RuntimeError(message)
+            if status.state is not SchedulerState.CANCELLED:
+                message = (
+                    "Cloud cancellation conflicts with SLURM terminal state "
+                    f"{status.raw_state}: {slurm_job_id}"
+                )
+                raise RuntimeError(message)
             state = ExecutionState.CANCELLED
         elif job.status == "failed":
             state = ExecutionState.FAILED
@@ -188,12 +245,58 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         await self._execution_repository.update(
             job.job_id,
             state,
-            expected={record.state},
+            expected={record.state, state},
             cloud_status=job.status,
         )
         if state is ExecutionState.SUCCEEDED:
             await self._cleanup_succeeded_artifacts(job.job_id)
         return True
+
+    async def _resolve_slurm_job_id(self, record: ExecutionRecord) -> str:
+        if record.slurm_job_id is not None:
+            return record.slurm_job_id
+        if record.request_path is None:
+            message = (
+                "pending scheduler confirmation: SLURM request artifact is missing"
+            )
+            raise RuntimeError(message)
+        if record.options is None:
+            message = "pending scheduler confirmation: SLURM options are missing"
+            raise RuntimeError(message)
+        try:
+            request_text = await asyncio.to_thread(
+                Path(record.request_path).read_text,
+                encoding="utf-8",
+            )
+            request = QulacsExecutionRequest.model_validate_json(request_text)
+            options = SlurmSimulatorOptions.model_validate(record.options).resolve(
+                n_qubits=request.n_qubits,
+                qubits_per_node=self._qubits_per_node,
+                max_nodes=self._max_nodes,
+                max_n_per_node=self._max_n_per_node,
+                max_timeout_seconds=self._max_timeout_seconds,
+            )
+        except Exception as exc:
+            message = "cannot reconstruct persisted SLURM submit intent"
+            raise RuntimeError(message) from exc
+        digest = request_hash(request, options)
+        job_name, _ = build_slurm_job_labels(record.cloud_job_id, digest)
+        try:
+            slurm_job_id = await self._slurm_client.find_job(
+                job_name=job_name,
+                start_time=(
+                    datetime.fromisoformat(record.created_at) - timedelta(days=1)
+                ),
+            )
+        except SlurmReconciliationAmbiguousError:
+            raise
+        except Exception as exc:
+            message = "SLURM submission reconciliation is uncertain"
+            raise RuntimeError(message) from exc
+        if slurm_job_id is None:
+            message = f"pending scheduler confirmation for SLURM JobName {job_name}"
+            raise RuntimeError(message)
+        return slurm_job_id
 
     async def _cleanup_succeeded_artifacts(self, job_id: str) -> None:
         if self._work_root is None:

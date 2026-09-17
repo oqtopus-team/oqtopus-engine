@@ -103,7 +103,7 @@ def test_build_direct_estimation_request_without_transpiler_uses_identity_mappin
     assert request.operators[0].pauli == "Z 0"
 
 
-def test_request_hash_includes_resolved_slurm_resources():
+def test_request_hash_includes_resolved_worker_resources():
     estimation_qasm = SAMPLING_QASM.split("c[1]", maxsplit=1)[0]
     job = make_job("estimation", estimation_qasm)
     options = SlurmSimulatorOptions(n_nodes=1, n_per_node=1)

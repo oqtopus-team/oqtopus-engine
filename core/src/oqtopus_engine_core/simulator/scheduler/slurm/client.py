@@ -205,14 +205,17 @@ class SlurmClient:
             f"--jobs={job_id}",
             "--format=%i|%T|%r",
         ))
-        queue_line = queue_result.stdout.strip().splitlines()
-        if queue_line:
-            fields = queue_line[0].split("|", maxsplit=2)
+        for queue_line in queue_result.stdout.splitlines():
+            if not queue_line.strip():
+                continue
+            fields = queue_line.split("|", maxsplit=2)
             if len(fields) != _SQUEUE_FIELD_COUNT:
                 message = "unexpected squeue output"
                 raise SlurmCommandError(message)
+            if fields[0].strip() != job_id:
+                continue
             return SchedulerJobStatus(
-                job_id=fields[0],
+                job_id=job_id,
                 state=normalize_slurm_state(fields[1]),
                 raw_state=fields[1],
                 reason=fields[2] or None,
@@ -328,7 +331,10 @@ class SlurmClient:
         matches: set[str] = set()
         for line in output.splitlines():
             fields = [field.strip() for field in line.split("|", maxsplit=1)]
-            if len(fields) == _RECONCILIATION_FIELD_COUNT and fields[1] == job_name:
-                cls._validate_job_id(fields[0])
+            if (
+                len(fields) == _RECONCILIATION_FIELD_COUNT
+                and fields[1] == job_name
+                and _SLURM_JOB_ID.fullmatch(fields[0])
+            ):
                 matches.add(fields[0])
         return matches

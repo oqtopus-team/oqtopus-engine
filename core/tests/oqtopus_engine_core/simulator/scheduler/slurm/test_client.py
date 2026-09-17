@@ -168,6 +168,44 @@ async def test_get_status_uses_sacct_when_job_left_queue():
 
 
 @pytest.mark.asyncio
+async def test_get_status_ignores_step_rows_in_squeue_output():
+    runner = StubRunner([
+        command_result(
+            "12345.batch|COMPLETED|None\n12345|RUNNING|Resources\n"
+        ),
+    ])
+    client = SlurmClient(runner, partition="test-partition")
+
+    status = await client.get_status("12345")
+
+    assert status is not None
+    assert status.job_id == "12345"
+    assert status.state is SchedulerState.RUNNING
+    assert status.reason == "Resources"
+    assert [call[0] for call in runner.calls] == ["squeue"]
+
+
+@pytest.mark.asyncio
+async def test_get_status_parses_modified_sacct_state_and_empty_fields():
+    runner = StubRunner([
+        command_result(),
+        command_result(
+            "12345.batch|COMPLETED|0:0|\n"
+            "12345|CANCELLED+||\n"
+        ),
+    ])
+    client = SlurmClient(runner, partition="test-partition")
+
+    status = await client.get_status("12345")
+
+    assert status is not None
+    assert status.state is SchedulerState.CANCELLED
+    assert status.raw_state == "CANCELLED+"
+    assert status.exit_code is None
+    assert status.reason is None
+
+
+@pytest.mark.asyncio
 async def test_find_job_uses_sacct_when_allocation_left_queue():
     job_name = "oqtopus-jobhash-reqhash"
     runner = StubRunner([
@@ -198,6 +236,18 @@ async def test_find_job_requires_exact_job_name_match():
     client = SlurmClient(runner, partition="test-partition")
 
     assert await client.find_job(job_name=job_name) is None
+
+
+@pytest.mark.asyncio
+async def test_find_job_ignores_step_rows_with_matching_job_name():
+    job_name = "oqtopus-jobhash-reqhash"
+    runner = StubRunner([
+        command_result(f"12345.batch|{job_name}\n12345|{job_name}\n"),
+        command_result(),
+    ])
+    client = SlurmClient(runner, partition="test-partition")
+
+    assert await client.find_job(job_name=job_name) == "12345"
 
 
 @pytest.mark.asyncio

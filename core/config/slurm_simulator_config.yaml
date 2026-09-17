@@ -56,6 +56,12 @@ di_container:
       job_fetch_threshold: ${JOB_FETCHER_THRESHOLD, 10}
       work_root: ${SLURM_WORK_ROOT}
       artifact_ttl_seconds: ${SLURM_ARTIFACT_TTL_SECONDS, 604800}
+      batch_script: ${SLURM_BATCH_SCRIPT}
+      worker_script: ${SLURM_WORKER_SCRIPT}
+      qubits_per_node: ${SLURM_QUBITS_PER_NODE, 30}
+      max_nodes: ${SLURM_MAX_NODES, 1024}
+      max_n_per_node: ${SLURM_MAX_TASKS_PER_NODE, 48}
+      max_timeout_seconds: ${SLURM_MAX_TIMEOUT_SECONDS, 432000}
 
     device_fetcher:
       _target_: oqtopus_engine_core.fetchers.ConfiguredDeviceFetcher
