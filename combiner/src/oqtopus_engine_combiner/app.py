@@ -82,8 +82,24 @@ class CircuitCombiner(CombinerServiceServicer):
 
     """
 
-    def __init__(self, *, idle_qubits_insertion_enabled: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        idle_qubits_insertion_enabled: bool = False,
+        assignment_strategy: str = "cpsat",
+        heuristic_mode: str = "backtrack",
+        heuristic_max_backtracks: int = 1000,
+        window_multiplier: int = 4,
+        min_window: int = 32,
+        verify_assignment: bool = False,
+    ) -> None:
         self._idle_qubits_insertion_enabled = idle_qubits_insertion_enabled
+        self._assignment_strategy = assignment_strategy
+        self._heuristic_mode = heuristic_mode
+        self._heuristic_max_backtracks = heuristic_max_backtracks
+        self._window_multiplier = window_multiplier
+        self._min_window = min_window
+        self._verify_assignment = verify_assignment
 
     def Combine(  # noqa: N802
         self,
@@ -305,7 +321,13 @@ class CircuitCombiner(CombinerServiceServicer):
 
                 combined_groups = []
                 combiner = OptimalCircuitCombiner(
-                    idle_qubits_insertion_enabled=self._idle_qubits_insertion_enabled
+                    idle_qubits_insertion_enabled=self._idle_qubits_insertion_enabled,
+                    assignment_strategy=self._assignment_strategy,
+                    heuristic_mode=self._heuristic_mode,
+                    heuristic_max_backtracks=self._heuristic_max_backtracks,
+                    window_multiplier=self._window_multiplier,
+                    min_window=self._min_window,
+                    verify_assignment=self._verify_assignment,
                 )
                 # assign qubits to each circuit and create groups to be combined
                 assigned_ids, assigned_groups = combiner.assign_circuits(
@@ -489,12 +511,33 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
         config_yaml["combiner"].get("idle_qubits_insertion_enabled") or "false"
     )
     idle_qubits_insertion_enabled = str_idle_qubits_insertion_enabled.lower() == "true"
+    assignment_strategy = str(
+        config_yaml["combiner"].get("assignment_strategy") or "cpsat"
+    )
+    heuristic_mode = str(config_yaml["combiner"].get("heuristic_mode") or "backtrack")
+    heuristic_max_backtracks = int(
+        config_yaml["combiner"].get("heuristic_max_backtracks") or 1000
+    )
+    window_multiplier = int(config_yaml["combiner"].get("window_multiplier") or 4)
+    min_window = int(config_yaml["combiner"].get("min_window") or 32)
+    verify_assignment = (
+        str(config_yaml["combiner"].get("verify_assignment") or "false").lower()
+        == "true"
+    )
     grpc_options = config_yaml["proto"].get("grpc_options") or []
 
     # create the gRPC server
     server = create_server(max_workers, grpc_options)
     add_CombinerServiceServicer_to_server(
-        CircuitCombiner(idle_qubits_insertion_enabled=idle_qubits_insertion_enabled),
+        CircuitCombiner(
+            idle_qubits_insertion_enabled=idle_qubits_insertion_enabled,
+            assignment_strategy=assignment_strategy,
+            heuristic_mode=heuristic_mode,
+            heuristic_max_backtracks=heuristic_max_backtracks,
+            window_multiplier=window_multiplier,
+            min_window=min_window,
+            verify_assignment=verify_assignment,
+        ),
         server,
     )
 
@@ -510,6 +553,7 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
             "address": address,
             "max_workers": max_workers,
             "idle_qubits_insertion_enabled": idle_qubits_insertion_enabled,
+            "assignment_strategy": assignment_strategy,
         },
     )
 

@@ -5,8 +5,12 @@ from typing import Any, cast
 import matplotlib.pyplot as plt
 import networkx as nx  # type: ignore[import-untyped]
 import qiskit.qasm3  # type: ignore[import-untyped]
-from ortools.sat.python import cp_model
 from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister
+
+from oqtopus_engine_combiner.assignment import (
+    AssignmentMatch,
+    build_assignment_strategy,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -136,9 +140,27 @@ class OptimalCircuitCombiner:
 
     """
 
-    def __init__(self, *, idle_qubits_insertion_enabled: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        idle_qubits_insertion_enabled: bool = False,
+        assignment_strategy: str = "cpsat",
+        heuristic_mode: str = "backtrack",
+        heuristic_max_backtracks: int = 1000,
+        window_multiplier: int = 4,
+        min_window: int = 32,
+        verify_assignment: bool = False,
+    ) -> None:
         # This variable determines whether idle qubits are considered for assignment.
         self._idle_qubits_insertion_enabled = idle_qubits_insertion_enabled
+        self._strategy = build_assignment_strategy(
+            assignment_strategy,
+            mode=heuristic_mode,
+            max_backtracks=heuristic_max_backtracks,
+            window_multiplier=window_multiplier,
+            min_window=min_window,
+            verify=verify_assignment,
+        )
 
     @staticmethod
     def create_topology_graph(topology_json: dict[str, Any]) -> nx.Graph:
@@ -281,7 +303,7 @@ class OptimalCircuitCombiner:
 
     def combine_circuits_for_groups(
         self, assigned_groups: list[list[JobWithCircuitGraph]]
-    ) -> list[dict[str, Any]]:
+    ) -> list[AssignmentMatch]:
         """Combine circuits for each assigned group.
 
         Args:
@@ -564,124 +586,6 @@ class OptimalCircuitCombiner:
         except Exception:
             logger.exception("failed to draw graph for debugging")
 
-    @staticmethod
-    def _calculate_idle_nodes_before_mapping(
-        used_nodes: set[int],
-        exist_idle_nodes: set[int],
-        inferred_topology: nx.Graph | None,
-        g: nx.Graph,
-    ) -> set[int]:
-        """Calculate idle nodes before mapping.
-
-        Arguments:
-            exist_idle_nodes: Set of idle nodes that already exist before mapping.
-            used_nodes: Set of nodes that have been used by assigned circuits.
-            inferred_topology: This graph representing the device connectivity.
-            g: Graph G representing the circuit to be mapped.
-
-        Returns:
-            A set of idle nodes that should be avoided for mapping the current circuit.
-
-        """
-        # If there is no edge in G (user circuit), this circuit does not have cnot gate.
-        # In this case, we do not consider idle nodes.
-        g_undirected = g.to_undirected()
-        if not g_undirected.number_of_edges() > 0:
-            return set()
-
-        # If there is no used node, return empty set.
-        if len(used_nodes) == 0:
-            if len(exist_idle_nodes) > 0:
-                logger.info(
-                    "Exist idle nodes but no used nodes.",
-                    extra={
-                        "exist_idle_nodes": exist_idle_nodes,
-                        "used_nodes": used_nodes,
-                    },
-                )
-            return set()
-
-        # Calculate idle nodes that should be avoided for mapping.
-        idle_nodes = set()
-        if inferred_topology is not None:
-            undirected_inferred_t = inferred_topology.to_undirected()
-            for node in used_nodes:
-                idle_nodes.update(undirected_inferred_t.neighbors(node))
-        else:
-            logger.info(
-                "Inferred topology is None, cannot calculate idle nodes before mapping"
-            )
-
-        # remove used nodes and existing idle nodes from idle nodes
-        excluded_idle_nodes = used_nodes | exist_idle_nodes
-        idle_nodes.difference_update(excluded_idle_nodes)
-
-        return idle_nodes
-
-    @staticmethod
-    def _calculate_idle_nodes_after_mapping(
-        used_nodes: set[int],
-        exist_idle_nodes: set[int],
-        inferred_topology: nx.Graph | None,
-        g: nx.Graph,
-        result_mapping: dict[int, int],
-    ) -> set[int]:
-        """Calculate idle nodes after mapping.
-
-        Arguments:
-            used_nodes: Set of nodes that have been used by assigned circuits.
-            exist_idle_nodes: Set of idle nodes that already exist before mapping.
-            inferred_topology: This graph representing the device connectivity.
-            g: Graph G representing the circuit that has been mapped.
-            result_mapping: Mapping of nodes in G to nodes in T for the current circuit.
-
-        Returns:
-            A set of idle nodes that should be avoided for mapping.
-
-        """
-        # If there is no edge in G (user circuit), this circuit does not have cnot gate.
-        # In this case, we do not consider idle nodes.
-        g_undirected = g.to_undirected()
-        if not g_undirected.number_of_edges() > 0:
-            return set()
-
-        # Calculate idle nodes that should be avoided for mapping.
-        edge_endpoints = set()
-        for u, v in g_undirected.edges():
-            edge_endpoints.add(u)
-            edge_endpoints.add(v)
-
-        assigned_endpoint_nodes = set()
-        for edge_node in edge_endpoints:
-            value = result_mapping.get(edge_node)
-            if value is not None:
-                assigned_endpoint_nodes.add(value)
-            else:
-                logger.info(
-                    "Edge endpoint not in result mapping, this should not happen",
-                    extra={
-                        "edge_node": edge_node,
-                        "result_mapping": result_mapping,
-                    },
-                )
-
-        idle_nodes = set()
-        if inferred_topology is not None:
-            undirected_inferred_t = inferred_topology.to_undirected()
-            for node in assigned_endpoint_nodes:
-                idle_nodes.update(undirected_inferred_t.neighbors(node))
-        else:
-            logger.info(
-                "Inferred topology is None, cannot calculate idle nodes after mapping"
-            )
-
-        excluded_idle_nodes = (
-            used_nodes | exist_idle_nodes | set(result_mapping.values())
-        )
-        idle_nodes.difference_update(excluded_idle_nodes)
-
-        return idle_nodes
-
     def _find_nonoverlapping_subgraphs_with_t_nodes(
         self,
         t: nx.Graph,
@@ -704,87 +608,9 @@ class OptimalCircuitCombiner:
                 - "T_nodes": List of T nodes used in the mapping.
 
         """
-        used_nodes: set[int] = set()
-        idle_nodes: set[int] = set()
-        results = []
-
-        for idx, job in enumerate(jobs):
-            g = job.circuit_graph
-
-            model = cp_model.CpModel()
-            n_g = g.number_of_nodes()
-            n_t = t.number_of_nodes()
-
-            # Variables that assign nodes of T to each node of G
-            mapping = [model.new_int_var(0, n_t - 1, f"map_{i}") for i in range(n_g)]
-            model.add_all_different(mapping)
-
-            # Add constraints to prevent used nodes from being assigned
-            for m in mapping:
-                for used in used_nodes:
-                    model.add(m != used)
-
-            if self._idle_qubits_insertion_enabled:
-                # Calculate idle nodes that should be avoided for mapping.
-                current_idle_nodes = (
-                    idle_nodes
-                    | self._calculate_idle_nodes_before_mapping(
-                        used_nodes, idle_nodes, inferred_topology, g
-                    )
-                )
-                for m in mapping:
-                    for node in current_idle_nodes:
-                        model.add(m != node)
-
-            # Get the set of edges in T and create allowed pairs for mapping
-            t_edges_set = set(t.edges())
-            # if undirected graph (direction of qubit connections does not matter),
-            # uncomment the following line to add reverse edges
-            allowed_pairs = list(t_edges_set)  # + [(b, a) for (a, b) in t_edges_set]
-
-            # Add constraints to ensure edges in G map to edges in T
-            for u, v in g.edges():
-                model.add_allowed_assignments(
-                    [mapping[int(u)], mapping[int(v)]], allowed_pairs
-                )
-
-            # run solver
-            solver = cp_model.CpSolver()
-            status = solver.Solve(model)
-            logger.debug(
-                "running solver",
-                extra={
-                    "job_id": job.job_id,
-                    "status": status,
-                },
-            )
-
-            if status in {cp_model.OPTIMAL, cp_model.FEASIBLE}:
-                result_mapping = {i: solver.Value(mapping[i]) for i in range(n_g)}
-                mapped_t_nodes = list(set(result_mapping.values()))
-
-                results.append({
-                    "G_index": idx,
-                    "job_id": job.job_id,
-                    "mapping": result_mapping,
-                    "T_nodes": mapped_t_nodes,
-                })
-
-                if self._idle_qubits_insertion_enabled:
-                    # Calculate idle nodes that should be avoided for mapping.
-                    idle_nodes.update(
-                        self._calculate_idle_nodes_after_mapping(
-                            used_nodes, idle_nodes, inferred_topology, g, result_mapping
-                        )
-                    )
-                used_nodes.update(mapped_t_nodes)
-            else:
-                logger.debug(
-                    "job does not match",
-                    extra={
-                        "job_id": job.job_id,
-                        "index": idx,
-                    },
-                )
-
-        return results
+        return self._strategy.assign(
+            t,
+            jobs,
+            inferred_topology,
+            idle_qubits_insertion_enabled=self._idle_qubits_insertion_enabled,
+        )
