@@ -9,3 +9,9 @@ proto: # Settings for gRPC server
     - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
 combiner:
   idle_qubits_insertion_enabled: ${IDLE_QUBITS_INSERTION_ENABLED, false} # Enable or disable insertion of idle qubits (true/false)
+  assignment_strategy: ${ASSIGNMENT_STRATEGY, "cpsat-window"} # cpsat / cpsat-window / heuristic
+  heuristic_mode: ${HEURISTIC_MODE, "backtrack"} # greedy / backtrack
+  heuristic_max_backtracks: ${HEURISTIC_MAX_BACKTRACKS, 1000}
+  window_multiplier: ${WINDOW_MULTIPLIER, 4}
+  min_window: ${MIN_WINDOW, 32}
+  verify_assignment: ${VERIFY_ASSIGNMENT, false}
