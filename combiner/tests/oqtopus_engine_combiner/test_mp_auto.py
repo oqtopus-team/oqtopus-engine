@@ -14,6 +14,7 @@ from oqtopus_engine_combiner.mp_auto import (  # type: ignore[import-untyped]
     OptimalCircuitCombiner,
     POSITION_EPSILON,
 )
+from oqtopus_engine_combiner.assignment.base import AssignmentStrategyBase
 
 
 # --- Helper fixtures and data ---
@@ -841,8 +842,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_1Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_before_mapping(
             set(), set(), topology, job.circuit_graph
         )
 
@@ -854,8 +855,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_before_mapping(
             set(), set(), topology, job.circuit_graph
         )
 
@@ -868,9 +869,9 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
-            idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+        strategy = AssignmentStrategyBase()
+        with patch("oqtopus_engine_combiner.assignment.base.logger.info") as mock_info:
+            idle_nodes = strategy._calculate_idle_nodes_before_mapping(
                 set(), {0, 1}, topology, job.circuit_graph
             )
 
@@ -886,9 +887,9 @@ class TestOptimalCircuitCombiner:
     def test_calculate_idle_nodes_before_mapping_with_none_inferred_topology(self):
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
-            idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+        strategy = AssignmentStrategyBase()
+        with patch("oqtopus_engine_combiner.assignment.base.logger.info") as mock_info:
+            idle_nodes = strategy._calculate_idle_nodes_before_mapping(
                 {0}, set(), None, job.circuit_graph
             )
 
@@ -902,8 +903,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_before_mapping(
             {5, 6}, set(), topology, job.circuit_graph
         )
 
@@ -914,8 +915,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_before_mapping(
             {5, 6}, {1, 2, 4, 7, 9, 10}, topology, job.circuit_graph
         )
 
@@ -927,8 +928,8 @@ class TestOptimalCircuitCombiner:
 
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_before_mapping(
             {19, 36}, set(), topology, job.circuit_graph
         )
 
@@ -939,8 +940,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_before_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_before_mapping(
             {19, 35, 36}, {27, 28, 34, 37, 43, 44}, topology, job.circuit_graph
         )
 
@@ -953,8 +954,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_1Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_after_mapping(
             set(), set(), topology, job.circuit_graph, {1: 1}
         )
 
@@ -965,9 +966,9 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
-            idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+        strategy = AssignmentStrategyBase()
+        with patch("oqtopus_engine_combiner.assignment.base.logger.info") as mock_info:
+            idle_nodes = strategy._calculate_idle_nodes_after_mapping(
                 set(), set(), topology, job.circuit_graph, {0: 0, 100: 1}
             )
 
@@ -983,9 +984,9 @@ class TestOptimalCircuitCombiner:
     def test_calculate_idle_nodes_after_mapping_with_none_inferred_topology(self):
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        with patch("oqtopus_engine_combiner.mp_auto.logger.info") as mock_info:
-            idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+        strategy = AssignmentStrategyBase()
+        with patch("oqtopus_engine_combiner.assignment.base.logger.info") as mock_info:
+            idle_nodes = strategy._calculate_idle_nodes_after_mapping(
                 set(), set(), None, job.circuit_graph, {0: 0, 1: 1}
             )
 
@@ -999,8 +1000,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_after_mapping(
             set(), set(), topology, job.circuit_graph, {0: 0, 1: 1}
         )
 
@@ -1011,8 +1012,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_after_mapping(
             {6}, set(), topology, job.circuit_graph, {0: 0, 1: 1}
         )
 
@@ -1023,8 +1024,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_after_mapping(
             {8, 9}, {4, 5, 10}, topology, job.circuit_graph, {0: 0, 1: 1}
         )
 
@@ -1035,8 +1036,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_after_mapping(
             {17}, set(), topology, job.circuit_graph, {0: 18, 1: 19}
         )
 
@@ -1047,8 +1048,8 @@ class TestOptimalCircuitCombiner:
         topology = OptimalCircuitCombiner.create_device_grid_graph(topology_json)
         job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
 
-        combiner = OptimalCircuitCombiner()
-        idle_nodes = combiner._calculate_idle_nodes_after_mapping(
+        strategy = AssignmentStrategyBase()
+        idle_nodes = strategy._calculate_idle_nodes_after_mapping(
             {21, 22}, {13, 14, 20, 23, 29, 30}, topology, job.circuit_graph, {0: 18, 1: 19}
         )
 
