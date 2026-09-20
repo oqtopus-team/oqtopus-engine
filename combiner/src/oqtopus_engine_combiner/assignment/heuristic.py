@@ -4,7 +4,8 @@ import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-import networkx as nx  # type: ignore[import-untyped]
+if TYPE_CHECKING:
+    import networkx as nx  # type: ignore[import-untyped]
 
 from oqtopus_engine_combiner.assignment.base import AssignmentMatch, validate_assignment
 
@@ -21,12 +22,14 @@ class HeuristicAssignmentStrategy:
 
     def __init__(
         self,
+        *,
         mode: str = "greedy",
         max_backtracks: int = 1000,
         verify: bool = False,
     ) -> None:
         if mode not in {"greedy", "backtrack"}:
-            raise ValueError(f"unknown heuristic mode: {mode}")
+            message = f"unknown heuristic mode: {mode}"
+            raise ValueError(message)
         self._max_backtracks = 0 if mode == "greedy" else int(max_backtracks)
         self._verify = verify
 
@@ -34,13 +37,19 @@ class HeuristicAssignmentStrategy:
         self,
         t: nx.Graph,
         jobs: list[JobWithCircuitGraph],
-        inferred_topology: nx.Graph | None = None,
+        inferred_topology: nx.Graph | None = None,  # noqa: ARG002
+        *,
         idle_qubits_insertion_enabled: bool = False,
     ) -> list[AssignmentMatch]:
+        """Find non-overlapping embeddings with heuristic search.
+
+        Returns:
+            A list of non-overlapping circuit-to-topology assignments.
+
+        """
         if idle_qubits_insertion_enabled:
-            raise NotImplementedError(
-                "heuristic strategy does not support idle qubit insertion yet"
-            )
+            message = "heuristic strategy does not support idle qubit insertion yet"
+            raise NotImplementedError(message)
         logger.debug("Starting assignment with heuristic strategy")
         # Hoist topology preprocessing outside the per-job embedding loop.
         edges = set(t.edges())
@@ -69,7 +78,7 @@ class HeuristicAssignmentStrategy:
             )
         return results
 
-    def _embed(
+    def _embed(  # noqa: C901, PLR0913, PLR0915, PLR0917
         self,
         graph: nx.Graph,
         t_edges: set[tuple[int, int]],
@@ -79,7 +88,12 @@ class HeuristicAssignmentStrategy:
         all_nodes: list[int],
         used: set[int],
     ) -> dict[int, int] | None:
-        """Embed one circuit graph and return ``None`` when no embedding is found."""
+        """Embed one circuit graph.
+
+        Returns:
+            A circuit-to-topology mapping, or ``None`` when no embedding exists.
+
+        """
         nodes = list(graph.nodes())
         if not nodes:
             return {}
@@ -146,7 +160,7 @@ class HeuristicAssignmentStrategy:
                     return False
             return True
 
-        def search() -> dict[int, int] | None:
+        def search() -> dict[int, int] | None:  # noqa: C901, PLR0912
             if len(assigned) == len(nodes):
                 return dict(assigned)
             node = select()
@@ -158,7 +172,8 @@ class HeuristicAssignmentStrategy:
                 trail: list[tuple[int, set[int]]] = []
                 alive = True
                 # Propagate directed edge constraints and all-different constraints.
-                # Store only removed values so each failed branch can be restored cheaply.
+                # Store only removed values so each failed branch can be restored
+                # cheaply.
                 for neighbor in successors[node]:
                     if neighbor not in assigned:
                         removed = domains[neighbor] - t_successors.get(physical, set())

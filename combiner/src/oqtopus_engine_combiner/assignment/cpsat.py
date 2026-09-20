@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import networkx as nx  # type: ignore[import-untyped]
+if TYPE_CHECKING:
+    import networkx as nx  # type: ignore[import-untyped]
 from ortools.sat.python import cp_model
 
 from oqtopus_engine_combiner.assignment.base import (
@@ -22,7 +23,7 @@ class CpsatAssignmentStrategy(AssignmentStrategyBase):
 
     name = "cpsat"
 
-    def __init__(self, verify: bool = False) -> None:
+    def __init__(self, *, verify: bool = False) -> None:
         # Keep the baseline solving logic unchanged; verification only checks results.
         self._verify = verify
 
@@ -31,6 +32,7 @@ class CpsatAssignmentStrategy(AssignmentStrategyBase):
         t: nx.Graph,
         jobs: list[JobWithCircuitGraph],
         inferred_topology: nx.Graph | None = None,
+        *,
         idle_qubits_insertion_enabled: bool = False,
     ) -> list[AssignmentMatch]:
         """Find subgraphs in jobs' circuit graphs that can be mapped to T.

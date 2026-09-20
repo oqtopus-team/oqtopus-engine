@@ -16,7 +16,7 @@ from opentelemetry import trace
 from oqtopus_util.config import load_config, setup_logging
 from qiskit import QuantumCircuit
 
-from oqtopus_engine_combiner.mp_auto import OptimalCircuitCombiner
+from oqtopus_engine_combiner.mp_auto import CombinerConfig, OptimalCircuitCombiner
 from oqtopus_engine_combiner.observability import setup_observability
 from oqtopus_engine_core.interfaces.combiner_interface.v1.combiner_pb2 import (  # type: ignore[attr-defined]
     DESCRIPTOR,
@@ -82,24 +82,9 @@ class CircuitCombiner(CombinerServiceServicer):
 
     """
 
-    def __init__(
-        self,
-        *,
-        idle_qubits_insertion_enabled: bool = False,
-        assignment_strategy: str = "cpsat",
-        heuristic_mode: str = "backtrack",
-        heuristic_max_backtracks: int = 1000,
-        window_multiplier: int = 4,
-        min_window: int = 32,
-        verify_assignment: bool = False,
-    ) -> None:
-        self._idle_qubits_insertion_enabled = idle_qubits_insertion_enabled
-        self._assignment_strategy = assignment_strategy
-        self._heuristic_mode = heuristic_mode
-        self._heuristic_max_backtracks = heuristic_max_backtracks
-        self._window_multiplier = window_multiplier
-        self._min_window = min_window
-        self._verify_assignment = verify_assignment
+    def __init__(self, config: CombinerConfig | None = None) -> None:
+        self._config = config or CombinerConfig()
+        self._idle_qubits_insertion_enabled = self._config.idle_qubits_insertion_enabled
 
     def Combine(  # noqa: N802
         self,
@@ -320,15 +305,7 @@ class CircuitCombiner(CombinerServiceServicer):
                 device_info = json.loads(request.device_info)
 
                 combined_groups = []
-                combiner = OptimalCircuitCombiner(
-                    idle_qubits_insertion_enabled=self._idle_qubits_insertion_enabled,
-                    assignment_strategy=self._assignment_strategy,
-                    heuristic_mode=self._heuristic_mode,
-                    heuristic_max_backtracks=self._heuristic_max_backtracks,
-                    window_multiplier=self._window_multiplier,
-                    min_window=self._min_window,
-                    verify_assignment=self._verify_assignment,
-                )
+                combiner = OptimalCircuitCombiner(self._config)
                 # assign qubits to each circuit and create groups to be combined
                 assigned_ids, assigned_groups = combiner.assign_circuits(
                     jobs=jobs, device_info=device_info
@@ -530,13 +507,15 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     server = create_server(max_workers, grpc_options)
     add_CombinerServiceServicer_to_server(
         CircuitCombiner(
-            idle_qubits_insertion_enabled=idle_qubits_insertion_enabled,
-            assignment_strategy=assignment_strategy,
-            heuristic_mode=heuristic_mode,
-            heuristic_max_backtracks=heuristic_max_backtracks,
-            window_multiplier=window_multiplier,
-            min_window=min_window,
-            verify_assignment=verify_assignment,
+            CombinerConfig(
+                idle_qubits_insertion_enabled=idle_qubits_insertion_enabled,
+                assignment_strategy=assignment_strategy,
+                heuristic_mode=heuristic_mode,
+                heuristic_max_backtracks=heuristic_max_backtracks,
+                window_multiplier=window_multiplier,
+                min_window=min_window,
+                verify_assignment=verify_assignment,
+            )
         ),
         server,
     )

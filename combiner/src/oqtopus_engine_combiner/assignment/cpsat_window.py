@@ -22,6 +22,7 @@ class CpsatWindowAssignmentStrategy:
 
     def __init__(
         self,
+        *,
         window_multiplier: int = 4,
         min_window: int = 32,
         max_seed_attempts: int = 512,
@@ -38,13 +39,19 @@ class CpsatWindowAssignmentStrategy:
         self,
         t: nx.Graph,
         jobs: list[JobWithCircuitGraph],
-        inferred_topology: nx.Graph | None = None,
+        inferred_topology: nx.Graph | None = None,  # noqa: ARG002
+        *,
         idle_qubits_insertion_enabled: bool = False,
     ) -> list[AssignmentMatch]:
+        """Find circuit embeddings using local topology windows.
+
+        Returns:
+            A list of non-overlapping circuit-to-topology assignments.
+
+        """
         if idle_qubits_insertion_enabled:
-            raise NotImplementedError(
-                "cpsat-window strategy does not support idle qubit insertion yet"
-            )
+            message = "cpsat-window strategy does not support idle qubit insertion yet"
+            raise NotImplementedError(message)
         logger.debug("Starting assignment with cpsat-window strategy")
         # Hoist topology preprocessing outside the per-job loop.
         # The window search uses an undirected graph only to find local candidates;
@@ -80,7 +87,7 @@ class CpsatWindowAssignmentStrategy:
             )
         return results
 
-    def _solve_windowed(
+    def _solve_windowed(  # noqa: PLR0913, PLR0917
         self,
         t_edges: set[tuple[int, int]],
         topology: nx.Graph,
@@ -91,7 +98,8 @@ class CpsatWindowAssignmentStrategy:
     ) -> dict[int, int] | None:
         window = max(n_g * self._window_multiplier, self._min_window)
         attempts = 0
-        # Try local regions first, then retain exact satisfiability with a full fallback.
+        # Try local regions first, then retain exact satisfiability with a full
+        # fallback.
         for seed in all_nodes:
             if seed not in free:
                 continue
@@ -112,7 +120,12 @@ class CpsatWindowAssignmentStrategy:
     def _bfs_free_window(
         topology: nx.Graph, free: set[int], seed: int, size: int
     ) -> list[int]:
-        """Collect up to ``size`` free nodes by breadth-first traversal from ``seed``."""
+        """Collect free nodes by breadth-first traversal from ``seed``.
+
+        Returns:
+            Up to ``size`` free topology nodes.
+
+        """
         collected: list[int] = []
         seen = {seed}
         queue = deque([seed])
@@ -134,7 +147,12 @@ class CpsatWindowAssignmentStrategy:
         edges: list[tuple[int, int]],
         candidates: list[int],
     ) -> dict[int, int] | None:
-        """Solve the embedding using only the supplied candidate physical nodes."""
+        """Solve the embedding using only candidate physical nodes.
+
+        Returns:
+            A circuit-to-topology mapping, or ``None`` when no embedding exists.
+
+        """
         candidate_set = set(candidates)
         # Restrict variable domains and allowed pairs to the current local window.
         allowed_pairs = [

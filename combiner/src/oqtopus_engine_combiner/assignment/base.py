@@ -4,7 +4,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-import networkx as nx  # type: ignore[import-untyped]
+if TYPE_CHECKING:
+    import networkx as nx  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
     from oqtopus_engine_combiner.mp_auto import JobWithCircuitGraph
@@ -21,8 +22,13 @@ class AssignmentMatch:
     mapping: dict[int, int]
     T_nodes: list[int]
 
-    def __getitem__(self, key: str) -> Any:
-        """Keep compatibility with the former dictionary-shaped result."""
+    def __getitem__(self, key: str) -> Any:  # noqa: ANN401
+        """Keep compatibility with the former dictionary-shaped result.
+
+        Returns:
+            The requested match attribute.
+
+        """
         return getattr(self, key)
 
 
@@ -36,8 +42,10 @@ class AssignmentStrategy(Protocol):
         t: nx.Graph,
         jobs: list[JobWithCircuitGraph],
         inferred_topology: nx.Graph | None = None,
+        *,
         idle_qubits_insertion_enabled: bool = False,
-    ) -> list[AssignmentMatch]: ...
+    ) -> list[AssignmentMatch]:
+        """Find non-overlapping circuit embeddings."""
 
 
 class AssignmentStrategyBase:
@@ -50,7 +58,12 @@ class AssignmentStrategyBase:
         inferred_topology: nx.Graph | None,
         g: nx.Graph,
     ) -> set[int]:
-        """Calculate idle nodes that should be avoided before mapping."""
+        """Calculate idle nodes that should be avoided before mapping.
+
+        Returns:
+            Idle topology nodes that should not be used for the mapping.
+
+        """
         g_undirected = g.to_undirected()
         if not g_undirected.number_of_edges() > 0:
             return set()
@@ -88,7 +101,12 @@ class AssignmentStrategyBase:
         g: nx.Graph,
         result_mapping: dict[int, int],
     ) -> set[int]:
-        """Calculate idle nodes that should be avoided after mapping."""
+        """Calculate idle nodes that should be avoided after mapping.
+
+        Returns:
+            Idle topology nodes that should not be used for the next mapping.
+
+        """
         g_undirected = g.to_undirected()
         if not g_undirected.number_of_edges() > 0:
             return set()
@@ -133,9 +151,22 @@ class AssignmentStrategyBase:
 def validate_assignment(
     t: nx.Graph, g: nx.Graph, mapping: dict[int, int], used_before: set[int]
 ) -> None:
-    """Validate a subgraph embedding when strategy verification is enabled."""
+    """Validate a subgraph embedding when strategy verification is enabled.
+
+    Raises:
+        AssertionError: If the mapping is not a valid non-overlapping embedding.
+
+    """
     t_edges = set(t.edges())
-    assert set(mapping) == set(g.nodes())
-    assert len(mapping) == len(set(mapping.values()))
-    assert all((mapping[u], mapping[v]) in t_edges for u, v in g.edges())
-    assert not set(mapping.values()).intersection(used_before)
+    if set(mapping) != set(g.nodes()):
+        message = "mapping does not cover the circuit graph"
+        raise AssertionError(message)
+    if len(mapping) != len(set(mapping.values())):
+        message = "mapping assigns a physical node more than once"
+        raise AssertionError(message)
+    if not all((mapping[u], mapping[v]) in t_edges for u, v in g.edges()):
+        message = "mapping contains a non-existent topology edge"
+        raise AssertionError(message)
+    if set(mapping.values()).intersection(used_before):
+        message = "mapping overlaps previously used topology nodes"
+        raise AssertionError(message)

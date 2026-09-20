@@ -1,5 +1,6 @@
 import logging
 import operator
+from dataclasses import dataclass
 from typing import Any, cast
 
 import matplotlib.pyplot as plt
@@ -9,6 +10,7 @@ from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister
 
 from oqtopus_engine_combiner.assignment import (
     AssignmentMatch,
+    AssignmentStrategyBase,
     build_assignment_strategy,
 )
 
@@ -17,6 +19,19 @@ logger = logging.getLogger(__name__)
 TARGET_SIZE = 30
 DEBUG_DRAW_GRAPH = False
 POSITION_EPSILON = 1e-9
+
+
+@dataclass(frozen=True)
+class CombinerConfig:
+    """Configuration shared by the standard and optimal combiners."""
+
+    idle_qubits_insertion_enabled: bool = False
+    assignment_strategy: str = "cpsat"
+    heuristic_mode: str = "backtrack"
+    heuristic_max_backtracks: int = 1000
+    window_multiplier: int = 4
+    min_window: int = 32
+    verify_assignment: bool = False
 
 
 class JobWithCircuitGraph:
@@ -132,7 +147,7 @@ class JobWithCircuitGraph:
         }
 
 
-class OptimalCircuitCombiner:
+class OptimalCircuitCombiner(AssignmentStrategyBase):
     """Combines quantum circuits optimally based on device topology.
 
     This class assigns qubits to quantum circuits based on the device topology
@@ -140,26 +155,17 @@ class OptimalCircuitCombiner:
 
     """
 
-    def __init__(
-        self,
-        *,
-        idle_qubits_insertion_enabled: bool = False,
-        assignment_strategy: str = "cpsat",
-        heuristic_mode: str = "backtrack",
-        heuristic_max_backtracks: int = 1000,
-        window_multiplier: int = 4,
-        min_window: int = 32,
-        verify_assignment: bool = False,
-    ) -> None:
+    def __init__(self, config: CombinerConfig | None = None) -> None:
+        config = config or CombinerConfig()
         # This variable determines whether idle qubits are considered for assignment.
-        self._idle_qubits_insertion_enabled = idle_qubits_insertion_enabled
+        self._idle_qubits_insertion_enabled = config.idle_qubits_insertion_enabled
         self._strategy = build_assignment_strategy(
-            assignment_strategy,
-            mode=heuristic_mode,
-            max_backtracks=heuristic_max_backtracks,
-            window_multiplier=window_multiplier,
-            min_window=min_window,
-            verify=verify_assignment,
+            config.assignment_strategy,
+            mode=config.heuristic_mode,
+            max_backtracks=config.heuristic_max_backtracks,
+            window_multiplier=config.window_multiplier,
+            min_window=config.min_window,
+            verify=config.verify_assignment,
         )
 
     @staticmethod
@@ -303,7 +309,7 @@ class OptimalCircuitCombiner:
 
     def combine_circuits_for_groups(
         self, assigned_groups: list[list[JobWithCircuitGraph]]
-    ) -> list[AssignmentMatch]:
+    ) -> list[dict[str, Any]]:
         """Combine circuits for each assigned group.
 
         Args:
@@ -543,7 +549,7 @@ class OptimalCircuitCombiner:
     def _draw_graph(
         g: nx.MultiDiGraph,
         topology_json: dict,
-        matches: list[dict[str, Any]],
+        matches: list[AssignmentMatch],
         filename: str,
     ) -> None:
         """Draw the topology graph with assigned nodes highlighted for debugging."""
@@ -577,7 +583,7 @@ class OptimalCircuitCombiner:
                 pos[qubit["id"]] = (position["x"], position["y"])
 
             for i, match in enumerate(matches):
-                for node in match["T_nodes"]:
+                for node in match.T_nodes:
                     node_colors[node] = colors[i]
 
             nx.draw(g, pos=pos, with_labels=True, node_color=node_colors)
@@ -591,7 +597,7 @@ class OptimalCircuitCombiner:
         t: nx.Graph,
         jobs: list[JobWithCircuitGraph],
         inferred_topology: nx.Graph | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[AssignmentMatch]:
         """Find subgraphs in jobs' circuit graphs that can be mapped to T.
 
         Args:
