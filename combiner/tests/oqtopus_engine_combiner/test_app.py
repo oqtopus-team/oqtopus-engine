@@ -617,7 +617,7 @@ def test_serve_starts_and_configures_server(tmp_path):
         # Check that idle_qubits_insertion_enabled is True
         mock_add_servicer.assert_called_once()
         combiner_instance = mock_add_servicer.call_args[0][0]
-        assert combiner_instance._idle_qubits_insertion_enabled is True
+        assert combiner_instance._config.idle_qubits_insertion_enabled is True
 
 
 def test_serve_uses_defaults_when_config_missing_values(tmp_path):
@@ -641,8 +641,8 @@ def test_serve_uses_defaults_when_config_missing_values(tmp_path):
         serve(str(config_path), str(logging_path))
         mock_server.add_insecure_port.assert_called_once_with("[::]:51013")
 
-                # Check that idle_qubits_insertion_enabled is True
+        # Check that idle_qubits_insertion_enabled is True
         mock_add_servicer.assert_called_once()
         combiner_instance = mock_add_servicer.call_args[0][0]
-        assert combiner_instance._idle_qubits_insertion_enabled is False
+        assert combiner_instance._config.idle_qubits_insertion_enabled is False
     

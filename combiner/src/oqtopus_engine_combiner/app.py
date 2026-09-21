@@ -84,7 +84,6 @@ class CircuitCombiner(CombinerServiceServicer):
 
     def __init__(self, config: CombinerConfig | None = None) -> None:
         self._config = config or CombinerConfig()
-        self._idle_qubits_insertion_enabled = self._config.idle_qubits_insertion_enabled
 
     def Combine(  # noqa: N802
         self,
@@ -285,14 +284,15 @@ class CircuitCombiner(CombinerServiceServicer):
 
         with tracer.start_as_current_span("combiner.OptimalCombine") as span:
             try:
-                # deal with request JSON-array
+                # device_info is not logged because it can affect performance when large
                 logger.info(
                     "start optimal_combine_circuit",
                     extra={
-                        "request": request,
+                        "programs": request.programs,
                     },
                 )
 
+                # deal with request JSON-array
                 jobs = self.deal_with_request_programs(programs=request.programs)
                 if span.is_recording():
                     span.set_attribute("combiner.num_input_circuits", len(jobs))
@@ -303,6 +303,12 @@ class CircuitCombiner(CombinerServiceServicer):
                     },
                 )
                 device_info = json.loads(request.device_info)
+                logger.debug(
+                    "parsed device_info",
+                    extra={
+                        "topology_n_qubits": device_info.get("n_qubits"),
+                    },
+                )
 
                 combined_groups = []
                 combiner = OptimalCircuitCombiner(self._config)

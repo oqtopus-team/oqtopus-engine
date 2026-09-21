@@ -522,9 +522,12 @@ class MpAutoCombiningBuffer(Buffer):
             programs=programs,
             device_info=jobs[0][0].device.device_info,  # type: ignore[union-attr]
         )
+        # device_info is not logged because it can be large and affect performance
         logger.info(
             "OptimalCombineRequest request",
-            extra={"request": request},
+            extra={
+                "programs": request.programs,
+            },
         )
 
         start = time.perf_counter()
