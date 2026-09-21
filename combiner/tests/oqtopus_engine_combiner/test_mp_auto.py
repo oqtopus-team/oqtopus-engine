@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 sys.path.append(str(Path(__file__).resolve().parent.parent.joinpath("src")))
 
@@ -8,7 +9,9 @@ import networkx as nx  # type: ignore[import-untyped]
 import pytest
 from qiskit import QuantumCircuit  # type: ignore[import-untyped]
 
+from oqtopus_engine_combiner.assignment.base import AssignmentMatch
 from oqtopus_engine_combiner.mp_auto import (  # type: ignore[import-untyped]
+    CombinerConfig,
     JobWithCircuitGraph,
     OptimalCircuitCombiner,
     POSITION_EPSILON,
@@ -235,6 +238,34 @@ class TestOptimalCircuitCombiner:
         assert "job-2" in assigned_ids  # The 1Q job should be assigned
         assert len(assigned_groups) == 1    # Only one group with the assignable job
 
+    def test_assign_circuits_with_idle_qubits_insertion_enabled(self):
+        combiner = OptimalCircuitCombiner(
+            CombinerConfig(idle_qubits_insertion_enabled=True)
+        )
+        topology = make_linear_topology(7)
+        jobs = [
+            {"job_id": "job-1", "program": SIMPLE_2Q_QASM},
+            {"job_id": "job-2", "program": SIMPLE_2Q_QASM},
+        ]
+
+        assigned_ids, assigned_groups = combiner.assign_circuits(jobs, topology)
+
+        assert set(assigned_ids) == {"job-1", "job-2"}
+        assert len(assigned_groups) == 1
+
+    def test_assign_circuits_draws_debug_graph_when_enabled(self):
+        combiner = OptimalCircuitCombiner()
+        topology = make_linear_topology(5)
+        jobs = [{"job_id": "job-1", "program": SIMPLE_2Q_QASM}]
+
+        with (
+            patch("oqtopus_engine_combiner.mp_auto.DEBUG_DRAW_GRAPH", new=True),
+            patch.object(OptimalCircuitCombiner, "_draw_graph") as mock_draw_graph,
+        ):
+            combiner.assign_circuits(jobs, topology)
+
+        mock_draw_graph.assert_called_once()
+
     # --- combine_circuits ---
 
     def test_combine_circuits_single_job(self):
@@ -384,7 +415,7 @@ class TestOptimalCircuitCombiner:
     def test_draw_graph_does_not_raise(self, tmp_path):
         topology_json = make_linear_topology(5)
         topology = OptimalCircuitCombiner.create_topology_graph(topology_json)
-        matches = [{"T_nodes": [0, 1]}]
+        matches = [AssignmentMatch(0, "job-1", {0: 0, 1: 1}, [0, 1])]
         filename = str(tmp_path / "test_graph.png")
 
         # Should not raise

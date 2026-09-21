@@ -22,6 +22,7 @@ from tests.oqtopus_engine_combiner.topology_helpers import (
     UNASSIGNABLE_3Q_QASM,
     make_grid_topology,
     make_grid_topology_with_defects,
+    make_linear_topology,
 )
 
 
@@ -87,3 +88,36 @@ class TestHeuristicAssignmentStrategy(
         matched_ids = {r.job_id for r in results}
         assert "job-1" not in matched_ids
         assert "job-2" in matched_ids
+
+    def test_assign_with_verify_enabled_validates_mapping(self):
+        topology = OptimalCircuitCombiner.create_topology_graph(make_linear_topology(5))
+        job = JobWithCircuitGraph(job_id="job-1", program=SIMPLE_2Q_QASM)
+
+        results = HeuristicAssignmentStrategy(mode="backtrack", verify=True).assign(
+            topology, [job]
+        )
+
+        assert len(results) == 1
+
+    def test_embed_returns_empty_mapping_for_qubitless_job(self):
+        topology = OptimalCircuitCombiner.create_topology_graph(make_linear_topology(3))
+        # Declared but unused qubits never become circuit_graph nodes.
+        qasm = 'OPENQASM 3;\ninclude "stdgates.inc";\nqubit[1] q;\nbit[1] c;'
+        job = JobWithCircuitGraph(job_id="job-1", program=qasm)
+        assert job.circuit_graph.number_of_nodes() == 0
+
+        results = HeuristicAssignmentStrategy().assign(topology, [job])
+
+        assert len(results) == 1
+        assert results[0].mapping == {}
+        assert results[0].T_nodes == []
+
+    def test_embed_returns_none_when_backtrack_budget_exhausted(self):
+        topology = OptimalCircuitCombiner.create_topology_graph(make_grid_topology(3, 3))
+        job = JobWithCircuitGraph(job_id="job-1", program=UNASSIGNABLE_3Q_QASM)
+
+        results = HeuristicAssignmentStrategy(mode="backtrack", max_backtracks=0).assign(
+            topology, [job]
+        )
+
+        assert len(results) == 0
