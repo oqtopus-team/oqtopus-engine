@@ -378,7 +378,10 @@ class OptimalCircuitCombiner(AssignmentStrategyBase):
 
         # copy each circuit into the new circuit with remapped qubits
         for job in grouped_jobs:
-            circuit = qiskit.qasm3.loads(job.program)
+            try:
+                circuit = qiskit.qasm3.loads_experimental(job.program)
+            except qiskit.qasm3.QASM3ImporterError:
+                circuit = qiskit.qasm3.loads(job.program)
             qc, measure_ops = self._copy_gates_with_mapping(
                 source_circuit=circuit,
                 target_circuit=qc,
