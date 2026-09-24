@@ -234,16 +234,23 @@ class PipelineExecutor:
             # directly without going through PipelineManager (e.g. tests),
             # since OTel attribute values must not be None.
             pipeline_name = jctx.get("pipeline_name") or "unknown"
+            # Combined/internal jobs have no repository_job_id (None); fall
+            # back to "" since OTel attribute/baggage values must not be None.
+            repository_job_id = job.repository_job_id or ""
             root_span = tracer.start_span(
                 "oqtopus_engine.job.process",
                 attributes={
                     "oqtopus.job_id": job.job_id,
+                    "oqtopus.repository_job_id": repository_job_id,
                     "oqtopus.pipeline_name": pipeline_name,
                     "oqtopus.device_id": job.device_id,
                 },
             )
             ctx = trace.set_span_in_context(root_span)
             ctx = baggage.set_baggage("oqtopus.job_id", job.job_id, context=ctx)
+            ctx = baggage.set_baggage(
+                "oqtopus.repository_job_id", repository_job_id, context=ctx
+            )
             ctx = baggage.set_baggage(
                 "oqtopus.pipeline_name", pipeline_name, context=ctx
             )
@@ -547,6 +554,7 @@ class PipelineExecutor:
                 f"oqtopus_engine.pipeline.{step.__class__.__name__}.{phase.value}",
                 attributes={
                     "oqtopus.job_id": job.job_id,
+                    "oqtopus.repository_job_id": job.repository_job_id or "",
                     "oqtopus.pipeline_name": pipeline_name or "unknown",
                     "oqtopus.pipeline.step": step.__class__.__name__,
                     "oqtopus.pipeline.phase": phase.value,

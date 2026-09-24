@@ -15,9 +15,15 @@ from oqtopus_engine_core.repositories.oqtopus_cloud_job_repository import (
 
 
 def make_test_job(job_id: str = "job-1") -> Job:
-    """Minimal Job instance for use in repository unit tests."""
+    """Minimal Job instance for use in repository unit tests.
+
+    `repository_job_id` defaults to `job_id` (the fetcher-origin rule) so
+    these jobs pass `_is_repository_tracked` like any ordinary Cloud-tracked
+    job.
+    """
     return Job(
         job_id=job_id,
+        repository_job_id=job_id,
         job_type="sampling",
         device_id="test-device",
         shots=1,

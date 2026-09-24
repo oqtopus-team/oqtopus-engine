@@ -15,116 +15,25 @@ from oqtopus_engine_core.framework import (
     SamplingResult,
     Step,
     StepResult,
+    resolve_repository_jobs,
 )
-from oqtopus_engine_core.framework.context import HAS_ORIGINAL_JOB_CHILDREN_KEY
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2, qpu_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
 
-def _collect_status_update_targets(
-    jctx: JobContext,
-    job: Job,
-) -> list[Job]:
-    """Collect jobs to be updated.
-
-    When the context has HAS_ORIGINAL_JOB_CHILDREN_KEY, the leaf children are the actual
-    execution units sent to the device — return them directly.
-    Otherwise traverse down to leaves and then up to root parents.
+def _collect_status_update_targets(job: Job) -> list[Job]:
+    """Collect the repository-tracked Job objects to update to "running".
 
     Args:
-        jctx: The job context of the current job.
         job: The current job.
 
     Returns:
-        A list of Job objects to be updated.
+        The repository-tracked Job objects to update (already deduped by
+        job_id; see `resolve_repository_jobs`).
 
     """
-    leaf_pairs = _find_all_leaf_jobs(jctx, job)
-
-    if HAS_ORIGINAL_JOB_CHILDREN_KEY in jctx:
-        # The leaves are the repository-tracked children being executed on devices.
-        return [leaf_job for _, leaf_job in leaf_pairs]
-
-    # Traverse upwards from each leaf to find the user-visible root jobs.
-    unique_jobs: dict[str, Job] = {}
-    visited_up: set[str] = set()
-    for leaf_jctx, leaf_job in leaf_pairs:
-        root_pairs = _find_all_root_jobs(leaf_jctx, leaf_job, visited=visited_up)
-        for _, root_job in root_pairs:
-            unique_jobs[root_job.job_id] = root_job
-    return list(unique_jobs.values())
-
-
-def _find_all_leaf_jobs(
-    jctx: JobContext,
-    job: Job,
-    visited: set[str] | None = None,
-) -> list[tuple[JobContext, Job]]:
-    """Recursively find all terminal leaf jobs.
-
-    Args:
-        jctx: The job context of the current job.
-        job: The current job.
-        visited: A set of job IDs that have already been visited to prevent cycles.
-
-    Returns:
-        A list of (JobContext, Job) tuples for all leaf jobs
-
-    """
-    if visited is None:
-        visited = set()
-
-    if job.job_id in visited:
-        return []
-    visited.add(job.job_id)
-
-    leaves: list[tuple[JobContext, Job]] = []
-
-    if HAS_ORIGINAL_JOB_CHILDREN_KEY in jctx:
-        # Continue traversing down if children exist
-        for child_jctx, child_job in zip(jctx.children, job.children, strict=True):
-            leaves.extend(_find_all_leaf_jobs(child_jctx, child_job, visited))
-    else:
-        # Reached a leaf node, append the pair to the list
-        leaves.append((jctx, job))
-
-    return leaves
-
-
-def _find_all_root_jobs(
-    jctx: JobContext,
-    job: Job,
-    visited: set[str] | None = None,
-) -> list[tuple[JobContext, Job]]:
-    """Recursively find all root jobs.
-
-    Args:
-        jctx: The job context of the current job.
-        job: The current job.
-        visited: A set of job IDs that have already been visited to prevent cycles.
-
-    Returns:
-        A list of (JobContext, Job) tuples for all root jobs
-
-    """
-    if visited is None:
-        visited = set()
-
-    if job.job_id in visited:
-        return []
-    visited.add(job.job_id)
-
-    roots: list[tuple[JobContext, Job]] = []
-
-    if job.parent is not None and jctx.parent is not None:
-        # Continue traversing up to find the entry point of the job graph
-        roots.extend(_find_all_root_jobs(jctx.parent, job.parent, visited))
-    else:
-        # Reached a root node, append the pair to the list
-        roots.append((jctx, job))
-
-    return roots
+    return resolve_repository_jobs(job)
 
 
 def _select_program(job: Job) -> str:
@@ -161,7 +70,7 @@ class DeviceGatewayStep(Step):
     async def pre_process(
         self,
         gctx: GlobalContext,
-        jctx: JobContext,
+        jctx: JobContext,  # noqa: ARG002
         job: Job,
     ) -> StepResult:
         """Pre-process the job by sending a request to the device gateway.
@@ -184,8 +93,8 @@ class DeviceGatewayStep(Step):
         start = time.perf_counter()
 
         async with self._execution_lock:
-            # Identify all jobs that require a status update (roots and leaves)
-            update_targets = _collect_status_update_targets(jctx, job)
+            # Identify all jobs that require a status update
+            update_targets = _collect_status_update_targets(job)
             await self._update_jobs_status(gctx, update_targets)
 
         # Check device status immediately before using the gateway.

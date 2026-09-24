@@ -21,6 +21,7 @@ from oqtopus_engine_core.steps.job_repository_update_step import JobRepositoryUp
 def _make_job() -> Job:
     return Job(
         job_id="job-1",
+        repository_job_id="job-1",
         name="sse",
         description="",
         device_id="qulacs",

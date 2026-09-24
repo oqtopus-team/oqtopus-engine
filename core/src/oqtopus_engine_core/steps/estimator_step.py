@@ -85,6 +85,9 @@ def _build_child_job(
 
     return Job(
         job_id=child_job_id,
+        # The child has no Cloud record of its own; repository updates for
+        # it resolve to the parent (see `resolve_repository_jobs`).
+        repository_job_id=parent_job.repository_job_id,
         name=parent_job.name,
         description=parent_job.description,
         device_id=parent_job.device_id,

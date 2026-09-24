@@ -71,8 +71,10 @@ class MockJobFetcher(JobFetcher):
                 jobs: list[Job] = []
                 for index in range(self._limit):
                     # sampling
+                    job_id = f"sampling-{uuid7(as_type='str')}-{count}-{index}"
                     job = Job(
-                        job_id=f"sampling-{uuid7(as_type='str')}-{count}-{index}",
+                        job_id=job_id,
+                        repository_job_id=job_id,
                         device_id="qulacs",
                         shots=1000,
                         job_type="sampling",
@@ -91,8 +93,10 @@ class MockJobFetcher(JobFetcher):
                     jobs.append(job)
 
                     # mitigation
+                    job_id = f"mitigation-{uuid7(as_type='str')}-{count}-{index}"
                     job = Job(
-                        job_id=f"mitigation-{uuid7(as_type='str')}-{count}-{index}",
+                        job_id=job_id,
+                        repository_job_id=job_id,
                         device_id="qulacs",
                         shots=1000,
                         job_type="sampling",
@@ -110,8 +114,10 @@ class MockJobFetcher(JobFetcher):
                     jobs.append(job)
 
                     # estimation
+                    job_id = f"estimation-{uuid7(as_type='str')}-{count}-{index}"
                     job = Job(
-                        job_id=f"estimation-{uuid7(as_type='str')}-{count}-{index}",
+                        job_id=job_id,
+                        repository_job_id=job_id,
                         device_id="qulacs",
                         shots=1000,
                         job_type="estimation",
@@ -131,8 +137,10 @@ class MockJobFetcher(JobFetcher):
                     jobs.append(job)
 
                     # multi_manual
+                    job_id = f"multi-manual-{uuid7(as_type='str')}-{count}-{index}"
                     job = Job(
-                        job_id=f"multi-manual-{uuid7(as_type='str')}-{count}-{index}",
+                        job_id=job_id,
+                        repository_job_id=job_id,
                         device_id="qulacs",
                         shots=1000,
                         job_type="multi_manual",

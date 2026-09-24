@@ -191,6 +191,18 @@ class SseEngineGatewayServicer:
 
         try:
             job = Job.model_validate_json(job_json)
+            # repository_job_id is intentionally left unset (None) here,
+            # the one exception to the "fetcher-origin jobs get
+            # repository_job_id = job_id" rule. sse_driver.py stamps every
+            # internal job it sends with the parent SSE job's own Cloud
+            # job_id, so setting repository_job_id = job_id here would let
+            # every internal job's request pass the repository entry guard
+            # and PATCH/upload against the parent's real Cloud record,
+            # clobbering its status and outputs mid-execution. Currently
+            # harmless because sse_engine_config.yaml wires
+            # NullJobRepository here; do not "fix" this if a real
+            # repository is ever wired in for the SSE engine. See
+            # docs/design/pipeline_execution.md.
             logger.debug(
                 "converted strings of job json to a Job object", extra={"job": job}
             )
