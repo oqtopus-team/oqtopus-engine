@@ -1278,7 +1278,7 @@ requires-dist = [
     { name = "python-json-logger", specifier = ">=4.0.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "qiskit", specifier = "==2.5.2" },
-    { name = "qiskit-experiments", specifier = "==0.14.1" },
+    { name = "qiskit-experiments", specifier = "==0.14.2" },
     { name = "qiskit-qasm3-import", specifier = ">=0.6.0" },
 ]
 
@@ -1879,7 +1879,7 @@ wheels = [
 
 [[package]]
 name = "qiskit-experiments"
-version = "0.14.1"
+version = "0.14.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lmfit" },
@@ -1893,9 +1893,9 @@ dependencies = [
     { name = "scipy" },
     { name = "uncertainties" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a3/d1/f783e00a6657beea49ff026afe0d795b60ca72fcaa2471c29df59109c817/qiskit_experiments-0.14.1.tar.gz", hash = "sha256:5b09ec6c293b036b036a892dd73a025716f3832a48ce12bd3d78544a35c63fec", size = 770489, upload-time = "2026-06-02T02:25:26.708Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/db/59/7fccc5665ce655a2ccf02db808c40bcc0926a8b36159f347a8e7baea296a/qiskit_experiments-0.14.2.tar.gz", hash = "sha256:b06b46311d022ed4a15dc3e0ec89d3a7965caec1e58a758f23727085fb404ce4", size = 771091, upload-time = "2026-08-25T12:43:00.906Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c7/8e/56943d9b1527474474188808fbbc405183d2621ef5cb6be6c676da552dac/qiskit_experiments-0.14.1-py3-none-any.whl", hash = "sha256:35d68403d9dc76c9d1603d93de1b413846562d6447bf00f6cdd396347584023d", size = 651113, upload-time = "2026-06-02T02:25:24.969Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/11/a700570fe570ec836733a94ffb5f4599bf0c517a9fe03378bebcfab98b19/qiskit_experiments-0.14.2-py3-none-any.whl", hash = "sha256:0e65e1177a5ba301f7c5c25f064ae29edf38e193c8ced8b17c2fa52dd1b4f874", size = 651388, upload-time = "2026-08-25T12:42:59.373Z" },
 ]
 
 [[package]]
