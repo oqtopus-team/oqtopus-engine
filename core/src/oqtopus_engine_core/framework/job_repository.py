@@ -189,6 +189,38 @@ class JobRepository(ABC):
         raise NotImplementedError(message)
 
     @abstractmethod
+    async def update_job_status_ordered(
+        self,
+        job: Job,
+        *,
+        include_output_files: bool = True,
+    ) -> None:
+        """Update job status, awaiting completion and propagating failures.
+
+        Unlike `update_job_status_nowait`, this method waits for the request
+        to complete and re-raises any exception to the caller, while still
+        preserving per-``job_id`` FIFO ordering with other queued operations
+        (status updates, output uploads) via the same per-job task chain.
+
+        Args:
+            job: The job to update
+            include_output_files:
+                If ``True`` (default), the current ``job.output_files`` is
+                included in the request. If ``False``, ``output_files`` is
+                omitted, for updates that carry no new information about job
+                outputs.
+
+        Raises:
+            NotImplementedError: If not implemented in subclass.
+
+        """
+        message = (
+            "`update_job_status_ordered` must be implemented in subclasses of "
+            "JobRepository."
+        )
+        raise NotImplementedError(message)
+
+    @abstractmethod
     async def update_job_transpiler_info(self, job: Job) -> None:
         """Update transpiler info.
 
