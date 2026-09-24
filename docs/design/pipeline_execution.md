@@ -512,7 +512,115 @@ Final accumulated histories:
 - **Children**:  
   `[("pre-process", 2), ("post-process", 2), ("post-process", 1)]`
 
-## 12. Summary
+## 12. Job ID Conventions
+
+Splitting (estimation) and MP auto-combining both create Jobs that have no
+entity of their own in the Cloud repository, or that stand in for more than
+one. `Job` carries two identifiers to keep this distinction explicit:
+
+- **`job_id`**: the identifier of an execution unit, unique within the
+  engine. Every correlation key uses this: logs, OTel baggage, the FIFO
+  ordering key (`OqtopusCloudJobRepository._job_tails`), tranqu's
+  `request_id`, the combiner's `assigned_ids`. Internally generated jobs
+  (estimation children named `{parent}-estimation-{index}`, MP-auto-combined
+  jobs named `mpa-comb-{uuid7}`) have a `job_id` that does not exist in the
+  Cloud repository.
+- **`repository_job_id`**: the record ID in the repository (Cloud). The only
+  value that may be placed in an HTTP request path or body. `None` means
+  this Job has no repository entity of its own.
+
+`repository_job_id` is a **marker only**: it must never be substituted for
+`job_id` in a request path. A "replace" scheme, where a repository
+implementation addresses the record by `repository_job_id` directly, would
+let N estimation children overwrite the same parent record in turn instead
+of being rejected, trading a loud 404 for a silent overwrite.
+
+### 12.1 Four Job/Repository-Entity Relationships
+
+| Relationship | Example |
+| --- | --- |
+| 1:1 | An ordinary sampling / estimation parent |
+| 1:0 | An MP-auto-combined job (`mpa-comb-*`), an SSE-internal job |
+| N:1 | An estimation job's sampling children (N children → 1 parent) |
+| 1:N | A combined job whose children span more than one estimation parent |
+
+1:N arises because `MpAutoCombiningBuffer` groups jobs to combine only by
+`pipeline_name` (see §2.3 above), so `P1-estimation-0` and `P2-estimation-1`
+can end up in the same combined job.
+
+`resolve_repository_jobs(job)` (in `framework/model.py`) resolves any Job to
+the list of repository-tracked Job objects a Cloud update should target:
+
+```python
+def resolve_repository_jobs(job: Job) -> list[Job]:
+    if job.repository_job_id is None:
+        unique: dict[str, Job] = {}
+        for child in job.children:
+            for resolved in resolve_repository_jobs(child):
+                unique[resolved.job_id] = resolved
+        return list(unique.values())
+    current = job
+    while current.job_id != current.repository_job_id and current.parent is not None:
+        current = current.parent
+    return [current] if current.job_id == current.repository_job_id else []
+```
+
+It returns `Job` objects, not `job_id` strings, already deduped by
+`job_id` (two children can resolve to the same target, e.g. two estimation
+children of the same parent combined together), so callers can mutate the
+shared object directly: the `job.status == "ready"` guard in
+`DeviceGatewayStep._update_jobs_status` only prevents duplicate PATCHes if
+every child resolving to the same parent resolves to that exact same `Job`
+instance. An empty result (no repository entity and no children to
+delegate to, e.g. an SSE-internal job) is expected, not an error;
+`OqtopusCloudJobRepository._is_repository_tracked` is the single point that
+logs a warning if some other caller bypasses this resolution and reaches
+the repository directly with an untracked Job.
+
+### 12.2 Where `repository_job_id` Is Set
+
+The rule is: **a Job created by a fetcher gets `repository_job_id =
+job_id`**. Three exceptions:
+
+| Where | Value |
+| --- | --- |
+| `OqtopusCloudJobRepository.get_jobs` (`Job(**job_oas.to_dict())`) | same as `job_id` (all Cloud-origin jobs go through here) |
+| `MockJobFetcher` | same as `job_id` |
+| `EstimatorStep._build_child_job` | the parent's `repository_job_id` |
+| `MpAutoCombiningBuffer.create_combined_job` | `None` |
+| `SseEngineGateway._get_job_from_request` (`Job.model_validate_json`) | **left unset (`None`)**, see below |
+
+### 12.3 Why the SSE Engine Is the Exception
+
+`sse_runtime/src/sse_runtime/sse_driver.py` stamps every internal job that a
+container's user program sends (sampling/estimation circuit calls) with the
+**parent SSE job's own Cloud `job_id`**:
+
+```python
+job_id = os.environ.get("JOB_ID")   # the parent SSE job's Cloud job_id
+request["job_id"] = job_id
+request["status"] = "ready"
+```
+
+The SSE engine runs the same sampling/estimation pipelines (see
+`sse_engine_config.yaml`), including `job_repository_update_step` and
+`device_gateway_step`. If `repository_job_id = job_id` were set here (the
+fetcher-origin rule), every internal job would pass the repository entry
+guard as if it were its own record and, once a real repository is wired in,
+would clobber the parent's actual Cloud record mid-execution: a spurious
+`running` PATCH racing the outer job's own transition, a spurious
+`succeeded` PATCH firing while the user program is still executing, and the
+parent's `result`/`transpile_result` overwritten by an internal child's.
+Today this is silent because `sse_engine_config.yaml` wires
+`NullJobRepository` for the SSE engine; leaving `repository_job_id` unset
+is what keeps it silent if that ever changes. This is the **only**
+exception to the fetcher-origin rule; do not "fix" it without addressing
+`sse_driver.py`'s internal-job ID scheme first. The correct long-term fix is
+for internal SSE job IDs to become engine-unique on their own, with
+`repository_job_id` carrying the parent's Cloud `job_id` instead: a gRPC
+contract change out of scope here.
+
+## 13. Summary
 
 The pipeline execution model supports:
 

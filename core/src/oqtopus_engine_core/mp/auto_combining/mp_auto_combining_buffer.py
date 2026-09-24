@@ -24,7 +24,6 @@ from qiskit.transpiler.layout import (  # type: ignore[import-untyped]
 from uuid_extensions import uuid7  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import Buffer, GlobalContext, JobContext
-from oqtopus_engine_core.framework.context import HAS_ORIGINAL_JOB_CHILDREN_KEY
 from oqtopus_engine_core.framework.model import Job, TranspileResult
 from oqtopus_engine_core.interfaces.combiner_interface.v1 import (
     combiner_pb2,
@@ -376,16 +375,24 @@ class MpAutoCombiningBuffer(Buffer):
             # update transpile_result of original jobs according to the qubits assigned
             for assigned_job in cmb_info["assigned_group"]:
                 job_id = assigned_job["job_id"]
-                transpile_result = original_jobs[job_id][2].transpile_result
+                orig_job = original_jobs[job_id][2]
                 transpile_result = await self._update_transpile_result(
-                    transpile_result,  # type: ignore[arg-type]
+                    orig_job.transpile_result,  # type: ignore[arg-type]
                     assigned_job["qubit_mapping"],
                 )
-                original_jobs[job_id][2].transpile_result = transpile_result
-                # upload the updated transpile_result to the cloud
-                await self._upload_transpile_result(
-                    original_jobs[job_id][0], original_jobs[job_id][2]
-                )
+                orig_job.transpile_result = transpile_result
+                # Only upload when the original job still owns its own
+                # Cloud record (sampling + mp: repository_job_id ==
+                # job_id). For estimation + mp, the child's
+                # repository_job_id is the parent's job_id, so this is
+                # skipped and the parent's pre-combining transpile_result
+                # is left untouched; see
+                # docs/design/pipeline_execution.md and
+                # docs/features/estimation/overview.md.
+                if orig_job.repository_job_id == orig_job.job_id:
+                    await self._upload_transpile_result(
+                        original_jobs[job_id][0], orig_job
+                    )
 
             # create new job object for the combined circuit
             gctx, combined_jctx, combined_job = create_combined_job(
@@ -646,6 +653,9 @@ def create_combined_job(
     # create combined job object
     combined_job = Job(
         job_id=f"mpa-comb-{uuid7(as_type='str')}",
+        # repository_job_id stays None (the default): the combined job has
+        # no Cloud record of its own. Repository updates resolve to its
+        # `children` instead (see `resolve_repository_jobs`).
         device_id="",
         shots=shots,
         job_type="sampling",
@@ -677,7 +687,6 @@ def create_combined_job(
     # of the original jobs before they are combined.
     combined_job.children = [job for _, _, job in original_jobs.values()]
     combined_jctx.children = [jctx for _, jctx, _ in original_jobs.values()]
-    combined_jctx[HAS_ORIGINAL_JOB_CHILDREN_KEY] = True
 
     # take gctx from one of the original jobs. gctx is common among jobs.
     gctx = next(iter(original_jobs.values()))[0]

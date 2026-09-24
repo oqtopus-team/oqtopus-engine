@@ -15,6 +15,7 @@ from .model import (
     OperatorItem,
     SamplingResult,
     TranspileResult,
+    resolve_repository_jobs,
 )
 from .pipeline import PipelineExecutor
 from .pipeline_builder import PipelineBuilder
@@ -50,4 +51,5 @@ __all__ = [
     "Step",
     "StepResult",
     "TranspileResult",
+    "resolve_repository_jobs",
 ]

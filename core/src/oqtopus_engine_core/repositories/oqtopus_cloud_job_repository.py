@@ -86,6 +86,35 @@ class OqtopusCloudJobRepository(JobRepository):
             },
         )
 
+    @staticmethod
+    def _is_repository_tracked(job: Job) -> bool:
+        """Guard against Cloud requests for a Job with no repository entity.
+
+        Callers (DeviceGatewayStep, FailJobRepositoryHandler,
+        MpAutoCombiningBuffer) are expected to have already resolved each
+        Job to the correct repository-tracked target via
+        `resolve_repository_jobs` before calling into this repository, so
+        this is a last line of defense: it should not normally trigger.
+        `job.repository_job_id is None` means the job has no Cloud entity
+        of its own (an MP-auto-combined job, an SSE-internal job);
+        `!= job.job_id` means it is an internal child (its
+        repository_job_id names its parent instead).
+
+        Returns:
+            True if the request should proceed.
+
+        """
+        if job.repository_job_id is None or job.repository_job_id != job.job_id:
+            logger.warning(
+                "skip repository call for non-tracked job",
+                extra={
+                    "job_id": job.job_id,
+                    "repository_job_id": job.repository_job_id,
+                },
+            )
+            return False
+        return True
+
     async def _request_with_error_logging(
         self,
         call: Callable[[], T],
@@ -355,6 +384,9 @@ class OqtopusCloudJobRepository(JobRepository):
         jobs: list[Job] = []
         for job_oas in response:  # type: ignore[attr-defined]
             job = Job(**job_oas.to_dict())  # type: ignore[call-arg]
+            # Every job fetched from Cloud is itself the repository-tracked
+            # entity (never an internal estimation child or combined job).
+            job.repository_job_id = job.job_id
             jobs.append(job)
         return jobs
 
@@ -475,6 +507,8 @@ class OqtopusCloudJobRepository(JobRepository):
             ValueError: If the number of returned URLs does not match ``outputs``.
 
         """
+        if not self._is_repository_tracked(job):
+            return
         urls = await self.get_job_upload_urls(
             job=job,
             items=[item for item, _, _, _ in outputs],
@@ -597,6 +631,8 @@ class OqtopusCloudJobRepository(JobRepository):
                 outputs, e.g. an early ``ready`` -> ``running`` transition.
 
         """
+        if not self._is_repository_tracked(job):
+            return
         body = JobsJobStatusUpdate(
             status=job.status,
             output_files=job.output_files if include_output_files else None,
@@ -740,6 +776,8 @@ class OqtopusCloudJobRepository(JobRepository):
             job: The job to update.
 
         """
+        if not self._is_repository_tracked(job):
+            return
         # Use deepcopy for transpiler_info to ensure all nested structures
         # are preserved as they were at the moment of the call.
         body = copy.deepcopy(job.transpiler_info)

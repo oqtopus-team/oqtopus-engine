@@ -111,3 +111,27 @@ After aggregation, Core updates the parent job's estimation result:
 
 The source gRPC contract is maintained in the
 [Estimator interface](../../../spec/estimator_interface/oqtopus_engine_core/interfaces/estimator_interface/v1/estimator.proto).
+
+## 6. Transpilation Result Under Multi-Programming
+
+The `transpile_result` reported for an estimation job describes the
+transpilation of the submitted program, produced before the observable is
+split into measurement circuits.
+
+When multi-programming (auto-combining, see
+[Configuration](../../usage/config.md)) is enabled, the engine may batch the
+measurement circuits of one estimation job together with circuits from other
+jobs and place each of them on a different region of the device. In that
+case the qubit placement actually used at execution time differs from the
+one reported in `virtual_physical_mapping`.
+
+Sampling jobs are not affected: their `transpile_result` is updated to
+reflect the placement chosen when combining. Estimation intentionally keeps
+reporting the pre-combining (parent) `transpile_result` instead, since an
+estimation job's measurement circuits can be split across more than one
+combined job, each combined with a different set of peers; there is no
+single post-combining placement to report against the parent's ID (Cloud's
+per-job output-file keys are `{job_id}/{name}.zip` with `name` a fixed
+enum). See
+[Pipeline Execution: Job ID Conventions](../../design/pipeline_execution.md#12-job-id-conventions)
+for how the engine tracks which Cloud record a child's outputs belong to.

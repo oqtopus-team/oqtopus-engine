@@ -41,10 +41,12 @@ _BAGGAGE_PREFIX = "oqtopus."
 # only ever writes the two names below, both known non-reserved.
 #
 # The keys must match what the pipeline actually puts in the baggage. It sets
-# oqtopus.job_id and oqtopus.pipeline_name; the pipeline is selected by the
-# job type, so pipeline_name is what identifies the kind of job here.
+# oqtopus.job_id, oqtopus.repository_job_id, and oqtopus.pipeline_name; the
+# pipeline is selected by the job type, so pipeline_name is what identifies
+# the kind of job here.
 _BAGGAGE_TO_LOG_ATTR = {
     "oqtopus.job_id": "job_id",
+    "oqtopus.repository_job_id": "repository_job_id",
     "oqtopus.pipeline_name": "pipeline_name",
 }
 
