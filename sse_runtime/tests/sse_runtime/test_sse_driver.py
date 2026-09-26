@@ -2,10 +2,9 @@
 
 import datetime
 import importlib.util
-import itertools
 import json
+import re
 import sys
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
@@ -44,18 +43,6 @@ from oqtopus_client.rest.models.jobs_job_type import JobsJobType
 from oqtopus_client.rest.models.jobs_s3_operator_item import JobsS3OperatorItem
 from oqtopus_client.rest.models.jobs_s3_submit_job_info import JobsS3SubmitJobInfo
 from oqtopus_client.rest.models.jobs_submit_job_request import JobsSubmitJobRequest
-
-
-@pytest.fixture(autouse=True)
-def _reset_internal_call_index() -> None:
-    """Make the per-call job_id counter deterministic across tests.
-
-    _next_internal_job_id's counter is process-wide (one SSE container runs
-    one process for its whole lifetime), so tests that care about the exact
-    generated job_id need it reset to 0 regardless of test order.
-    """
-    sse_driver._internal_call_index_lock = threading.Lock()
-    sse_driver._internal_call_index = itertools.count()
 
 
 class _DummyChannel:
@@ -291,20 +278,27 @@ def _assert_full_job_info_fields(job: JobsJob, *, message: str) -> None:
 def _assert_make_request_payload(
     request: dict[str, Any],
     *,
-    expected_request: dict[str, Any],
+    parent_job_id: str,
+    expected_request_sans_job_id: dict[str, Any],
 ) -> None:
-    assert request == expected_request
+    """Assert the request matches, without pinning the exact generated job_id.
+
+    _next_internal_job_id's counter is process-wide (shared across every
+    test in this file, in call order), so only its shape — distinct from
+    the parent, prefixed by it — is guaranteed, not a particular index.
+    """
+    job_id = request.pop("job_id")
+    assert job_id != parent_job_id
+    assert job_id.startswith(f"{parent_job_id}-sse-")
+    assert request == expected_request_sans_job_id
 
 
 def _build_expected_request(
     input_job: JobsSubmitJobRequest,
     upload_info: JobsS3SubmitJobInfo,
-    *,
-    expected_job_id: str,
 ) -> dict[str, Any]:
     expected_request = input_job.model_dump()
     expected_upload_info = upload_info.model_dump()
-    expected_request["job_id"] = expected_job_id
     expected_request["status"] = "ready"
     expected_request["name"] = expected_request["name"] or ""
     expected_request["program"] = expected_upload_info.get("program") or []
@@ -345,11 +339,8 @@ def test_make_request_merges_submit_job_request_and_upload_info(
 
     _assert_make_request_payload(
         request,
-        expected_request=_build_expected_request(
-            input_job,
-            upload_info,
-            expected_job_id="parent-id-sse-0",
-        ),
+        parent_job_id=job_id,
+        expected_request_sans_job_id=_build_expected_request(input_job, upload_info),
     )
 
 
@@ -364,10 +355,16 @@ def test_make_request_serializes_operator_items() -> None:
 
 
 def test_next_internal_job_id_increments_per_call() -> None:
-    """Each call within one container's process gets a distinct, 0-origin id."""
-    assert sse_driver._next_internal_job_id("parent-id") == "parent-id-sse-0"
-    assert sse_driver._next_internal_job_id("parent-id") == "parent-id-sse-1"
-    assert sse_driver._next_internal_job_id("parent-id") == "parent-id-sse-2"
+    """Each call within one container's process gets the next sequential id.
+
+    Asserts relative sequencing, not an absolute start value: the counter is
+    process-wide (shared across every test in this file), so its starting
+    point depends on how many calls earlier tests already made.
+    """
+    job_ids = [sse_driver._next_internal_job_id("parent-id") for _ in range(3)]
+    indices = [int(job_id.removeprefix("parent-id-sse-")) for job_id in job_ids]
+
+    assert indices == [indices[0], indices[0] + 1, indices[0] + 2]
 
 
 def test_next_internal_job_id_is_never_the_parent_job_id() -> None:
@@ -638,7 +635,11 @@ def test_submit_job_grpc_success_path(
         ("grpc.max_receive_message_length", 4 * 1024 * 1024),
         ("grpc.max_send_message_length", 4 * 1024 * 1024),
     ]
-    assert '"job_id": "parent-1-sse-0"' in str(observed["request_job_json"])
+    # Exact index not pinned: the counter is process-wide, shared across
+    # every test in this file.
+    assert re.search(
+        r'"job_id":\s*"parent-1-sse-\d+"', str(observed["request_job_json"])
+    )
     assert '"status": "ready"' in str(observed["request_job_json"])
     assert job.submitted_at is not None
     assert job.ready_at is not None
