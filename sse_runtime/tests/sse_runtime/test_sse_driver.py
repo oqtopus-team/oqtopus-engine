@@ -2,8 +2,11 @@
 
 import datetime
 import importlib.util
+import itertools
 import json
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -41,6 +44,18 @@ from oqtopus_client.rest.models.jobs_job_type import JobsJobType
 from oqtopus_client.rest.models.jobs_s3_operator_item import JobsS3OperatorItem
 from oqtopus_client.rest.models.jobs_s3_submit_job_info import JobsS3SubmitJobInfo
 from oqtopus_client.rest.models.jobs_submit_job_request import JobsSubmitJobRequest
+
+
+@pytest.fixture(autouse=True)
+def _reset_internal_call_index() -> None:
+    """Make the per-call job_id counter deterministic across tests.
+
+    _next_internal_job_id's counter is process-wide (one SSE container runs
+    one process for its whole lifetime), so tests that care about the exact
+    generated job_id need it reset to 0 regardless of test order.
+    """
+    sse_driver._internal_call_index_lock = threading.Lock()
+    sse_driver._internal_call_index = itertools.count()
 
 
 class _DummyChannel:
@@ -285,11 +300,11 @@ def _build_expected_request(
     input_job: JobsSubmitJobRequest,
     upload_info: JobsS3SubmitJobInfo,
     *,
-    parent_job_id: str,
+    expected_job_id: str,
 ) -> dict[str, Any]:
     expected_request = input_job.model_dump()
     expected_upload_info = upload_info.model_dump()
-    expected_request["job_id"] = parent_job_id
+    expected_request["job_id"] = expected_job_id
     expected_request["status"] = "ready"
     expected_request["name"] = expected_request["name"] or ""
     expected_request["program"] = expected_upload_info.get("program") or []
@@ -333,7 +348,7 @@ def test_make_request_merges_submit_job_request_and_upload_info(
         expected_request=_build_expected_request(
             input_job,
             upload_info,
-            parent_job_id="parent-id",
+            expected_job_id="parent-id-sse-0",
         ),
     )
 
@@ -346,6 +361,32 @@ def test_make_request_serializes_operator_items() -> None:
     )
 
     assert request["operator"] == [{"pauli": "Z0", "coeff": 1.0}]
+
+
+def test_next_internal_job_id_increments_per_call() -> None:
+    """Each call within one container's process gets a distinct, 0-origin id."""
+    assert sse_driver._next_internal_job_id("parent-id") == "parent-id-sse-0"
+    assert sse_driver._next_internal_job_id("parent-id") == "parent-id-sse-1"
+    assert sse_driver._next_internal_job_id("parent-id") == "parent-id-sse-2"
+
+
+def test_next_internal_job_id_is_never_the_parent_job_id() -> None:
+    # Must never collide with the parent SSE job's own job_id: see
+    # docs/design/pipeline_execution.md (Job ID Conventions) for why the
+    # engine treats self-referential repository_job_id as safe only because
+    # of this.
+    assert sse_driver._next_internal_job_id("parent-id") != "parent-id"
+
+
+def test_next_internal_job_id_is_unique_under_concurrent_calls() -> None:
+    """The lock must prevent two threads from ever getting the same index."""
+    call_count = 200
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        job_ids = list(
+            pool.map(sse_driver._next_internal_job_id, ["parent-id"] * call_count)
+        )
+
+    assert len(set(job_ids)) == call_count
 
 
 # -----------------
@@ -597,7 +638,7 @@ def test_submit_job_grpc_success_path(
         ("grpc.max_receive_message_length", 4 * 1024 * 1024),
         ("grpc.max_send_message_length", 4 * 1024 * 1024),
     ]
-    assert '"job_id": "parent-1"' in str(observed["request_job_json"])
+    assert '"job_id": "parent-1-sse-0"' in str(observed["request_job_json"])
     assert '"status": "ready"' in str(observed["request_job_json"])
     assert job.submitted_at is not None
     assert job.ready_at is not None

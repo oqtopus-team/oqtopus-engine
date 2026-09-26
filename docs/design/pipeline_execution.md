@@ -537,12 +537,23 @@ of being rejected, trading a loud 404 for a silent overwrite.
 
 ### 12.1 Four Job/Repository-Entity Relationships
 
+Read `x:y` as **x Job objects (`job_id` space) : y distinct Cloud
+repository entities (`repository_job_id` space) they resolve to** — it is
+not "child:parent" in a fixed position. Which Job(s) `x` refers to differs
+per row: a single Job considered on its own (1:1, 1:0, 1:N), or a group of
+sibling children considered together (N:1).
+
 | Relationship | Example |
 | --- | --- |
-| 1:1 | An ordinary sampling / estimation parent |
-| 1:0 | An MP-auto-combined job (`mpa-comb-*`), an SSE-internal job |
-| N:1 | An estimation job's sampling children (N children → 1 parent) |
-| 1:N | A combined job whose children span more than one estimation parent |
+| 1:1 | An ordinary sampling / estimation parent, an SSE-internal job (see §12.3): one Job resolves to one Cloud entity — itself |
+| 1:0 | An MP-auto-combined job (`mpa-comb-*`): its own `repository_job_id` is `None`, so considered alone it resolves to no Cloud entity of its own |
+| N:1 | An estimation job's sampling children: N sibling Jobs (the children) all resolve to the same one Cloud entity — their shared parent |
+| 1:N | A combined job whose children span more than one estimation parent: once its children are resolved, this one Job maps to more than one distinct Cloud entity |
+
+SSE-internal jobs are listed under 1:1, not 1:0: unlike an MP-auto-combined
+job, an SSE-internal job is a real, independent execution unit a user
+program dispatched, not a stand-in for others (see §12.3). It resolves to
+itself, the same as an ordinary top-level job.
 
 1:N arises because `MpAutoCombiningBuffer` groups jobs to combine only by
 `pipeline_name` (see §2.3 above), so `P1-estimation-0` and `P2-estimation-1`
@@ -572,7 +583,10 @@ shared object directly: the `job.status == "ready"` guard in
 `DeviceGatewayStep._update_jobs_status` only prevents duplicate PATCHes if
 every child resolving to the same parent resolves to that exact same `Job`
 instance. An empty result (no repository entity and no children to
-delegate to, e.g. an SSE-internal job) is expected, not an error;
+delegate to) is expected, not an error, and defensive code should keep
+handling it, but in practice no job-creation rule below produces one: an
+MP-auto-combined job always has `children` to delegate to, so this path is
+a safety net, not something a normal job graph hits.
 `OqtopusCloudJobRepository._is_repository_tracked` is the single point that
 logs a warning if some other caller bypasses this resolution and reaches
 the repository directly with an untracked Job.
@@ -580,45 +594,76 @@ the repository directly with an untracked Job.
 ### 12.2 Where `repository_job_id` Is Set
 
 The rule is: **a Job created by a fetcher gets `repository_job_id =
-job_id`**. Three exceptions:
+job_id`**. Every fetcher follows it:
 
 | Where | Value |
 | --- | --- |
 | `OqtopusCloudJobRepository.get_jobs` (`Job(**job_oas.to_dict())`) | same as `job_id` (all Cloud-origin jobs go through here) |
 | `MockJobFetcher` | same as `job_id` |
+| `SseEngineGateway._get_job_from_request` (`Job.model_validate_json`) | same as `job_id`, see §12.3 for why this is safe |
+
+Two exceptions, both for Jobs *not* created by a fetcher — an execution
+unit spawned by the engine itself from an already-running job:
+
+| Where | Value |
+| --- | --- |
 | `EstimatorStep._build_child_job` | the parent's `repository_job_id` |
 | `MpAutoCombiningBuffer.create_combined_job` | `None` |
-| `SseEngineGateway._get_job_from_request` (`Job.model_validate_json`) | **left unset (`None`)**, see below |
 
-### 12.3 Why the SSE Engine Is the Exception
+### 12.3 SSE-Internal Job IDs
 
-`sse_runtime/src/sse_runtime/sse_driver.py` stamps every internal job that a
-container's user program sends (sampling/estimation circuit calls) with the
-**parent SSE job's own Cloud `job_id`**:
+`sse_runtime/src/sse_runtime/sse_driver.py` gives every internal job that a
+container's user program sends (sampling/estimation circuit calls) its own
+engine-unique `job_id`, numbered per gRPC call within that container's
+process lifetime:
 
 ```python
 job_id = os.environ.get("JOB_ID")   # the parent SSE job's Cloud job_id
-request["job_id"] = job_id
+...
+request["job_id"] = _next_internal_job_id(job_id)  # f"{job_id}-sse-{index}", 0-origin
 request["status"] = "ready"
 ```
 
-The SSE engine runs the same sampling/estimation pipelines (see
-`sse_engine_config.yaml`), including `job_repository_update_step` and
-`device_gateway_step`. If `repository_job_id = job_id` were set here (the
-fetcher-origin rule), every internal job would pass the repository entry
-guard as if it were its own record and, once a real repository is wired in,
-would clobber the parent's actual Cloud record mid-execution: a spurious
-`running` PATCH racing the outer job's own transition, a spurious
-`succeeded` PATCH firing while the user program is still executing, and the
-parent's `result`/`transpile_result` overwritten by an internal child's.
-Today this is silent because `sse_engine_config.yaml` wires
-`NullJobRepository` for the SSE engine; leaving `repository_job_id` unset
-is what keeps it silent if that ever changes. This is the **only**
-exception to the fetcher-origin rule; do not "fix" it without addressing
-`sse_driver.py`'s internal-job ID scheme first. The correct long-term fix is
-for internal SSE job IDs to become engine-unique on their own, with
-`repository_job_id` carrying the parent's Cloud `job_id` instead: a gRPC
-contract change out of scope here.
+`SseEngineGateway._get_job_from_request` then sets `repository_job_id =
+job_id` on the received Job, following the same fetcher-origin rule as
+every other Job source (§12.2) — this used to be the one exception, left
+`None`, because at the time `job_id` here was the **parent SSE job's own
+Cloud `job_id`**, reused unchanged for every internal call. Setting
+`repository_job_id = job_id` under that old scheme would have made every
+internal job pass the repository entry guard as if it were the parent's
+own record and, had a real repository ever been wired in for the SSE
+engine, would have clobbered the parent's actual Cloud record
+mid-execution: a spurious `running` PATCH racing the outer job's own
+transition, a spurious `succeeded` PATCH firing while the user program was
+still executing, and the parent's `result`/`transpile_result` overwritten
+by an internal child's.
+
+Two changes together close that gap instead of merely leaving
+`repository_job_id` unset:
+
+1. **The internal job_id is now engine-unique** (`{parent}-sse-{index}`),
+   never equal to the parent SSE job's own `job_id`. `resolve_repository_jobs`
+   can no longer mistake an internal job for its own parent's Cloud record.
+2. **The SSE engine is a sidecar of the core engine**: only the core engine
+   ever holds a real, Cloud-backed `JobRepository`; `sse_engine_config.yaml`
+   always wires `NullJobRepository` for the SSE engine's own
+   `di_container.registry`. This is an architectural invariant, not a
+   coincidence of today's config — the SSE engine is never meant to talk to
+   Cloud directly. Every PATCH/upload call `resolve_repository_jobs` routes
+   to therefore resolves against `NullJobRepository` and is a no-op,
+   regardless of what `repository_job_id` holds.
+
+With both in place, `repository_job_id = job_id` is safe the same way it is
+for any other fetcher-origin job, and the engine no longer needs a
+special-cased "leave it `None`" exception for SSE. This also means an
+SSE-internal `estimation` job's sampling children resolve correctly: a
+child's `repository_job_id` (inherited from its parent, per
+`EstimatorStep._build_child_job`) now differs from the child's own
+`job_id`, and the child's `.parent` is a real, live reference to the exact
+`Job` object `SseEngineGatewayServicer.SseEngine` is polling — the same
+split/join mechanism as any other estimation job, entirely within one
+`SseEngine()` gRPC call. `resolve_repository_jobs` therefore climbs to that
+parent correctly, the same as the ordinary N:1 case in §12.1.
 
 ## 13. Summary
 

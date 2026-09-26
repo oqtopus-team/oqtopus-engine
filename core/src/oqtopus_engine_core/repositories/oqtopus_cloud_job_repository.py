@@ -96,8 +96,8 @@ class OqtopusCloudJobRepository(JobRepository):
         `resolve_repository_jobs` before calling into this repository, so
         this is a last line of defense: it should not normally trigger.
         `job.repository_job_id is None` means the job has no Cloud entity
-        of its own (an MP-auto-combined job, an SSE-internal job);
-        `!= job.job_id` means it is an internal child (its
+        of its own (an MP-auto-combined job); `!= job.job_id` means it is
+        an internal child (its
         repository_job_id names its parent instead).
 
         Returns:
