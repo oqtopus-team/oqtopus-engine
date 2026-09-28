@@ -42,7 +42,7 @@ class SseStep(Step):
     ) -> StepResult:
         """Pre-process the job by downloading the user program and run SSE.
 
-        This method downloads the user's program from Oqtopus Cloud,
+        This method downloads the user's program from the job repository,
         saves it to a temporary directory, and Run SSE.
 
         Args:
@@ -98,9 +98,17 @@ class SseStep(Step):
             msg = "internal server error"
             raise RuntimeError(msg) from e
         finally:
-            # Clean up temporary directory
+            # Clean up temporary directory. This is a pure cleanup step, so a
+            # failure here must not override the try block's outcome (the
+            # original exception, if any, or a normal return).
             if config["delete_host_temp_dirs"]:
-                self._delete_tmpdir(temp_dirs["base"])
+                try:
+                    self._delete_tmpdir(temp_dirs["base"])
+                except Exception:
+                    logger.exception(
+                        "failed to delete temp directory; leaving it in place",
+                        extra={"job_id": job.job_id, "job_type": job.job_type},
+                    )
         return StepResult()
 
     async def post_process(  # noqa: PLR6301
@@ -147,8 +155,8 @@ class SseStep(Step):
         logger.info(
             "running SSE", extra={"job_id": job.job_id, "job_type": job.job_type}
         )
+        start = time.perf_counter()
         try:
-            start = time.perf_counter()
             await sse_runner.run_sse()
         except SseRuntimeError as e:
             # Exception raised when user program execution fails
@@ -156,7 +164,13 @@ class SseStep(Step):
                 "user program execution error occurred during SSE",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
-            msg = "user program execution error"
+            self._finalize_run(job, sse_runner, start)
+            await self._report_failure_outputs_best_effort(
+                job, gctx, config, sse_runner
+            )
+            msg = self._build_failure_message(
+                sse_runner, default="user program execution error"
+            )
             raise RuntimeError(msg) from e
         except Exception as e:
             # Other exceptions such as failure of container start, file copy, etc.
@@ -164,12 +178,22 @@ class SseStep(Step):
                 "failed to run SSE",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
+            self._finalize_run(job, sse_runner, start)
+            await self._report_failure_outputs_best_effort(
+                job, gctx, config, sse_runner
+            )
             msg = "internal server error"
             raise RuntimeError(msg) from e
         else:
+            self._finalize_run(job, sse_runner, start)
+
             if sse_runner.result_job is None:
+                await self._report_failure_outputs_best_effort(
+                    job, gctx, config, sse_runner
+                )
                 msg = "SSE runner completed without a result_job"
                 raise RuntimeError(msg)
+
             job.status = sse_runner.result_job.status
             logger.info(
                 "succeeded to run SSE",
@@ -181,18 +205,85 @@ class SseStep(Step):
                     "but sse job status is not succeeded",
                     extra={"job_id": job.job_id},
                 )
-                msg = job.message or "sse job failed"
+                await self._report_failure_outputs_best_effort(
+                    job, gctx, config, sse_runner
+                )
+                msg = self._build_failure_message(sse_runner, default="sse job failed")
                 raise RuntimeError(msg)
-        finally:
-            elapsed_sec = time.perf_counter() - start
-            # Release the Docker client before anything that may raise below
-            sse_runner.close()
-            self._set_result_to_job(job, sse_runner.result_job, elapsed_sec)  # type: ignore[arg-type]
-            await gctx.job_repository.update_job_transpiler_info(job)  # type: ignore[union-attr]
 
-            if job.transpile_result is not None:
-                # Upload to storage
-                await gctx.job_repository.upload_job_outputs_nowait(  # type: ignore[union-attr]
+            # Fully succeeded: reporting failures here mean real data loss
+            # (the job repository's record would be missing information for
+            # a successful job), so they are propagated rather than swallowed.
+            await self._report_success_outputs(job, gctx)
+
+    @staticmethod
+    def _finalize_run(job: Job, sse_runner: "SseRunner", start: float) -> None:
+        """Run the parts of post-run cleanup that apply regardless of outcome.
+
+        Releases the Docker client and copies the runner's result onto
+        `job`. Must be called from every exit path of the `run_sse()` call
+        (success or failure) before any outcome-specific reporting, since
+        `job.status`/`job.sse_log`/etc. are not populated until this runs.
+        """
+        elapsed_sec = time.perf_counter() - start
+        # Release the Docker client before anything that may raise below
+        sse_runner.close()
+        SseStep._set_result_to_job(job, sse_runner.result_job, elapsed_sec)  # type: ignore[arg-type]
+
+    @staticmethod
+    async def _report_success_outputs(job: Job, gctx: GlobalContext) -> None:
+        """Report transpiler info/result to the job repository for a successful job.
+
+        Unlike the failure path, a reporting failure here is propagated: it
+        means data is genuinely missing from an otherwise-successful job's
+        record in the job repository, not merely a best-effort addition to a
+        failure report.
+        """
+        await gctx.job_repository.update_job_transpiler_info(job)  # type: ignore[union-attr]
+
+        if job.transpile_result is not None:
+            await gctx.job_repository.upload_job_outputs_nowait(  # type: ignore[union-attr]
+                job=job,
+                outputs=[
+                    (
+                        "transpile_result",
+                        job.transpile_result.model_dump(),
+                        ".json",
+                        None,
+                    )
+                ],
+            )
+
+    @staticmethod
+    async def _report_failure_outputs_best_effort(
+        job: Job,
+        gctx: GlobalContext,
+        config: dict,
+        sse_runner: "SseRunner",
+    ) -> None:
+        """Report as much as possible to the job repository for a failed job.
+
+        This is best-effort: each item is uploaded independently and awaited
+        (not `_nowait`) so that, by the time the caller re-raises the
+        original failure and the pipeline's exception handler reports it via
+        `JobRepository.update_job_status` -- which, unlike the `_nowait` /
+        `_ordered` variants, is not routed through the per-job ordering
+        queue and sends whatever `job.output_files` holds at that moment --
+        any keys this method added are already present. Any exception here
+        is logged and swallowed: it must never override the job's original
+        failure.
+        """
+        try:
+            await gctx.job_repository.update_job_transpiler_info(job)  # type: ignore[union-attr]
+        except Exception:
+            logger.exception(
+                "failed to report transpiler info for a failed SSE job",
+                extra={"job_id": job.job_id, "job_type": job.job_type},
+            )
+
+        if job.transpile_result is not None:
+            try:
+                await gctx.job_repository.upload_job_outputs(  # type: ignore[union-attr]
                     job=job,
                     outputs=[
                         (
@@ -203,6 +294,90 @@ class SseStep(Step):
                         )
                     ],
                 )
+            except Exception:
+                logger.exception(
+                    "failed to upload transpile_result for a failed SSE job",
+                    extra={"job_id": job.job_id, "job_type": job.job_type},
+                )
+
+        # `job.sse_log` is populated from `result_job` above, but that is
+        # None when the user program crashed before ever calling
+        # `submit_job()`; `sse_runner.logs_content` still holds the raw
+        # container log in that case.
+        sse_log = job.sse_log or sse_runner.logs_content
+        if sse_log:
+            try:
+                await gctx.job_repository.upload_job_outputs(  # type: ignore[union-attr]
+                    job=job,
+                    outputs=[
+                        (
+                            "sse_log",
+                            sse_log,
+                            ".log",
+                            config.get("log_file_name"),
+                        )
+                    ],
+                )
+            except Exception:
+                logger.exception(
+                    "failed to upload sse_log for a failed SSE job",
+                    extra={"job_id": job.job_id, "job_type": job.job_type},
+                )
+
+    @staticmethod
+    def _build_failure_message(sse_runner: "SseRunner", *, default: str) -> str:
+        """Build a failure message, adding detail when a source is available.
+
+        Detail sources are tried in order:
+
+        1. The failed internal job's own `message` (only meaningful when
+           that internal job itself did not succeed -- otherwise it would
+           report a leftover success's message from an earlier internal
+           job, since `result.json` is overwritten on every `submit_job()`
+           call).
+        2. The tail of the container log.
+
+        Neither is guaranteed to exist (e.g. the user program crashed
+        before ever calling `submit_job()`), in which case only the fixed
+        `default` prefix is returned, unchanged.
+
+        Returns:
+            The failure message, with detail appended when available.
+
+        """
+        detail = SseStep._extract_result_job_detail(sse_runner.result_job)
+        if detail is None:
+            detail = SseStep._extract_log_tail(sse_runner.logs_content)
+        if detail is None:
+            return default
+        return f"{default}: {SseStep._truncate_detail(detail)}"
+
+    @staticmethod
+    def _extract_result_job_detail(result_job: "Job | None") -> str | None:
+        if result_job is None or result_job.status == "succeeded":
+            return None
+        return result_job.message or None
+
+    @staticmethod
+    def _extract_log_tail(logs_content: object, max_lines: int = 20) -> str | None:
+        if not isinstance(logs_content, str):
+            return None
+        lines = [line for line in logs_content.splitlines() if line.strip()]
+        if not lines:
+            return None
+        return "\n".join(lines[-max_lines:])
+
+    @staticmethod
+    def _truncate_detail(detail: str, max_len: int = 2000) -> str:
+        # Whether the job repository enforces a length limit on this field
+        # is backend-specific and not part of the abstract JobRepository
+        # contract, so truncate conservatively regardless. `message` is
+        # meant to be a short human-readable status, not a full traceback
+        # dump -- that goes via the separate sse_log upload.
+        detail = detail.strip()
+        if len(detail) <= max_len:
+            return detail
+        return detail[:max_len] + "...(truncated)"
 
     @staticmethod
     async def _make_userprogram_file(
@@ -273,7 +448,7 @@ class SseRunner:
         config (dict): Configuration dictionary for SSE runner.
         temp_dirs (dict[str, Path]): Temporary directories for input and output.
         job (Job): Job object containing job details.
-        job_api (JobApi): Job API client for interacting with the Oqtopus Cloud.
+        job_api (JobApi): Job API client for interacting with the job repository.
 
     """
 
@@ -298,6 +473,10 @@ class SseRunner:
 
         self._container: docker.models.containers.Container = None
         self.result_job: Job | None = None
+        # Raw container log, kept independent of `result_job` (which stays
+        # None when the user program crashes before ever calling
+        # `submit_job()`) so callers can still report it on that failure.
+        self.logs_content: str | None = None
 
         logger.info(
             "SseRunner was initialized",
@@ -512,21 +691,20 @@ class SseRunner:
             copy_is_success = True
 
         # ======== get container log ========
-        logs_content: str | None = None
         try:
             logger.debug(
                 "getting container log",
                 extra={"job_id": self._job_id},
             )
             logs = self._container.logs(stdout=True, stderr=True, follow=False)
-            logs_content = logs.decode("utf-8", errors="ignore")
+            self.logs_content = logs.decode("utf-8", errors="ignore")
             if not exec_is_success:
                 logger.info(
                     "container log",
-                    extra={"job_id": self._job_id, "container_log": logs_content},
+                    extra={"job_id": self._job_id, "container_log": self.logs_content},
                 )
             if self.result_job is not None:
-                self.result_job.sse_log = logs_content
+                self.result_job.sse_log = self.logs_content
         except Exception:
             logger.exception(
                 "failed to get container log",
@@ -541,8 +719,8 @@ class SseRunner:
             log_is_success = True
 
         # ======== save container log to the host work dir ========
-        if logs_content is not None:
-            self._save_container_log_to_host(logs_content)
+        if self.logs_content is not None:
+            self._save_container_log_to_host(self.logs_content)
 
         # ======== check overall success ========
         if not copy_is_success or not log_is_success:
