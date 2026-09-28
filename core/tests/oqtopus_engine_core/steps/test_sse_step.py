@@ -1135,6 +1135,83 @@ class TestPostprocessContainer:
 
 
 # ---------------------------------------------------------------------------
+# SseRunner._postprocess_container (container log saved to host)
+# ---------------------------------------------------------------------------
+
+def _host_temp_dirs(tmp_path: Path, job_id: str) -> dict[str, Path]:
+    base = tmp_path / "work" / job_id
+    dirs = {"base": base, "in": base / "in", "out": base / "out"}
+    for d in dirs.values():
+        d.mkdir(parents=True, exist_ok=True)
+    return dirs
+
+
+class TestPostprocessContainerSavesLog:
+    @pytest.fixture
+    def runner(self, make_runner: _MakeRunner, tmp_path: Path) -> SseRunner:
+        runner, _, _ = make_runner()
+        runner._host_work_path = _host_temp_dirs(tmp_path, runner._job_id)
+        runner._container = MagicMock()
+        runner._container.logs.return_value = b"Traceback: boom\n"
+        return runner
+
+    @pytest.mark.asyncio
+    async def test_saves_log_on_success(self, runner: SseRunner) -> None:
+        result_job = _make_job(job_id="internal-1")
+        runner._get_result_from_container = MagicMock(return_value=result_job)
+
+        await runner._postprocess_container(exec_is_success=True)
+
+        log_path = runner._host_work_path["out"] / "log.txt"
+        assert log_path.read_text(encoding="utf-8") == "Traceback: boom\n"
+        assert (log_path.stat().st_mode & 0o777) == 0o600
+        assert result_job.sse_log == "Traceback: boom\n"
+
+    @pytest.mark.asyncio
+    async def test_saves_log_when_result_file_missing(
+        self, runner: SseRunner
+    ) -> None:
+        # e.g. the user program crashed before calling submit_job(), so no
+        # result.json exists and result_job stays None.
+        runner._get_result_from_container = MagicMock(
+            side_effect=RuntimeError("result file not found")
+        )
+
+        with pytest.raises(RuntimeError, match="failed to get result or log"):
+            await runner._postprocess_container(exec_is_success=False)
+
+        log_path = runner._host_work_path["out"] / "log.txt"
+        assert log_path.read_text(encoding="utf-8") == "Traceback: boom\n"
+        assert runner.result_job is None
+
+    @pytest.mark.asyncio
+    async def test_host_write_failure_does_not_fail(
+        self, runner: SseRunner
+    ) -> None:
+        runner._get_result_from_container = MagicMock(
+            return_value=_make_job(job_id="internal-1")
+        )
+        runner._host_work_path["out"].rmdir()  # make the write fail
+
+        # must not raise: saving to host is a debugging aid only
+        await runner._postprocess_container(exec_is_success=True)
+
+    @pytest.mark.asyncio
+    async def test_no_host_file_when_log_retrieval_fails(
+        self, runner: SseRunner
+    ) -> None:
+        runner._get_result_from_container = MagicMock(
+            return_value=_make_job(job_id="internal-1")
+        )
+        runner._container.logs.side_effect = docker.errors.APIError("gone")
+
+        with pytest.raises(RuntimeError, match="failed to get result or log"):
+            await runner._postprocess_container(exec_is_success=True)
+
+        assert not (runner._host_work_path["out"] / "log.txt").exists()
+
+
+# ---------------------------------------------------------------------------
 # SseStep._run_sse — edge case: message is None falls back to default
 # ---------------------------------------------------------------------------
 
