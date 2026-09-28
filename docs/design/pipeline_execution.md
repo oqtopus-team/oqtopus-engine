@@ -443,6 +443,20 @@ Each step is executed in a “safe call” wrapper:
 
 This prevents inconsistent pipeline states and provides clear diagnostics.
 
+### 10.1 Local Terminal Status on Failure
+
+Beyond logging, each “safe call” wrapper (`_safe_call`, `_safe_handle_split`,
+`_safe_handle_join`, `_safe_buffer_put`) marks the failing Job — and any of
+its non-terminal descendants — `"failed"` locally before invoking the
+configured `PipelineExceptionHandler`, via `mark_job_terminal`
+(`framework/model.py`). This is a framework-level concern rather than a
+step's: an exception can originate outside any step (inside
+`_handle_split`, `_handle_join`, or a `Buffer.put()`), and only these four
+call sites can guarantee a Job is never processed again once caught, so
+only they are in a position to give it a terminal status. See §12.4 for
+how this pairs with the *succeeded* side, which is decided by steps
+instead, and why.
+
 ## 11. Step History Tracking
 
 Each job maintains an execution history stored inside its `JobContext`
@@ -664,6 +678,61 @@ child's `repository_job_id` (inherited from its parent, per
 split/join mechanism as any other estimation job, entirely within one
 `SseEngine()` gRPC call. `resolve_repository_jobs` therefore climbs to that
 parent correctly, the same as the ordinary N:1 case in §12.1.
+
+### 12.4 Local `job.status` vs. Repository Status
+
+`resolve_repository_jobs` decides which Job objects a repository (Cloud)
+update targets; it says nothing about the *local* `job.status` field on
+the Job that triggered the update. The two are decided independently:
+
+- A 1:1 or N:1 Job (§12.1) that owns, or resolves to, a repository entity
+  has its local status set at the same places its repository status is:
+  `DeviceGatewayStep` (→ `"running"`), `JobRepositoryUpdateStep` (→
+  `"succeeded"`/`"failed"`), `FailJobRepositoryHandler` (→ `"failed"`).
+- A 1:0 Job (an MP-auto-combined job) never reaches
+  `JobRepositoryUpdateStep` — nothing in the pipeline calls it for a Job
+  with no repository entity of its own, so nothing sets its local status
+  there. Left alone, it stays `"ready"` forever once its pipeline
+  finishes, even though its work completed normally: a misleading dump
+  when debugging, and a potential hang for any future code that waits on
+  local status (the class of bug SSE's 60-second timeout in
+  `SseEngineGateway` was added to guard against).
+
+Local terminal status is therefore decided separately, by whichever code
+is in a position to know a Job's own local pipeline processing has
+definitively ended:
+
+- **Succeeded**: the step returning `JOIN`/`SPLIT_WITHOUT_JOIN` for a Job
+  with no repository entity of its own marks it, since only that step's
+  own domain logic knows its work is done at that point —
+  `EstimatorStep.post_process` for a split child reaching `JOIN`,
+  `MpAutoCombiningStep.post_process` for a combined job right before
+  `SPLIT_WITHOUT_JOIN`. `PipelineExecutor` itself makes no decision here.
+- **Failed**: `PipelineExecutor`'s four “safe call” wrappers mark it
+  instead (§10.1), since an exception can originate outside any step, and
+  only those call sites can guarantee the Job is never processed again
+  afterward. This also cascades to any non-terminal descendant that
+  `DeviceGatewayStep` already marked `"running"` locally — children of a
+  combined job never reach `DeviceGatewayStep` individually, only the
+  combined job owning them does, recursing through `job.children` — so a
+  parent failing before reaching its own split/join step doesn't strand
+  them.
+
+Both paths funnel through `mark_job_terminal(job, status)`
+(`framework/model.py`), which never overwrites an already-terminal status
+(`TERMINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled"}`) — e.g. a
+join that fails after its child already succeeded leaves the child
+`"succeeded"`.
+
+**Known accepted gap**: if `MpAutoCombiningStep`'s own split preparation
+fails before it marks the combined job succeeded and starts its children
+(inside `PipelineExecutor._handle_split`, not the step's own
+`post_process`), the combined job's local status is not corrected to
+`"failed"`. Its repository status is unaffected — `FailJobRepositoryHandler`
+still resolves and fails the real underlying job(s) via
+`resolve_repository_jobs` — so this is a local-diagnostics-only gap, left
+unfixed because the combined job itself is never visible outside the
+engine.
 
 ## 13. Summary
 

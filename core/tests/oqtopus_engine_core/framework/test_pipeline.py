@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import pytest
 from opentelemetry import baggage
@@ -8,7 +9,11 @@ from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.framework.buffer import Buffer
 from oqtopus_engine_core.framework.context import GlobalContext, JobContext
 from oqtopus_engine_core.framework.exception_handler import PipelineExceptionHandler
-from oqtopus_engine_core.framework.model import Job
+from oqtopus_engine_core.framework.model import (
+    TERMINAL_JOB_STATUSES,
+    Job,
+    mark_job_terminal,
+)
 from oqtopus_engine_core.framework.pipeline import PipelineExecutor, StepPhase
 from oqtopus_engine_core.framework.step import PipelineDirective, Step, StepResult
 
@@ -1413,3 +1418,229 @@ async def test_buffer_put_failure_invokes_exception_handler():
     assert isinstance(ex, RuntimeError)
     assert str(ex) == "put exploded"
     assert failed_job is root_job
+
+
+# ---------------------------------------------------------------------------
+# Local terminal-status marking tests (Issue D: internal jobs with no Cloud
+# record of their own must not stay "ready"/"running" forever locally).
+#
+# Marking a job succeeded when it reaches JOIN/SPLIT_WITHOUT_JOIN is a
+# step's own responsibility (see EstimatorStep, MpAutoCombiningStep), not
+# the framework's — pipeline.py only dispatches the directive here. Local
+# *failure* marking below stays a framework concern instead: an exception
+# can originate outside any step, and every catch site guarantees the job
+# is never processed again, which only pipeline.py itself can know.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_safe_call_failure_marks_job_failed():
+    """A step exception (caught by _safe_call) marks the job failed."""
+    pipeline = [SplitOnPreStep(), ErrorStep(), JoinOnPostStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext()
+    root_job = make_test_job("root")
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    assert len(root_job.children) == 2
+    assert all(child.status == "failed" for child in root_job.children)
+
+
+class FailingStep(Step):
+    """Raise RuntimeError during pre-process, for any job."""
+
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        message = "boom"
+        raise RuntimeError(message)
+
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
+
+
+@pytest.mark.asyncio
+async def test_failure_cascades_to_non_terminal_descendants_but_not_terminal_ones():
+    """When a job fails, its non-terminal descendants (via `job.children`,
+    simulating MP-combined/estimation descendants that DeviceGatewayStep
+    already marked "running" locally but that never reached their own
+    split/join step) are cascaded to "failed" too — recursively, including
+    grandchildren. A descendant that already reached a terminal status is
+    left untouched.
+    """
+    grandchild_running = make_test_job("grandchild-running")
+    grandchild_running.status = "running"
+    child_running = make_test_job("child-running")
+    child_running.status = "running"
+    child_running.children = [grandchild_running]
+    child_succeeded = make_test_job("child-succeeded")
+    child_succeeded.status = "succeeded"
+
+    executor = PipelineExecutor([FailingStep()], QueueBuffer())
+    jctx = JobContext()
+    combined_job = make_test_job("combined")
+    combined_job.children = [child_running, child_succeeded]
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, combined_job
+    )
+
+    assert combined_job.status == "failed"
+    assert child_running.status == "failed"
+    assert grandchild_running.status == "failed"
+    assert child_succeeded.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_safe_handle_split_failure_marks_job_failed():
+    """A failure inside _handle_split itself marks the splitting job failed
+    (protects the §3-style boundary case's sibling scope: at minimum the
+    job that attempted the split is marked, even though this specific
+    failure point is otherwise accepted as a known limitation).
+    """
+    handler = FakeExceptionHandler()
+    executor = PipelineExecutor(
+        [RaisingSplitStep()], QueueBuffer(), exception_handler=handler
+    )
+    jctx = JobContext()
+    root_job = make_test_job("root")
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    assert root_job.status == "failed"
+
+
+class FailingJoinOnPostStep(Step):
+    """JOIN in post-process (children only) whose join_jobs always raises.
+
+    Marks the child succeeded before returning JOIN, mirroring what a real
+    step (e.g. EstimatorStep) does for a job with no job repository record
+    of its own.
+    """
+
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
+
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        if job.parent is not None:
+            mark_job_terminal(job, "succeeded")
+            return StepResult(directive=PipelineDirective.JOIN)
+        return StepResult()
+
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child) -> None:
+        message = "join_jobs exploded"
+        raise RuntimeError(message)
+
+
+@pytest.mark.asyncio
+async def test_safe_handle_join_failure_does_not_revert_child_succeeded():
+    """join_jobs failing must not revert the last child's status: the step
+    already marked it succeeded (its own pipeline finished fine) right
+    before returning JOIN, and the overwrite-protection rule keeps
+    it there.
+    """
+    handler = FakeExceptionHandler()
+    pipeline = [SplitOnPreStep(), FailingJoinOnPostStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer(), exception_handler=handler)
+    jctx = JobContext()
+    root_job = make_test_job("root")
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    ex, failed_job = handler.calls[0]
+    assert failed_job.status == "succeeded"
+
+
+class FailingJoinOnPreStep(Step):
+    """JOIN in pre-process (children only) whose join_jobs always raises."""
+
+    async def pre_process(self, gctx, jctx, job) -> StepResult:
+        if job.parent is not None:
+            return StepResult(directive=PipelineDirective.JOIN)
+        return StepResult()
+
+    async def post_process(self, gctx, jctx, job) -> StepResult:
+        return StepResult()
+
+    async def join_jobs(self, gctx, parent_jctx, parent_job, last_child) -> None:
+        message = "join_jobs exploded"
+        raise RuntimeError(message)
+
+
+@pytest.mark.asyncio
+async def test_safe_handle_join_failure_marks_child_failed_when_not_pre_marked():
+    """No step currently returns JOIN in PRE_PROCESS, so that branch never
+    pre-marks succeeded (unlike the POST_PROCESS JOIN branch). A join_jobs
+    failure there goes through _mark_job_and_descendants_failed with no
+    prior terminal status protecting it, so it actually flips to "failed".
+    """
+    pipeline = [SplitOnPreStep(), FailingJoinOnPreStep()]
+    executor = PipelineExecutor(pipeline, QueueBuffer())
+    jctx = JobContext()
+    root_job = make_test_job("root")
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    assert any(child.status == "failed" for child in root_job.children)
+
+
+@pytest.mark.asyncio
+async def test_safe_buffer_put_failure_marks_job_failed():
+    """A failure inside Buffer.put() (caught by _safe_buffer_put) marks the
+    job failed.
+    """
+    handler = FakeExceptionHandler()
+    executor = PipelineExecutor(
+        [RaisingPutBuffer()], QueueBuffer(), exception_handler=handler
+    )
+    jctx = JobContext()
+    root_job = make_test_job("root")
+
+    await executor._run_from(
+        StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+    )
+
+    assert root_job.status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_cursor_below_zero_warns_when_not_terminal(caplog):
+    """Reaching the end of the backward pass without a terminal local
+    status means index 0, which always sets one, was never reached as
+    expected — a bug elsewhere. This must only warn, not silently set a
+    status, so the underlying bug stays visible instead of being masked.
+    """
+    executor = PipelineExecutor([], QueueBuffer())
+    jctx = JobContext()
+    root_job = make_test_job("root")
+    assert root_job.status not in TERMINAL_JOB_STATUSES
+
+    with caplog.at_level(logging.WARNING):
+        await executor._run_from(
+            StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+        )
+
+    assert any("terminal" in record.message.lower() for record in caplog.records)
+    assert root_job.status == "CREATED"
+
+
+@pytest.mark.asyncio
+async def test_cursor_below_zero_no_warning_when_terminal(caplog):
+    """No warning is logged once the job already has a terminal status."""
+    executor = PipelineExecutor([], QueueBuffer())
+    jctx = JobContext()
+    root_job = make_test_job("root")
+    root_job.status = "succeeded"
+
+    with caplog.at_level(logging.WARNING):
+        await executor._run_from(
+            StepPhase.PRE_PROCESS, 0, make_test_global_context(), jctx, root_job
+        )
+
+    assert not any("terminal" in record.message.lower() for record in caplog.records)

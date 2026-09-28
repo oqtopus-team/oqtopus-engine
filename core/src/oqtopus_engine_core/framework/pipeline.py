@@ -11,6 +11,7 @@ from opentelemetry import context as otel_context
 
 from .buffer import Buffer
 from .context import link_parent_and_children
+from .model import TERMINAL_JOB_STATUSES, mark_job_terminal
 from .observability import (
     job_completed_counter,
     job_duration_histogram,
@@ -27,6 +28,36 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _mark_job_and_descendants_failed(job: Job) -> None:
+    """Mark `job` and any non-terminal descendant (via `job.children`) failed.
+
+    This is a framework-level concern, not a step's: an exception can
+    originate outside any step (`_handle_split`/`_handle_join`/
+    `Buffer.put()`), and once caught here, `job`'s own local processing is
+    guaranteed to never run again (every catch site below returns right
+    after handling it — see the "handle_exception is called" comment at
+    each site), so this is the only place that can still give it a
+    terminal status. Never overwriting an existing terminal status
+    protects e.g. a child already marked succeeded by its own step at a
+    join point. It also cascades to non-terminal descendants that
+    `DeviceGatewayStep` already marked "running" locally but that never
+    reach their own split/join step because `job`'s own pipeline fails
+    first (e.g. `MpAutoCombiningStep.post_process` raising before it can
+    return SPLIT_WITHOUT_JOIN, leaving the combined job's children
+    stranded). A job_id visited-set guards against cycles, though
+    parent/child links are one-directional by convention.
+    """
+    visited: set[str] = set()
+    stack = [job]
+    while stack:
+        current = stack.pop()
+        if current.job_id in visited:
+            continue
+        visited.add(current.job_id)
+        mark_job_terminal(current, "failed")
+        stack.extend(current.children)
 
 
 class StepPhase(StrEnum):
@@ -284,7 +315,7 @@ class PipelineExecutor:
             if token is not None:
                 otel_context.detach(token)
 
-    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912
+    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912, PLR0915
         self,
         step_phase: StepPhase,
         index: int,
@@ -328,6 +359,23 @@ class PipelineExecutor:
                 # to ancestor parents if their counters reach zero.
                 if job.parent is not None:
                     await self._cascade_cleanup(job)
+
+                # Reaching here means the backward pass ran to completion
+                # through index 0, which always sets a terminal status
+                # before returning. A non-terminal status here means that
+                # invariant broke somewhere — warn rather than silently
+                # setting one, so the underlying bug surfaces instead of
+                # being masked.
+                if job.status not in TERMINAL_JOB_STATUSES:
+                    logger.warning(
+                        "job pipeline finished without reaching a terminal"
+                        " local status",
+                        extra={
+                            "job_id": job.job_id,
+                            "status": job.status,
+                            "pipeline_name": jctx.get("pipeline_name"),
+                        },
+                    )
 
                 logger.info(
                     "job processing finished",
@@ -590,6 +638,9 @@ class PipelineExecutor:
             if job.parent is not None:
                 await self._cancel_pending_children_for_parent(job)
 
+            # `job` is never processed again after this point.
+            _mark_job_and_descendants_failed(job)
+
             if self._exception_handler:
                 await self._exception_handler.handle_exception(e, gctx, jctx, job)
 
@@ -640,6 +691,9 @@ class PipelineExecutor:
             if job.parent is not None:
                 await self._cancel_pending_children_for_parent(job)
 
+            # `job` is never processed again after this point.
+            _mark_job_and_descendants_failed(job)
+
             if self._exception_handler:
                 await self._exception_handler.handle_exception(e, gctx, jctx, job)
 
@@ -674,6 +728,9 @@ class PipelineExecutor:
             if job.parent is not None:
                 await self._cancel_pending_children_for_parent(job)
 
+            # `job` is never processed again after this point.
+            _mark_job_and_descendants_failed(job)
+
             if self._exception_handler:
                 await self._exception_handler.handle_exception(e, gctx, jctx, job)
 
@@ -697,6 +754,9 @@ class PipelineExecutor:
 
             if job.parent is not None:
                 await self._cancel_pending_children_for_parent(job)
+
+            # `job` is never processed again after this point.
+            _mark_job_and_descendants_failed(job)
 
             if self._exception_handler:
                 await self._exception_handler.handle_exception(e, gctx, jctx, job)
