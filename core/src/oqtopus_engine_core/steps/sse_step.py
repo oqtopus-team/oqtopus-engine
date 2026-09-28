@@ -512,6 +512,7 @@ class SseRunner:
             copy_is_success = True
 
         # ======== get container log ========
+        logs_content: str | None = None
         try:
             logger.debug(
                 "getting container log",
@@ -539,10 +540,30 @@ class SseRunner:
             )
             log_is_success = True
 
+        # ======== save container log to the host work dir ========
+        if logs_content is not None:
+            self._save_container_log_to_host(logs_content)
+
         # ======== check overall success ========
         if not copy_is_success or not log_is_success:
             msg = "failed to get result or log from container"
             raise RuntimeError(msg)
+
+    def _save_container_log_to_host(self, logs_content: str) -> None:
+        log_path = self._host_work_path["out"] / self._config["log_file_name"]
+        try:
+            log_path.write_text(logs_content, encoding="utf-8")
+            log_path.chmod(0o600)
+        except Exception:
+            logger.exception(
+                "failed to save container log to host",
+                extra={"job_id": self._job_id, "log_path": str(log_path)},
+            )
+        else:
+            logger.debug(
+                "container log saved to host",
+                extra={"job_id": self._job_id, "log_path": str(log_path)},
+            )
 
     def _start_container(self) -> docker.models.containers.Container:
         logger.debug(
