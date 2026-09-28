@@ -191,18 +191,18 @@ class SseEngineGatewayServicer:
 
         try:
             job = Job.model_validate_json(job_json)
-            # repository_job_id is intentionally left unset (None) here,
-            # the one exception to the "fetcher-origin jobs get
-            # repository_job_id = job_id" rule. sse_driver.py stamps every
-            # internal job it sends with the parent SSE job's own Cloud
-            # job_id, so setting repository_job_id = job_id here would let
-            # every internal job's request pass the repository entry guard
-            # and PATCH/upload against the parent's real Cloud record,
-            # clobbering its status and outputs mid-execution. Currently
-            # harmless because sse_engine_config.yaml wires
-            # NullJobRepository here; do not "fix" this if a real
-            # repository is ever wired in for the SSE engine. See
-            # docs/design/pipeline_execution.md.
+            # Self-referential, like any fetcher-origin job (see
+            # OqtopusCloudJobRepository.get_jobs). This is safe here only
+            # because sse_driver.py numbers every internal call with its own
+            # engine-unique job_id (`{parent}-sse-{index}`, never the parent
+            # SSE job's own job_id), so this internal job never collides
+            # with, or is mistaken for, the parent's real Cloud record. The
+            # SSE engine is a sidecar of the core engine: it is only ever
+            # wired to NullJobRepository (see sse_engine_config.yaml), so
+            # resolve_repository_jobs treating this job as its own
+            # repository-tracked entity never reaches a real Cloud record.
+            # See docs/design/pipeline_execution.md (Job ID Conventions).
+            job.repository_job_id = job.job_id
             logger.debug(
                 "converted strings of job json to a Job object", extra={"job": job}
             )
