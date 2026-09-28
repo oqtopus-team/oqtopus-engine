@@ -79,8 +79,12 @@ class DeviceGatewayStep(Step):
             options=grpc_options,
         )
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
-        # Engine owns device access orchestration, so all jobs, including
-        # internal estimation children, must serialize gateway execution here.
+        # Guards the "ready" -> "running" check-and-set below (status
+        # update + local bookkeeping) so concurrent sibling estimation
+        # jobs never transition the same parent twice. It does NOT
+        # serialize gateway execution: GetServiceStatus and CallJob run
+        # outside this lock. Gateway execution is serialized separately,
+        # by the buffer's max_concurrency (see config.yaml).
         self._execution_lock = asyncio.Lock()
         logger.info(
             "DeviceGatewayStep was initialized",
@@ -107,7 +111,9 @@ class DeviceGatewayStep(Step):
             job: The job object.
 
         Raises:
-            RuntimeError: If the device status is not available.
+            RuntimeError: If the device status is not available, if `job`
+                is an unsplit estimation job, or if `job.job_type` is not
+                one this step supports.
 
         Returns:
             StepResult: NONE directive — the pipeline continues normally.
@@ -186,6 +192,9 @@ class DeviceGatewayStep(Step):
             job.message = job_response.result.message
         elif job.job_type == "estimation":
             message = "estimation jobs must be split before reaching device gateway"
+            raise RuntimeError(message)
+        else:
+            message = f"unsupported job_type at device gateway: {job.job_type}"
             raise RuntimeError(message)
         return StepResult()
 

@@ -127,6 +127,21 @@ async def test_pre_process_estimation_job_raises_configuration_error(
 
 
 @pytest.mark.asyncio
+async def test_pre_process_unsupported_job_type_raises_configuration_error(
+    gateway_step: DeviceGatewayStep,
+) -> None:
+    gctx = MagicMock()
+    gctx.job_repository.update_job_status_nowait = AsyncMock()
+    job = _make_job("bogus_job_type")
+
+    with pytest.raises(
+        RuntimeError,
+        match="unsupported job_type at device gateway: bogus_job_type",
+    ):
+        await gateway_step.pre_process(gctx, JobContext(), job)
+
+
+@pytest.mark.asyncio
 async def test_pre_process_estimation_child_updates_parent_status(
     gateway_step: DeviceGatewayStep,
 ) -> None:
