@@ -9,6 +9,7 @@ from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2
 from oqtopus_engine_core.steps.device_gateway_step import (
     DeviceGatewayStep,
     _collect_status_update_targets,
+    _mark_ready_descendants_running,
 )
 
 
@@ -223,6 +224,159 @@ async def test_pre_process_estimation_children_update_parent_status_only_once(
     )
     assert gateway_step._stub.CallJob.await_count == 2
     assert parent.status == "running"
+
+
+# ---------------------------------------------------------------------------
+# Test Cases for local-only "running" marking (Issue D: jobs with no job
+# repository record of their own must not stay "ready" forever locally).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_pre_process_marks_combined_job_and_children_running_locally(
+    gateway_step: DeviceGatewayStep,
+) -> None:
+    """A combined job (no job repository record of its own) and its
+    children are marked "running" locally, in addition to the existing
+    PATCH of the children (which own their own job repository records).
+    """
+    gctx = MagicMock()
+    gctx.job_repository.update_job_status_nowait = AsyncMock()
+
+    combined = _make_job("sampling")
+    combined.job_id = "mpa-comb-x"
+    combined.repository_job_id = None
+
+    child_a = _make_job("sampling")
+    child_a.job_id = "child-a"
+    child_a.repository_job_id = "child-a"
+    child_a.parent = combined
+
+    child_b = _make_job("sampling")
+    child_b.job_id = "child-b"
+    child_b.repository_job_id = "child-b"
+    child_b.parent = combined
+
+    combined.children = [child_a, child_b]
+
+    await gateway_step.pre_process(gctx, JobContext(), combined)
+
+    assert combined.status == "running"
+    assert child_a.status == "running"
+    assert child_b.status == "running"
+    # PATCH targets are unchanged: only the children (they own job
+    # repository records), never the combined job itself.
+    updated = {
+        call.args[0].job_id
+        for call in gctx.job_repository.update_job_status_nowait.await_args_list
+    }
+    assert updated == {"child-a", "child-b"}
+
+
+@pytest.mark.asyncio
+async def test_pre_process_marks_nested_estimation_children_running_locally(
+    gateway_step: DeviceGatewayStep,
+) -> None:
+    """A combined job whose children are estimation sub-circuits (no job
+    repository record of their own either — they resolve to a real
+    estimation parent two levels up) still gets those children marked
+    "running" locally, even though they are never individually PATCHed.
+    """
+    gctx = MagicMock()
+    gctx.job_repository.update_job_status_nowait = AsyncMock()
+
+    parent_a = _make_job("sampling")
+    parent_a.job_id = "root-a"
+    parent_a.repository_job_id = "root-a"
+
+    parent_b = _make_job("sampling")
+    parent_b.job_id = "root-b"
+    parent_b.repository_job_id = "root-b"
+
+    child_a = _make_job("sampling")
+    child_a.job_id = "child-of-a"
+    child_a.repository_job_id = "root-a"
+    child_a.parent = parent_a
+
+    child_b = _make_job("sampling")
+    child_b.job_id = "child-of-b"
+    child_b.repository_job_id = "root-b"
+    child_b.parent = parent_b
+
+    combined = _make_job("sampling")
+    combined.job_id = "mpa-comb-x"
+    combined.repository_job_id = None
+    combined.children = [child_a, child_b]
+
+    await gateway_step.pre_process(gctx, JobContext(), combined)
+
+    assert combined.status == "running"
+    assert child_a.status == "running"
+    assert child_b.status == "running"
+    # PATCH still goes to the real job-repository-tracked ancestors only.
+    updated = {
+        call.args[0].job_id
+        for call in gctx.job_repository.update_job_status_nowait.await_args_list
+    }
+    assert updated == {"root-a", "root-b"}
+
+
+@pytest.mark.asyncio
+async def test_pre_process_does_not_touch_running_or_terminal_descendants(
+    gateway_step: DeviceGatewayStep,
+) -> None:
+    """Descendants that are already "running" or reached a terminal status
+    through another path are left untouched.
+    """
+    gctx = MagicMock()
+    gctx.job_repository.update_job_status_nowait = AsyncMock()
+
+    combined = _make_job("sampling")
+    combined.job_id = "mpa-comb-x"
+    combined.repository_job_id = None
+
+    already_running = _make_job("sampling")
+    already_running.job_id = "child-running"
+    already_running.repository_job_id = "child-running"
+    already_running.status = "running"
+    already_running.parent = combined
+
+    already_succeeded = _make_job("sampling")
+    already_succeeded.job_id = "child-succeeded"
+    already_succeeded.repository_job_id = "child-succeeded"
+    already_succeeded.status = "succeeded"
+    already_succeeded.parent = combined
+
+    combined.children = [already_running, already_succeeded]
+
+    await gateway_step.pre_process(gctx, JobContext(), combined)
+
+    assert already_running.status == "running"
+    assert already_succeeded.status == "succeeded"
+
+
+def test_mark_ready_descendants_running_recurses_through_grandchildren() -> None:
+    """`_mark_ready_descendants_running` walks `job.children` recursively,
+    so a grandchild ("estimation sub-circuit of a job that was itself
+    combined") is also marked "running", not just direct children.
+    """
+    grandchild = _make_job("sampling")
+    grandchild.job_id = "grandchild"
+    grandchild.children = []
+
+    child = _make_job("sampling")
+    child.job_id = "child"
+    child.children = [grandchild]
+
+    root = _make_job("sampling")
+    root.job_id = "root"
+    root.children = [child]
+
+    _mark_ready_descendants_running(root)
+
+    assert root.status == "running"
+    assert child.status == "running"
+    assert grandchild.status == "running"
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ from oqtopus_engine_core.framework import (
     SamplingResult,
     Step,
     StepResult,
+    mark_job_terminal,
 )
 from oqtopus_engine_core.framework.model import TranspileResult
 from oqtopus_engine_core.interfaces.estimator_interface.v1 import (
@@ -329,6 +330,11 @@ class EstimatorStep(Step):
                 "estimation split child reaching join point",
                 extra={"job_id": job.job_id, "job_type": job.job_type},
             )
+            # This child has no job repository record of its own (see
+            # `_build_child_job`) and, once JOIN is signaled, the framework
+            # never processes it again locally — mark it here or it stays
+            # "ready"/"running" forever.
+            mark_job_terminal(job, "succeeded")
             return StepResult(directive=PipelineDirective.JOIN)
 
         logger.debug(

@@ -7,6 +7,7 @@ from typing import Any
 import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
+    TERMINAL_JOB_STATUSES,
     GlobalContext,
     Job,
     JobContext,
@@ -136,7 +137,7 @@ class SseEngineGatewayServicer:
             # set timeout to prevent hanging
             # and wait for job completion
             async with asyncio.timeout(PIPELINE_TIMEOUT_SECONDS_DEFAULT):
-                while job.status not in {"failed", "succeeded", "cancelled"}:
+                while job.status not in TERMINAL_JOB_STATUSES:
                     asyncio.Event().set()
                     await asyncio.sleep(0.1)
         except TimeoutError:

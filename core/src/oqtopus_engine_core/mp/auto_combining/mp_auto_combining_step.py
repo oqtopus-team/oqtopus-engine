@@ -15,7 +15,12 @@ from oqtopus_engine_core.framework import (
     PipelineDirective,
     StepResult,
 )
-from oqtopus_engine_core.framework.model import Job, JobResult, SamplingResult
+from oqtopus_engine_core.framework.model import (
+    Job,
+    JobResult,
+    SamplingResult,
+    mark_job_terminal,
+)
 from oqtopus_engine_core.framework.step import Step
 from oqtopus_engine_core.steps.multi_manual_step import (
     divide_result,
@@ -139,6 +144,13 @@ class MpAutoCombiningStep(Step):
             msg = "failed to extract result from auto-combined job result"
             raise RuntimeError(msg) from e
 
+        # `job` (the combined job) has no job repository record of its own
+        # and, once split without join, the framework never processes it
+        # again locally — mark it here or it stays "ready"/"running"
+        # forever. Its own work (device execution, result distribution to
+        # children above) is done at this point; a child's later failure
+        # is the child's own concern.
+        mark_job_terminal(job, "succeeded")
         return StepResult(
             directive=PipelineDirective.SPLIT_WITHOUT_JOIN,
             child_jobs=list(job.children),
