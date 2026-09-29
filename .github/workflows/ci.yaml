@@ -25,7 +25,7 @@ jobs:
       sse_runtime: ${{ steps.filter.outputs.sse_runtime }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Detect changed paths
         id: filter
