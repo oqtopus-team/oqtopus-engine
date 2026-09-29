@@ -33,6 +33,7 @@ def test_slurm_config_wires_shared_runtime_components(monkeypatch):
     assert exception_handler._slurm_client is simulator_step._slurm_client
     assert exception_handler._work_root == simulator_step._work_root
     assert getattr(simulator_step, "_qubits_per_node") == 28
+    assert getattr(simulator_step, "_imaginary_tolerance") == 1e-10
     assert fetcher._batch_script == Path("/shared/oqtopus/run.sh")
     assert fetcher._worker_script == Path(
         "/shared/oqtopus/run_qulacs_mpi.py"

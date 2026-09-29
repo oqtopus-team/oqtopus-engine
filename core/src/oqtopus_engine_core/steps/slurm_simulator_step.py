@@ -91,7 +91,7 @@ class SlurmSimulatorStep(Step):
         self._max_n_per_node = max_n_per_node
         self._max_timeout_seconds = max_timeout_seconds
         self._max_shots = max_shots
-        self._imaginary_tolerance = imaginary_tolerance
+        self._imaginary_tolerance = float(imaginary_tolerance)
 
     async def pre_process(  # noqa: C901, PLR0912, PLR0914, PLR0915
         self,
