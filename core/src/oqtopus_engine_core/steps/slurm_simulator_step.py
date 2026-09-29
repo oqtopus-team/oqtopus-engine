@@ -148,10 +148,12 @@ class SlurmSimulatorStep(Step):
             request_path=request_path,
             result_path=result_path,
         )
-        self._write_atomic(request_path, canonical_request_json(request))
-        recovered_submit_intent = (
-            request_existed and record.state is ExecutionState.RUNNING
+        recovered_submit_intent = record.slurm_job_id is not None or (
+            request_existed
+            and record.state in {ExecutionState.RUNNING, ExecutionState.CANCELLED}
         )
+        if record.state in {ExecutionState.RESULT_READY, ExecutionState.SUCCEEDED}:
+            self._write_atomic(request_path, canonical_request_json(request))
 
         if record.state is ExecutionState.RESULT_READY:
             if not result_path.exists():
@@ -176,17 +178,9 @@ class SlurmSimulatorStep(Step):
             cloud_job_id,
             None,
         )
-        if cloud_job is not None and cloud_job.status == "cancelled":
-            await execution_repository.update(
-                job.job_id,
-                ExecutionState.CANCELLED,
-                expected={record.state},
-                cloud_status=None if is_internal else "cancelled",
-            )
-            _raise_cancelled("job was cancelled before SLURM submission")
         if (
             cloud_job is not None
-            and cloud_job.status == "cancelling"
+            and cloud_job.status in {"cancelling", "cancelled"}
             and not recovered_submit_intent
         ):
             await execution_repository.update(
@@ -197,6 +191,9 @@ class SlurmSimulatorStep(Step):
             )
             _raise_cancelled("job was cancelled before SLURM submission")
 
+        # A pre-execution cancellation must not leave a new submit intent that
+        # startup recovery would mistake for an accepted allocation.
+        self._write_atomic(request_path, canonical_request_json(request))
         if record.state is ExecutionState.READY:
             if is_internal:
                 record = await execution_repository.update(
@@ -245,7 +242,11 @@ class SlurmSimulatorStep(Step):
         await execution_repository.update(
             job.job_id,
             ExecutionState.RUNNING,
-            expected={ExecutionState.RUNNING, ExecutionState.RESULT_READY},
+            expected={
+                ExecutionState.RUNNING,
+                ExecutionState.RESULT_READY,
+                ExecutionState.CANCELLED,
+            },
             slurm_job_id=slurm_job_id,
         )
 
@@ -371,9 +372,10 @@ class SlurmSimulatorStep(Step):
                 cloud_job_id,
                 slurm_job_id,
             )
-            cancellation_requested = (
-                cloud_job is not None and cloud_job.status == "cancelling"
-            )
+            cancellation_requested = cloud_job is not None and cloud_job.status in {
+                "cancelling",
+                "cancelled",
+            }
 
             status = await self._get_slurm_status_with_retry(
                 job.job_id,
@@ -430,7 +432,7 @@ class SlurmSimulatorStep(Step):
         errors = 0
         while True:
             try:
-                return await self._job_reader.get_job(job_id)
+                job = await self._job_reader.get_job(job_id)
             except Exception:  # noqa: BLE001
                 errors += 1
                 logger.warning(
@@ -442,7 +444,14 @@ class SlurmSimulatorStep(Step):
                     },
                     exc_info=True,
                 )
-                await asyncio.sleep(self._poll_interval_seconds)
+            else:
+                if job is not None:
+                    return job
+                logger.warning(
+                    "Cloud job is missing; preserving execution and retrying",
+                    extra={"job_id": job_id, "slurm_job_id": slurm_job_id},
+                )
+            await asyncio.sleep(self._poll_interval_seconds)
 
     async def _get_slurm_status_with_retry(
         self,

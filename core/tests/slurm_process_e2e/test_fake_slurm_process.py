@@ -68,9 +68,9 @@ class FakeSlurmEnvironment:
     def execution_state(self) -> str | None:
         return read_json(self.cloud_path).get("status")
 
-    def request_cloud_cancellation(self) -> None:
+    def request_cloud_cancellation(self, status: str = "cancelling") -> None:
         def update(state: dict[str, Any]) -> None:
-            state["status"] = "cancelling"
+            state["status"] = status
 
         update_json(self.cloud_path, dict, update)
 
@@ -252,18 +252,28 @@ def test_uncertain_sbatch_response_reattaches_by_job_name(
     assert fake_slurm.execution_state() == "succeeded"
 
 
+@pytest.mark.parametrize("cloud_status", ["cancelling", "cancelled"])
+@pytest.mark.parametrize("restart", [False, True])
 def test_cloud_cancellation_stops_allocation(
     fake_slurm: FakeSlurmEnvironment,
+    cloud_status: str,
+    restart: bool,
 ) -> None:
-    fake_slurm.response_gate.touch()
     process = fake_slurm.start_harness()
     _wait_until(lambda: fake_slurm.state()["submit_count"] == 1)
 
-    fake_slurm.request_cloud_cancellation()
+    if restart:
+        _terminate(process)
+    fake_slurm.request_cloud_cancellation(cloud_status)
+    # Deliver the cancellation before sbatch can return its accepted allocation ID.
+    fake_slurm.response_gate.touch()
+    if restart:
+        process = fake_slurm.start_harness()
     fake_slurm.assert_process_succeeds(process)
 
     outcome = read_json(fake_slurm.outcome_path)
     state = fake_slurm.state()
+    assert state["submit_count"] == 1
     assert outcome["status"] == "cancelled"
     assert outcome["execution_state"] == "cancelled"
     assert read_json(fake_slurm.cloud_path)["status"] == "cancelled"

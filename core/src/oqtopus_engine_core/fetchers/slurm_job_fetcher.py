@@ -174,18 +174,17 @@ class SlurmJobFetcher(RepositoryJobFetcher):
             if record.state is ExecutionState.FAILED:
                 await self._reconcile_unsynchronized_terminal(job, record)
                 continue
-            if record.state is ExecutionState.CANCELLED:
-                if await self._reconcile_terminal_job(job, record):
-                    continue
-                await self._reconcile_unsynchronized_terminal(job, record)
-                continue
             if await self._reconcile_terminal_job(job, record):
+                continue
+            if record.state is ExecutionState.CANCELLED and job.status != "cancelled":
+                await self._reconcile_unsynchronized_terminal(job, record)
                 continue
             if record.state is ExecutionState.RESULT_READY or job.status in {
                 "submitted",
                 "ready",
                 "running",
                 "cancelling",
+                "cancelled",
             }:
                 jobs.append(job)
         if jobs:
@@ -219,30 +218,8 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         if record.state is ExecutionState.RESULT_READY and job.status != "succeeded":
             return False
         if job.status == "cancelled":
-            slurm_job_id = await self._resolve_slurm_job_id(record)
-            status = await self._slurm_client.get_status(slurm_job_id)
-            if status is None or status.state is SchedulerState.UNKNOWN:
-                message = (
-                    "cannot confirm SLURM allocation state while startup "
-                    f"cancellation is pending: {slurm_job_id}"
-                )
-                raise RuntimeError(message)
-            if status.state in {
-                SchedulerState.PENDING,
-                SchedulerState.RUNNING,
-            }:
-                await self._slurm_client.cancel(slurm_job_id)
-                message = (
-                    "startup cancellation is pending scheduler confirmation: "
-                    f"{slurm_job_id}"
-                )
-                raise RuntimeError(message)
-            if status.state is not SchedulerState.CANCELLED:
-                message = (
-                    "Cloud cancellation conflicts with SLURM terminal state "
-                    f"{status.raw_state}: {slurm_job_id}"
-                )
-                raise RuntimeError(message)
+            if not await self._confirm_cancelled_allocation(record):
+                return False
             state = ExecutionState.CANCELLED
         elif job.status == "failed":
             state = ExecutionState.FAILED
@@ -258,6 +235,43 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         )
         if state is ExecutionState.SUCCEEDED:
             await self._cleanup_succeeded_artifacts(job.job_id)
+        return True
+
+    async def _confirm_cancelled_allocation(self, record: ExecutionRecord) -> bool:
+        if record.slurm_job_id is None and (
+            record.request_path is None
+            or not await asyncio.to_thread(Path(record.request_path).is_file)
+        ):
+            # No persisted submit intent: this was a pre-execution cancellation.
+            return True
+        slurm_job_id = await self._resolve_slurm_job_id(record)
+        status = await self._slurm_client.get_status(slurm_job_id)
+        if status is None or status.state is SchedulerState.UNKNOWN:
+            message = (
+                "cannot confirm SLURM allocation state while startup "
+                f"cancellation is pending: {slurm_job_id}"
+            )
+            raise RuntimeError(message)
+        if status.state in {SchedulerState.PENDING, SchedulerState.RUNNING}:
+            await self._slurm_client.cancel(slurm_job_id)
+            message = (
+                "startup cancellation is pending scheduler confirmation: "
+                f"{slurm_job_id}"
+            )
+            raise RuntimeError(message)
+        if status.state in {SchedulerState.COMPLETED, SchedulerState.CANCELLED}:
+            if record.result_path is not None and await asyncio.to_thread(
+                Path(record.result_path).is_file
+            ):
+                # The worker may have published a result after the Cloud listing.
+                # Let the simulator validate it before finalizing success.
+                await self._execution_repository.update(
+                    record.cloud_job_id, ExecutionState.RESULT_READY
+                )
+                return False
+            if status.state is SchedulerState.COMPLETED:
+                message = f"completed SLURM allocation has no result: {slurm_job_id}"
+                raise RuntimeError(message)
         return True
 
     async def _resolve_slurm_job_id(self, record: ExecutionRecord) -> str:
@@ -328,6 +342,11 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         records = await self._execution_repository.list_cleanup_candidates(cutoff)
         for record in records:
             try:
+                if (
+                    record.cloud_status == "cancelled"
+                    and not await self._confirm_cancelled_allocation(record)
+                ):
+                    continue
                 await self._execution_repository.cleanup_artifacts(
                     record.cloud_job_id,
                     self._work_root,

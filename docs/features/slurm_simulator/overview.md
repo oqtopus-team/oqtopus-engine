@@ -415,8 +415,9 @@ cannot replace the result.
 
 Engine restart does not cause a state transition and is intentionally omitted
 from the diagram. Recovery resumes observation in `RUNNING` or `cancelling`,
-or restores a retained result from a terminal `cancelled` job. A recovered
-cancelled result is never submitted again.
+checks a retained submit intent from a terminal `cancelled` job for a lingering
+allocation, or restores its retained result. Cancelled work is never submitted
+again.
 
 For a running job, the User API atomically changes the Cloud status from
 `running` to `cancelling`. Engine then confirms `succeeded`, `failed`, or
@@ -478,7 +479,9 @@ flowchart TD
   CancelledCloud -->|yes| CancelledResult{"[Local] Valid result.json?"}
   CancelledResult -->|yes| Return
   CancelledResult -->|no| InvalidResult["Retained checkpoint<br/>[Action] preserve and retry validation"]
-  CancelledCloud -->|no| CancelledTerminal["Terminal cancellation<br/>[Action] do not reattach or submit"]
+  CancelledCloud -->|no| CancelledRequest{"[Local] request.json exists?"}
+  CancelledRequest -->|no| CancelledTerminal["Pre-execution cancellation<br/>[Action] do not submit"]
+  CancelledRequest -->|yes| Slurm
   Cloud -->|submitted, ready, running, cancelling| Result{"[Local] Valid result.json?"}
 
   Result -->|yes| Return["RESULT_READY checkpoint<br/>[Action] restore result and finalize"]
@@ -488,7 +491,7 @@ flowchart TD
   Reconcile -->|no safe allocation| Submit["No durable allocation<br/>[Action] submit or cancel before submit"]
 
   Request -->|yes| Slurm{"[SLURM] squeue then sacct"}
-  Slurm -->|PENDING or RUNNING| CancelCheck{"[Cloud] status is cancelling?"}
+  Slurm -->|PENDING or RUNNING| CancelCheck{"[Cloud] cancelling or cancelled?"}
   CancelCheck -->|no| Continue
   CancelCheck -->|yes| Cancel["Active allocation<br/>[Action] send scancel and poll"]
   Slurm -->|COMPLETED| Validate["[Local] validate result.json<br/>[Action] return result or fail"]
@@ -517,9 +520,13 @@ The corresponding decision matrix keeps each raw input in its own column. The
 | `running` or `cancelling` | present or absent | valid result | not queried | The local result checkpoint is authoritative for finalization. | **Return result**: skip scheduler actions and retry restoration and finalization. |
 | `cancelled` | any | valid result | not queried | Completion left a usable checkpoint after Cloud cancellation. | **Return result**: restore the result, finalize success, and never resubmit. |
 | `cancelled` | any | present but invalid | not queried | A retained checkpoint exists, but validation must succeed before finalization. | **Preserve checkpoint**: retain `RESULT_READY`, report the validation error, and retry repair or finalization. |
-| `cancelled` | any | absent | not queried | Cloud cancellation is terminal and no result checkpoint exists. | **Confirm cancellation**: keep `cancelled` and clean retained artifacts after the normal retention period. |
+| `cancelled` | absent | absent | not queried | No durable submit intent exists. | **Pre-execution cancellation**: keep `cancelled` and never submit. |
+| `cancelled` | present | absent | `PENDING` or `RUNNING` | Cloud cancellation does not prove that the allocation has stopped. | **Stop the allocation**: resolve its JobName, send `scancel`, and retry until termination is confirmed. Preserve artifacts even after their TTL expires. |
+| `cancelled` | present | absent | `CANCELLED` or `FAILED` | The allocation has terminated without a usable result. | **Confirm cancellation**: keep Cloud `cancelled`; artifact cleanup may proceed after the normal retention period. |
+| `cancelled` | present | appears during reconciliation | `COMPLETED` or `CANCELLED` | A result was published after the initial recovery listing. | **Return result**: preserve the checkpoint and requeue validation and finalization, without submission. |
+| `cancelled` | present | absent | `COMPLETED` | Scheduler completion lacks its expected checkpoint. | **Preserve diagnostics**: keep the request for retry or operator reconciliation; do not resubmit or perform TTL cleanup. |
 | any active status | any | any | allocation absent from both `squeue` and `sacct`, or observation failed transiently | No authoritative terminal state exists yet. | **Retry observation**: keep the active state and never resubmit a persisted submit intent. |
-| any active status | any | any | Cloud Job is missing | There is no authoritative Cloud record for a safe update. | **Skip recovery**: log the condition and wait for retry or operator reconciliation. |
+| any active status | any | any | Cloud Job is missing | A 404 does not establish cancellation intent. | **Retry observation**: an executing simulator retains the allocation and artifacts and retries Cloud reads before proceeding. Startup skips missing jobs for later recovery or operator reconciliation. Do not infer cancellation or submit new work from a missing record. |
 
 The Cloud Job, local execution record, and SLURM allocation are linked through
 deterministic identifiers rather than a SLURM-specific Cloud column:
@@ -559,13 +566,19 @@ requires manual reconciliation. The specific reconciliation failure remains
 available through the existing job `message` field.
 
 Under the race-aware cancellation contract, Cloud persists cancellation intent
-as `cancelling`, then Core checks the allocation state. It sends `scancel`
+as `cancelling`, then Core checks the allocation state. Core also treats
+`cancelled` as a stop request when an allocation is still active. It sends `scancel`
 only while the allocation is active and waits for scheduler confirmation. A
 `COMPLETED` observation restores and validates the result before moving to
 `RESULT_READY`; a `CANCELLED` observation updates the existing Job status to
 `cancelled`.
 Transient observation or cancellation failures remain recoverable from
-`cancelling`.
+`cancelling`, or from `cancelled` with a retained submit intent. Restart recovery
+includes these cancelled requests and never resubmits them. Cancellation that
+arrives while `sbatch` is returning also proceeds to allocation monitoring.
+Cloud status alone does not authorize TTL cleanup of a cancelled request:
+Core first checks the scheduler and retains artifacts while termination is
+unconfirmed. A valid result checkpoint still takes precedence over cancellation.
 
 Finalization is retried in process. If retries are exhausted, the validated
 result remains `RESULT_READY` and startup recovery attempts finalization again.

@@ -176,6 +176,27 @@ async def test_cancelled_job_with_result_artifact_is_result_ready(tmp_path: Path
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("has_request", [False, True])
+async def test_cancelled_job_recovery_requires_persisted_submit_intent(
+    tmp_path, has_request
+):
+    api = StubJobsApi()
+    api.job.status = "cancelled"
+    work_dir, request_path, _ = _local_paths(tmp_path)
+    work_dir.mkdir(parents=True)
+    if has_request:
+        request_path.write_text("{}")
+
+    records = await _repository(tmp_path, api).list_unfinished()
+
+    assert [record.cloud_job_id for record in records] == (
+        ["job-1"] if has_request else []
+    )
+    if records:
+        assert records[0].state is ExecutionState.CANCELLED
+
+
+@pytest.mark.asyncio
 async def test_cancelled_result_artifact_can_finalize_as_succeeded(tmp_path: Path):
     api = StubJobsApi()
     api.job.status = "cancelled"

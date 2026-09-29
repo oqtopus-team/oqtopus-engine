@@ -79,12 +79,13 @@ async def test_handler_preserves_cloud_cancellation(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_handler_preserves_pending_slurm_cancellation(tmp_path):
+@pytest.mark.parametrize("state", [ExecutionState.RUNNING, ExecutionState.CANCELLED])
+async def test_handler_preserves_pending_slurm_cancellation(tmp_path, state):
     repository = RecordingJobRepository("cancelled")
     handler, execution_repository = await make_handler(tmp_path, repository)
     await execution_repository.update(
         "job-1",
-        ExecutionState.RUNNING,
+        state,
         expected={ExecutionState.READY},
         cloud_status="cancelled",
     )
@@ -98,8 +99,9 @@ async def test_handler_preserves_pending_slurm_cancellation(tmp_path):
     assert repository.updated_statuses == []
     record = await execution_repository.get("job-1")
     assert record is not None
-    assert record.state is ExecutionState.RUNNING
+    assert record.state is state
     assert record.cloud_status == "cancelled"
+    assert record.last_error is None
 
 
 @pytest.mark.asyncio

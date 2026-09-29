@@ -231,6 +231,11 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
             record
             for record in records
             if record.state in {ExecutionState.RUNNING, ExecutionState.RESULT_READY}
+            or (
+                record.state is ExecutionState.CANCELLED
+                and record.request_path is not None
+                and await asyncio.to_thread(Path(record.request_path).is_file)
+            )
         ]
 
     async def list_cleanup_candidates(

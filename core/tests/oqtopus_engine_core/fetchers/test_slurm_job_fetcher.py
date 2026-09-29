@@ -1,6 +1,6 @@
 import hashlib
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
@@ -145,6 +145,112 @@ def write_recovery_request(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return request_path
+
+
+class CancelledJobsApi(CloudCancellationRaceApi):
+    """Cloud already reports cancelled before Core starts recovery."""
+
+    def __init__(self):
+        super().__init__()
+        self.job.status = "cancelled"
+        self.job.ended_at = datetime.now(UTC) - timedelta(days=8)
+
+    def get_jobs(self, *, device_id, status=None, **kwargs):
+        return [deepcopy(self.job)] if status == self.job.status else []
+
+
+def make_cancelled_cloud_fetcher(tmp_path, *, cleanup=False):
+    api = CancelledJobsApi()
+    repository = OqtopusCloudExecutionRepository(
+        device_id="large-simulator", work_root=str(tmp_path / "work"), jobs_api=api
+    )
+    pipeline = RecordingPipeline()
+    fetcher, _, client = make_fetcher(
+        tmp_path,
+        StubJobRepository(make_job("cancelled")),
+        pipeline,
+        work_root=tmp_path / "work" if cleanup else None,
+    )
+    fetcher._execution_repository = repository
+    fetcher._job_reader = repository
+    return fetcher, client, pipeline
+
+
+@pytest.mark.asyncio
+async def test_startup_recovers_already_cancelled_cloud_allocation(tmp_path):
+    request = write_recovery_request(tmp_path)
+    fetcher, client, pipeline = make_cancelled_cloud_fetcher(tmp_path)
+
+    with pytest.raises(RuntimeError, match="pending scheduler confirmation"):
+        await fetcher.recover_unfinished()
+
+    assert client.cancelled == ["12345"]
+    assert request.exists()
+    assert pipeline.jobs == []
+    client.status = SchedulerJobStatus("12345", SchedulerState.CANCELLED, "CANCELLED")
+    await fetcher.recover_unfinished()
+    assert client.cancelled == ["12345"]
+    assert pipeline.jobs == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "state", [SchedulerState.RUNNING, SchedulerState.UNKNOWN, None]
+)
+async def test_ttl_does_not_delete_unconfirmed_cancelled_allocation(tmp_path, state):
+    request = write_recovery_request(tmp_path)
+    fetcher, client, _ = make_cancelled_cloud_fetcher(tmp_path, cleanup=True)
+    client.status = SchedulerJobStatus("12345", state, state.name) if state else None
+
+    with pytest.raises(RuntimeError, match="pending"):
+        await fetcher.recover_unfinished()
+
+    assert request.exists()
+    client.status = SchedulerJobStatus("12345", SchedulerState.CANCELLED, "CANCELLED")
+    await fetcher.recover_unfinished()
+    assert not request.parent.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cleanup", [False, True])
+async def test_result_published_during_cancellation_recovery_is_enqueued(
+    tmp_path, cleanup
+):
+    request = write_recovery_request(tmp_path)
+    fetcher, client, pipeline = make_cancelled_cloud_fetcher(tmp_path, cleanup=cleanup)
+
+    async def publish_result(job_id):
+        (request.parent / "result.json").write_text(
+            '{"schema_version":1,"job_type":"sampling","status":"succeeded",'
+            '"counts":{"0":1},"duration_seconds":1.0}'
+        )
+        return SchedulerJobStatus(job_id, SchedulerState.COMPLETED, "COMPLETED", "0:0")
+
+    client.get_status = publish_result
+    await fetcher.recover_unfinished()
+
+    assert [job.job_id for job in pipeline.jobs] == ["job-1"]
+    assert (
+        await fetcher._execution_repository.get("job-1")
+    ).state is ExecutionState.RESULT_READY
+    assert request.exists()
+    assert client.cancelled == []
+
+
+@pytest.mark.asyncio
+async def test_cancelled_completed_allocation_without_result_is_preserved(tmp_path):
+    request = write_recovery_request(tmp_path)
+    fetcher, client, pipeline = make_cancelled_cloud_fetcher(tmp_path, cleanup=True)
+    client.status = SchedulerJobStatus(
+        "12345", SchedulerState.COMPLETED, "COMPLETED", "0:0"
+    )
+
+    with pytest.raises(RuntimeError, match="has no result"):
+        await fetcher.recover_unfinished()
+
+    assert request.exists()
+    assert pipeline.jobs == []
+    assert client.cancelled == []
 
 
 class CloudDerivedReadyExecutionRepository(ExecutionRepository):
@@ -528,6 +634,20 @@ async def test_recover_unsynchronized_cancelled_record_checks_scheduler(tmp_path
 
     assert len(slurm_client.reconciled_job_names) == 1
     assert slurm_client.cancelled == ["12345"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["succeeded", "failed"])
+async def test_cancelled_listing_preserves_newer_terminal_cloud_status(tmp_path, status):
+    cloud = StubJobRepository(make_job(status))
+    fetcher, records, _ = make_fetcher(tmp_path, cloud, RecordingPipeline())
+    await records.claim("job-1", "sampling")
+    await records.update("job-1", ExecutionState.CANCELLED)
+
+    await fetcher.recover_unfinished()
+
+    assert cloud.updated_statuses == []
+    assert (await records.get("job-1")).cloud_status == status
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
 import hashlib
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -451,6 +452,64 @@ async def test_execution_start_race_with_cloud_cancellation(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_missing_cloud_job_does_not_authorize_submission(tmp_path, caplog):
+    client = StubSlurmClient([])
+    cloud = RecordingJobRepository([])
+    reads = 0
+
+    async def get_job(job_id):
+        nonlocal reads
+        reads += 1
+        assert client.submit_count == 0
+        if reads == 1:
+            return None
+        job = make_job()
+        job.status = "cancelled"
+        return job
+
+    cloud.get_job = get_job
+    step = make_step(tmp_path, client, cloud)
+    await step._execution_repository.claim("job-1", "sampling")
+    await step._execution_repository.update("job-1", ExecutionState.RUNNING)
+
+    with pytest.raises(JobCancelledError, match="before SLURM submission"):
+        await step.pre_process(
+            GlobalContext(config={}, job_repository=cloud), JobContext(), make_job()
+        )
+
+    assert reads == 2
+    assert client.submit_count == 0
+    assert not list(step._work_root.glob("*/request.json"))
+    assert "Cloud job is missing" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_missing_cloud_job_retries_without_cancelling_known_allocation(tmp_path):
+    client = StubSlurmClient([
+        SchedulerJobStatus("12345", SchedulerState.CANCELLED, "CANCELLED")
+    ])
+    cloud = AsyncMock()
+    job = make_job()
+    job.status = "running"
+    cloud.get_job.side_effect = [None, job]
+    step = make_step(tmp_path, client, cloud)
+
+    with pytest.raises(JobCancelledError, match="independently"):
+        await step._wait_for_result(
+            job,
+            "12345",
+            tmp_path / "request.json",
+            tmp_path / "result.json",
+            execution_repository=step._execution_repository,
+            cloud_job_id=job.job_id,
+        )
+
+    assert cloud.get_job.await_count == 2
+    assert client.cancelled == []
+    assert client.submit_count == 0
+
+
+@pytest.mark.asyncio
 async def test_poll_recovers_from_transient_cloud_and_slurm_errors(tmp_path):
     client = StubSlurmClient(
         [
@@ -535,12 +594,13 @@ async def test_poll_retries_empty_scheduler_observation(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cloud_cancel_is_propagated_to_slurm(tmp_path):
+@pytest.mark.parametrize("cloud_status", ["cancelling", "cancelled"])
+async def test_cloud_cancel_is_propagated_to_slurm(tmp_path, cloud_status):
     client = StubSlurmClient([
         SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING"),
         SchedulerJobStatus("12345", SchedulerState.CANCELLED, "CANCELLED"),
     ])
-    repository = RecordingJobRepository(["ready", "running", "cancelling"])
+    repository = RecordingJobRepository(["ready", "running", cloud_status])
     step = make_step(tmp_path, client, repository)
 
     with pytest.raises(JobCancelledError, match="confirmed"):
@@ -554,7 +614,8 @@ async def test_cloud_cancel_is_propagated_to_slurm(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cloud_cancel_preserves_completed_result_artifact(tmp_path):
+@pytest.mark.parametrize("cloud_status", ["cancelling", "cancelled"])
+async def test_cloud_cancel_preserves_completed_result_artifact(tmp_path, cloud_status):
     client = StubSlurmClient(
         [
             SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING"),
@@ -571,8 +632,8 @@ async def test_cloud_cancel_preserves_completed_result_artifact(tmp_path):
     repository = RecordingJobRepository([
         "ready",
         "running",
-        "cancelling",
-        "cancelling",
+        cloud_status,
+        cloud_status,
     ])
     step = make_step(tmp_path, client, repository)
     job = make_job()
@@ -591,7 +652,8 @@ async def test_cloud_cancel_preserves_completed_result_artifact(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cloud_cancel_does_not_cancel_completed_allocation(tmp_path):
+@pytest.mark.parametrize("cloud_status", ["cancelling", "cancelled"])
+async def test_cloud_cancel_does_not_cancel_completed_allocation(tmp_path, cloud_status):
     client = StubSlurmClient(
         [SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")],
         result={
@@ -602,7 +664,7 @@ async def test_cloud_cancel_does_not_cancel_completed_allocation(tmp_path):
             "duration_seconds": 1.0,
         },
     )
-    repository = RecordingJobRepository(["ready", "running", "cancelling"])
+    repository = RecordingJobRepository(["ready", "running", cloud_status])
     execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     job = make_job()
 
@@ -629,7 +691,10 @@ async def test_cloud_cancel_does_not_cancel_completed_allocation(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_recovered_cancelling_job_accepts_completed_result(tmp_path):
+@pytest.mark.parametrize("cloud_status", ["cancelling", "cancelled"])
+async def test_recovered_cancelling_job_accepts_completed_result(
+    tmp_path, cloud_status
+):
     result = {
         "schema_version": 1,
         "status": "succeeded",
@@ -640,7 +705,7 @@ async def test_recovered_cancelling_job_accepts_completed_result(tmp_path):
     client = StubSlurmClient([
         SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")
     ])
-    repository = RecordingJobRepository(["cancelling"])
+    repository = RecordingJobRepository([cloud_status])
     execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     work_root = tmp_path / "work"
     work_dir = work_root / hashlib.sha256(b"job-1").hexdigest()[:32]
@@ -672,9 +737,11 @@ async def test_recovered_cancelling_job_accepts_completed_result(tmp_path):
     )
     await execution_repository.update(
         "job-1",
-        ExecutionState.RUNNING,
+        ExecutionState.CANCELLED
+        if cloud_status == "cancelled"
+        else ExecutionState.RUNNING,
         slurm_job_id="12345",
-        cloud_status="cancelling",
+        cloud_status=cloud_status,
     )
 
     await run_root_step(
@@ -737,12 +804,13 @@ async def test_result_ready_missing_artifact_preserves_checkpoint(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cloud_cancel_failure_remains_recoverable(tmp_path):
+@pytest.mark.parametrize("cloud_status", ["cancelling", "cancelled"])
+async def test_cloud_cancel_failure_remains_recoverable(tmp_path, cloud_status):
     client = StubSlurmClient(
         [SchedulerJobStatus("12345", SchedulerState.RUNNING, "RUNNING")],
         cancel_error=RuntimeError("controller unavailable"),
     )
-    repository = RecordingJobRepository(["ready", "running", "cancelling"])
+    repository = RecordingJobRepository(["ready", "running", cloud_status])
     execution_repository = ExecutionRepository(tmp_path / "repository-placeholder")
     step = SlurmSimulatorStep(
         slurm_client=client,

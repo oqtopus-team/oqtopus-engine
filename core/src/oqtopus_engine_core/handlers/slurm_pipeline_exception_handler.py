@@ -82,7 +82,7 @@ class SlurmPipelineExceptionHandler(PipelineExceptionHandler):
         if (
             isinstance(ex, SlurmCancellationPendingError)
             and record is not None
-            and record.state is ExecutionState.RUNNING
+            and record.state in {ExecutionState.RUNNING, ExecutionState.CANCELLED}
         ):
             logger.warning(
                 "SLURM cancellation remains pending for startup retry",

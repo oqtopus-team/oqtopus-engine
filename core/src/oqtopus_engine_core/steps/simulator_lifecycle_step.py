@@ -76,9 +76,10 @@ class SimulatorLifecycleStep(Step):
         if record.state is ExecutionState.RESULT_READY:
             return StepResult()
         has_persisted_execution = await self._has_persisted_execution(record)
-        if cloud_job is not None and (
-            cloud_job.status == "cancelled"
-            or (cloud_job.status == "cancelling" and not has_persisted_execution)
+        if (
+            cloud_job is not None
+            and cloud_job.status in {"cancelling", "cancelled"}
+            and not has_persisted_execution
         ):
             await self._execution_repository.update(
                 job.job_id,
@@ -94,7 +95,7 @@ class SimulatorLifecycleStep(Step):
 
     @staticmethod
     async def _has_persisted_execution(record: ExecutionRecord) -> bool:
-        if record.state is not ExecutionState.RUNNING:
+        if record.state not in {ExecutionState.RUNNING, ExecutionState.CANCELLED}:
             return False
         if record.request_path is None:
             return False
