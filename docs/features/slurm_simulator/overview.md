@@ -127,10 +127,16 @@ updates its qubit count and availability but does not create the row or upload a
 Device Gateway calibration archive.
 
 The recovery-aware fetcher polls both `submitted` jobs and stranded `ready`
-jobs. It claims each job with the existing atomic `ready` to `running` status
-update before scheduling pipeline work. The existing job `device_id` identifies
-the runtime that owns recovery. Jobs outside `sampling` and `estimation`, and
-jobs with an enabled mitigation method, are rejected before execution.
+jobs. It claims each job by advancing the existing `ready` to `running` status
+before scheduling pipeline work. This Cloud transition is not a conditional or
+atomic claim across independent Core processes. A deployment must run only one
+Core process for each simulator `device_id`; competing processes on the same
+login node are excluded by the shared `SLURM_PROCESS_LOCK_PATH`. Active-active
+ownership of one device is out of scope. Supporting multiple owners would
+require a Cloud-side conditional transition and a way to identify an ambiguous
+write response. The existing job `device_id` identifies the runtime that owns
+recovery. Jobs outside `sampling` and `estimation`, and jobs with an enabled
+mitigation method, are rejected before execution.
 
 ### 4.2 Input Conversion and Worker Request
 

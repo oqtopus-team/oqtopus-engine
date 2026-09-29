@@ -54,7 +54,13 @@ class ExecutionRepository(Protocol):
         ...
 
     async def claim(self, cloud_job_id: str, job_type: str) -> bool:
-        """Atomically claim a Cloud job if it has not been seen before."""
+        """Claim a Cloud job if it has not been seen before.
+
+        Cloud-backed implementations use the existing ``ready`` to
+        ``running`` transition, which is not atomic across independent Core
+        processes. Deployments must enforce one Core owner per simulator
+        device.
+        """
         ...
 
     async def prepare(
