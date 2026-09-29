@@ -540,7 +540,7 @@ deterministic identifiers rather than a SLURM-specific Cloud column:
 | Layer | Identifier or artifact | Relation to the next layer |
 | --- | --- | --- |
 | Cloud Job | `job_id` | The source identifier for all derived paths and scheduler labels. |
-| Local work directory | `SLURM_WORK_ROOT / sha256(job_id)[:32]` | Contains `request.json`, `result.json`, stdout, and stderr for that Cloud Job. |
+| Local work directory | `SLURM_WORK_ROOT / sha256(job_id)[:32]` | Contains `request.json`, `result.json`, `slurm_job_id`, stdout, and stderr for that Cloud Job. |
 | Request identity | Hash of the canonical request and resolved scheduler options | Recomputed after restart and used to derive the scheduler JobName. |
 | SLURM JobName | `oqtopus-{sha256(job_id)[:16]}-{request_hash[:16]}` | The exact lookup key for reattachment in `squeue` and `sacct`. |
 | SLURM comment | `oqtopus:{sha256(job_id)[:16]}:{request_hash[:16]}` | Diagnostic metadata only; recovery does not depend on accounting comments. |
@@ -560,9 +560,13 @@ Cloud job_id
 `find_job()` searches both `squeue --name` and `sacct --name` and accepts only
 one exact allocation match. `get_status()` uses the numeric allocation ID to
 query `squeue` first and `sacct` after queue eviction. The Cloud-backed
-execution repository does not add a scheduler-specific column; after restart,
-the allocation ID is recovered from the deterministic JobName when it is not
-already available in the execution record.
+execution repository does not add a scheduler-specific column: once an
+allocation is attached, its numeric ID is atomically persisted as the local
+`slurm_job_id` artifact. If that artifact is missing, such as after an older
+deployment or before an uncertain `sbatch` response is reconciled, the
+allocation ID is recovered from the deterministic JobName. JobName matching
+remains the identity fallback and rejects ambiguous matches instead of
+submitting a duplicate allocation.
 
 If `sbatch` may have accepted the job without returning a usable response, Core
 does not repeat the command. A later recovery searches accounting from before

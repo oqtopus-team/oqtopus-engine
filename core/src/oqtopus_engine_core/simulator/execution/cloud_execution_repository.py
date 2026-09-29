@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import os
 import shutil
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
@@ -30,6 +31,7 @@ from .models import ExecutionState
 # ruff: noqa: DOC201, DOC501
 T = TypeVar("T")
 _HTTP_NOT_FOUND = 404
+_SLURM_JOB_ID_FILENAME = "slurm_job_id"
 _TERMINAL_STATES = {
     ExecutionState.CANCELLED,
     ExecutionState.FAILED,
@@ -163,14 +165,26 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
         message: str | None = None,
         execution_time: float | None = None,
     ) -> ExecutionRecord:
-        """Update existing Cloud job fields and derive execution state."""
-        _ = slurm_job_id
+        """Update Cloud fields and persist an attached scheduler ID locally.
+
+        The numeric SLURM allocation ID is stored in the per-job work
+        directory rather than in the Cloud schema. Missing IDs remain
+        recoverable through deterministic JobName reconciliation.
+        """
         current = await self._require(cloud_job_id)
         if expected is not None and current.state not in expected:
             message = (
                 f"unexpected execution state for {cloud_job_id}: {current.state.value}"
             )
             raise RuntimeError(message)
+        if slurm_job_id is not None:
+            work_dir, _, _ = self._local_paths(cloud_job_id)
+            await asyncio.to_thread(
+                self._write_slurm_job_id,
+                work_dir,
+                slurm_job_id,
+            )
+            current = current.model_copy(update={"slurm_job_id": slurm_job_id})
         updated = await self._patch(
             current,
             state=state,
@@ -343,6 +357,7 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
         work_dir, request_path, result_path = self._local_paths(cloud_job_id)
         artifact_retained = work_dir.is_dir()
         cloud_status = str(job.status)
+        slurm_job_id = self._read_slurm_job_id(work_dir) if artifact_retained else None
         state_by_status = {
             "submitted": ExecutionState.READY,
             "ready": ExecutionState.READY,
@@ -371,7 +386,7 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
             work_dir=str(work_dir) if artifact_retained else None,
             request_path=str(request_path) if artifact_retained else None,
             result_path=str(result_path) if artifact_retained else None,
-            slurm_job_id=None,
+            slurm_job_id=slurm_job_id,
             cloud_status=cloud_status,
             last_error=None,
             artifact_retained=artifact_retained,
@@ -413,6 +428,27 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
             raise ValueError(message)
         if work_dir.exists():
             shutil.rmtree(work_dir)
+
+    @staticmethod
+    def _read_slurm_job_id(work_dir: Path) -> str | None:
+        path = work_dir / _SLURM_JOB_ID_FILENAME
+        if not path.is_file():
+            return None
+        value = path.read_text(encoding="utf-8").strip()
+        return value or None
+
+    @staticmethod
+    def _write_slurm_job_id(work_dir: Path, slurm_job_id: str) -> None:
+        if not work_dir.is_dir():
+            message = f"SLURM work directory is missing: {work_dir}"
+            raise RuntimeError(message)
+        path = work_dir / _SLURM_JOB_ID_FILENAME
+        temporary_path = path.with_suffix(f"{path.suffix}.tmp")
+        with temporary_path.open("w", encoding="utf-8") as stream:
+            stream.write(f"{slurm_job_id}\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary_path.replace(path)
 
     def _local_paths(self, cloud_job_id: str) -> tuple[Path, Path, Path]:
         token = hashlib.sha256(cloud_job_id.encode()).hexdigest()[:32]

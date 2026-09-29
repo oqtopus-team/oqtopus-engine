@@ -256,6 +256,28 @@ async def test_terminal_update_uses_one_existing_status_patch(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_update_persists_and_restores_slurm_job_id(tmp_path: Path):
+    api = StubJobsApi()
+    api.job.status = "running"
+    repository = _repository(tmp_path, api)
+    work_dir, _, _ = _local_paths(tmp_path)
+    work_dir.mkdir(parents=True)
+
+    record = await repository.update(
+        "job-1",
+        ExecutionState.RUNNING,
+        expected={ExecutionState.RUNNING},
+        slurm_job_id="12345",
+    )
+    restored = await repository.get("job-1")
+
+    assert record.slurm_job_id == "12345"
+    assert restored is not None
+    assert restored.slurm_job_id == "12345"
+    assert (work_dir / "slurm_job_id").read_text(encoding="utf-8").strip() == "12345"
+
+
+@pytest.mark.asyncio
 async def test_terminal_update_reconciles_lost_response(tmp_path: Path):
     api = StubJobsApi()
     api.job.status = "running"
