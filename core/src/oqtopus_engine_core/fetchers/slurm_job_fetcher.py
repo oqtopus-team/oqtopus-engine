@@ -12,6 +12,7 @@ from oqtopus_engine_core.simulator.execution import (
     ExecutionRepository,
     ExecutionState,
     JobReader,
+    LocalExecutionRepository,
 )
 from oqtopus_engine_core.simulator.mpi_qulacs import (
     QulacsExecutionRequest,
@@ -95,6 +96,7 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         await self._recover_until_ready()
         while True:
             try:
+                await self._cleanup_expired_child_artifacts()
                 await wait_until_fetchable(
                     gctx,
                     pipeline,
@@ -319,6 +321,7 @@ class SlurmJobFetcher(RepositoryJobFetcher):
             )
 
     async def _cleanup_expired_artifacts(self) -> None:
+        await self._cleanup_expired_child_artifacts()
         if self._work_root is None:
             return
         cutoff = datetime.now(tz=UTC) - timedelta(seconds=self._artifact_ttl_seconds)
@@ -332,6 +335,30 @@ class SlurmJobFetcher(RepositoryJobFetcher):
             except Exception:
                 logger.exception(
                     "failed to clean expired SLURM artifacts",
+                    extra={"job_id": record.cloud_job_id},
+                )
+
+    async def _cleanup_expired_child_artifacts(self) -> None:
+        if self._work_root is None:
+            return
+        repository = LocalExecutionRepository(self._work_root)
+        cutoff = datetime.now(tz=UTC) - timedelta(seconds=self._artifact_ttl_seconds)
+        for record in await repository.list_cleanup_candidates(cutoff):
+            if record.parent_job_id is None:
+                continue
+            try:
+                parent = await self._job_reader.get_job(record.parent_job_id)
+                if parent is not None and parent.status in {
+                    "failed",
+                    "cancelled",
+                    "succeeded",
+                }:
+                    await repository.cleanup_artifacts(
+                        record.cloud_job_id, self._work_root
+                    )
+            except Exception:
+                logger.exception(
+                    "failed to clean expired SLURM child artifacts",
                     extra={"job_id": record.cloud_job_id},
                 )
 

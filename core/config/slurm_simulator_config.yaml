@@ -167,3 +167,5 @@ di_container:
       _target_: oqtopus_engine_core.handlers.SlurmPipelineExceptionHandler
       execution_repository: "@execution_repository"
       job_reader: "@execution_repository"
+      work_root: ${SLURM_WORK_ROOT}
+      slurm_client: "@slurm_client"

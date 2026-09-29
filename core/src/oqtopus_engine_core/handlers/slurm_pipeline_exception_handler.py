@@ -1,17 +1,22 @@
 import logging
+from pathlib import Path
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
     Job,
     JobContext,
+    JobRepository,
     PipelineExceptionHandler,
 )
 from oqtopus_engine_core.simulator.execution import (
     ExecutionRepository,
     ExecutionState,
     JobReader,
+    LocalExecutionRepository,
 )
+from oqtopus_engine_core.simulator.scheduler import SchedulerState
 from oqtopus_engine_core.simulator.scheduler.slurm import (
+    SlurmClient,
     SlurmSubmissionUncertainError,
 )
 from oqtopus_engine_core.steps.slurm_simulator_step import (
@@ -29,11 +34,16 @@ class SlurmPipelineExceptionHandler(PipelineExceptionHandler):
         self,
         execution_repository: ExecutionRepository,
         job_reader: JobReader,
+        work_root: str,
+        slurm_client: SlurmClient,
     ) -> None:
         self._execution_repository = execution_repository
         self._job_reader = job_reader
+        self._work_root = Path(work_root).expanduser()
+        self._internal_execution_repository = LocalExecutionRepository(work_root)
+        self._slurm_client = slurm_client
 
-    async def handle_exception(  # noqa: C901, PLR0911
+    async def handle_exception(
         self,
         ex: Exception,
         gctx: GlobalContext,
@@ -52,6 +62,12 @@ class SlurmPipelineExceptionHandler(PipelineExceptionHandler):
             await self._handle_internal_child_failure(ex, gctx, job)
             return
 
+        await self._handle_root_failure(ex, gctx.job_repository, job)
+        await self._cleanup_terminal_children(job)
+
+    async def _handle_root_failure(  # noqa: PLR0911
+        self, ex: Exception, job_repository: JobRepository, job: Job
+    ) -> None:
         cloud_job = await self._job_reader.get_job(job.job_id)
         cancelled = isinstance(ex, JobCancelledError) or (
             cloud_job is not None and cloud_job.status == "cancelled"
@@ -145,7 +161,7 @@ class SlurmPipelineExceptionHandler(PipelineExceptionHandler):
             return
         job.status = "failed"
         job.message = str(ex)
-        await gctx.job_repository.update_job_status(job)
+        await job_repository.update_job_status(job)
 
     async def _handle_internal_child_failure(
         self,
@@ -155,6 +171,14 @@ class SlurmPipelineExceptionHandler(PipelineExceptionHandler):
     ) -> None:
         parent = job.parent
         if parent is None or gctx.job_repository is None:  # pragma: no cover
+            return
+        if isinstance(
+            ex, (SlurmSubmissionUncertainError, SlurmCancellationPendingError)
+        ):
+            logger.warning(
+                "preserving unresolved internal SLURM execution",
+                extra={"job_id": job.job_id, "parent_job_id": parent.job_id},
+            )
             return
         cloud_job = await self._job_reader.get_job(parent.job_id)
         record = await self._execution_repository.get(parent.job_id)
@@ -188,4 +212,79 @@ class SlurmPipelineExceptionHandler(PipelineExceptionHandler):
                 "parent_job_id": parent.job_id,
                 "status": target_status,
             },
+        )
+        await self._cleanup_terminal_children(parent, failed_child=job, error=ex)
+
+    async def _cleanup_terminal_children(
+        self,
+        parent: Job,
+        *,
+        failed_child: Job | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        try:
+            root = await self._execution_repository.get(parent.job_id)
+            if root is None or root.state not in {
+                ExecutionState.FAILED,
+                ExecutionState.CANCELLED,
+                ExecutionState.SUCCEEDED,
+            }:
+                return
+        except Exception:
+            logger.exception(
+                "failed to check root status for child cleanup",
+                extra={"job_id": parent.job_id},
+            )
+            return
+        children = {child.job_id: child for child in parent.children}
+        if failed_child is not None:
+            children[failed_child.job_id] = failed_child
+        for child in children.values():
+            try:
+                if child is failed_child:
+                    await self._close_failed_child(child, error)
+                record = await self._internal_execution_repository.get(child.job_id)
+                if record is not None and record.state in {
+                    ExecutionState.FAILED,
+                    ExecutionState.CANCELLED,
+                    ExecutionState.SUCCEEDED,
+                }:
+                    await self._internal_execution_repository.cleanup_artifacts(
+                        child.job_id, self._work_root
+                    )
+            except Exception:
+                logger.exception(
+                    "failed to clean terminal SLURM child",
+                    extra={"job_id": child.job_id, "parent_job_id": parent.job_id},
+                )
+
+    async def _close_failed_child(self, child: Job, error: Exception | None) -> None:
+        repository = self._internal_execution_repository
+        record = await repository.get(child.job_id)
+        if record is None or record.state in {
+            ExecutionState.FAILED,
+            ExecutionState.CANCELLED,
+            ExecutionState.SUCCEEDED,
+        }:
+            return
+        state = (
+            ExecutionState.CANCELLED
+            if isinstance(error, JobCancelledError)
+            else ExecutionState.FAILED
+        )
+        if record.state is ExecutionState.RUNNING:
+            # An exception alone does not prove the allocation has stopped.
+            if record.slurm_job_id is None:
+                return
+            status = await self._slurm_client.get_status(record.slurm_job_id)
+            if status is None or status.state not in {
+                SchedulerState.COMPLETED,
+                SchedulerState.CANCELLED,
+                SchedulerState.FAILED,
+            }:
+                return
+            if status.state is SchedulerState.CANCELLED:
+                state = ExecutionState.CANCELLED
+        await repository.update(
+            child.job_id, state, expected={record.state}, last_error=str(error)
         )

@@ -34,6 +34,8 @@ class ExecutionRecord(BaseModel):
     updated_at: str
     finalized_at: str | None
     revision: int
+    # Local child records keep their owner for cleanup after a Core restart.
+    parent_job_id: str | None = None
 
 
 class JobReader(Protocol):

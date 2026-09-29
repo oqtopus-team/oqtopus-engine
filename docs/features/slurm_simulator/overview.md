@@ -575,6 +575,24 @@ immediately. Failed and cancelled artifacts are retained until their configured
 TTL expires, then cleanup removes the derived local work directory. Terminal
 Job statuses prevent a second claim.
 
+Internal children retain their results until the root finishes. When a child
+fails, the exception handler first synchronizes the root failure, then closes
+and removes the failed child's work directory and local metadata if the
+allocation is confirmed terminal (or submission has not started). Completed
+siblings are removed too; siblings still executing retain their artifacts and
+clean them after finishing. Root join failures also clean completed children.
+Uncertain submissions and pending cancellation delivery preserve the child
+record and root recovery state instead of deleting tracking information.
+An active or unobservable allocation must not be marked terminal just to
+permit cleanup; its artifacts remain available for reconciliation.
+
+Cleanup errors do not prevent the root status update. Local child records
+include `parent_job_id`; startup and fetch-loop cleanup retry terminal records
+older than `SLURM_ARTIFACT_TTL_SECONDS` only after Cloud confirms that the root
+is terminal. Successful children of an active root remain available for join
+and recovery. Legacy records without a parent ID are excluded from this scan;
+they can still be cleaned when their owning root finalizes in process.
+
 ## 6. Job Options
 
 The `simulator_info` object uses strict snake_case fields:

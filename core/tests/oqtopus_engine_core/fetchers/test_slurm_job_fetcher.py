@@ -12,6 +12,7 @@ from oqtopus_engine_core.framework import Device, GlobalContext, Job
 from oqtopus_engine_core.repositories import NullJobRepository
 from oqtopus_engine_core.simulator import (
     ExecutionState,
+    LocalExecutionRepository,
     OqtopusCloudExecutionRepository,
     SchedulerJobStatus,
     SchedulerState,
@@ -589,6 +590,43 @@ async def test_recover_cleans_succeeded_artifacts_immediately(tmp_path):
     assert record is not None
     assert record.state is ExecutionState.SUCCEEDED
     assert record.work_dir is None
+
+
+@pytest.mark.asyncio
+async def test_restart_retries_child_cleanup_only_after_root_finishes(tmp_path):
+    work_root = tmp_path / "work"
+    local = LocalExecutionRepository(work_root)
+    await local.claim("child", "sampling", parent_job_id="job-1")
+    await local.update("child", ExecutionState.SUCCEEDED)
+    cloud = StubJobRepository(make_job("running"))
+    fetcher, _, _ = make_fetcher(
+        tmp_path, cloud, RecordingPipeline(), work_root, artifact_ttl_seconds=0
+    )
+
+    await fetcher._cleanup_expired_child_artifacts()
+    assert await local.get("child") is not None
+    cloud.job.status = "failed"
+    await fetcher._cleanup_expired_child_artifacts()
+    assert await local.get("child") is None
+
+
+@pytest.mark.asyncio
+async def test_child_cleanup_obeys_ttl_and_preserves_unresolved_records(tmp_path):
+    work_root = tmp_path / "work"
+    local = LocalExecutionRepository(work_root)
+    await local.claim("done", "sampling", parent_job_id="job-1")
+    await local.update("done", ExecutionState.FAILED)
+    await local.claim("unknown", "sampling", parent_job_id="job-1")
+    await local.update("unknown", ExecutionState.RUNNING)
+    cloud = StubJobRepository(make_job("failed"))
+    fetcher, _, _ = make_fetcher(tmp_path, cloud, RecordingPipeline(), work_root)
+
+    await fetcher._cleanup_expired_child_artifacts()
+    assert await local.get("done") is not None
+    fetcher._artifact_ttl_seconds = 0
+    await fetcher._cleanup_expired_child_artifacts()
+    assert await local.get("done") is None
+    assert (await local.get("unknown")).state is ExecutionState.RUNNING
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import logging
 import os
 import shutil
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ _TERMINAL_STATES = {
     ExecutionState.FAILED,
     ExecutionState.SUCCEEDED,
 }
+logger = logging.getLogger(__name__)
 
 
 class LocalExecutionRepository:
@@ -33,9 +35,17 @@ class LocalExecutionRepository:
             mode=0o700,
         )
 
-    async def claim(self, cloud_job_id: str, job_type: str) -> bool:
+    async def claim(
+        self,
+        cloud_job_id: str,
+        job_type: str,
+        *,
+        parent_job_id: str | None = None,
+    ) -> bool:
         """Create a local execution record if it does not exist."""
-        return await asyncio.to_thread(self._claim, cloud_job_id, job_type)
+        return await asyncio.to_thread(
+            self._claim, cloud_job_id, job_type, parent_job_id
+        )
 
     async def prepare(
         self,
@@ -95,23 +105,52 @@ class LocalExecutionRepository:
         self,
         finalized_before: datetime,
     ) -> list[ExecutionRecord]:
-        """Return no records to the Cloud-backed cleanup fetcher."""
-        _ = finalized_before
-        return []
+        """Return terminal children for cleanup after their root has finished.
+
+        Raises:
+            ValueError: If the cleanup cutoff is not timezone-aware.
+
+        """
+        if finalized_before.tzinfo is None:
+            message = "artifact cleanup cutoff must be timezone-aware"
+            raise ValueError(message)
+        return await asyncio.to_thread(self._list_cleanup_candidates, finalized_before)
+
+    def _list_cleanup_candidates(
+        self, finalized_before: datetime
+    ) -> list[ExecutionRecord]:
+        records = []
+        for path in self._work_root.glob("*.execution.json"):
+            if path.is_symlink():
+                continue
+            try:
+                record = ExecutionRecord.model_validate_json(path.read_text())
+                if (
+                    path == self._metadata_path(record.cloud_job_id)
+                    and record.state in _TERMINAL_STATES
+                    and record.finalized_at is not None
+                    and datetime.fromisoformat(record.finalized_at) <= finalized_before
+                ):
+                    records.append(record)
+            except Exception:
+                logger.exception("failed to read child cleanup metadata")
+        return records
 
     async def cleanup_artifacts(
         self,
         cloud_job_id: str,
         work_root: str | Path,
     ) -> bool:
-        """Remove one terminal child work directory."""
+        """Remove a terminal child's artifacts and metadata after root completion."""
         return await asyncio.to_thread(
             self._cleanup_artifacts,
             cloud_job_id,
             work_root,
         )
 
-    def _claim(self, cloud_job_id: str, job_type: str) -> bool:
+    def _claim(
+        self, cloud_job_id: str, job_type: str, parent_job_id: str | None
+    ) -> bool:
         self._ensure_root()
         metadata_path = self._metadata_path(cloud_job_id)
         if metadata_path.exists():
@@ -134,6 +173,7 @@ class LocalExecutionRepository:
             updated_at=now,
             finalized_at=None,
             revision=0,
+            parent_job_id=parent_job_id,
         )
         self._write_record(record)
         return True
@@ -213,34 +253,29 @@ class LocalExecutionRepository:
         cloud_job_id: str,
         work_root: str | Path,
     ) -> bool:
-        record = self._require(cloud_job_id)
+        record = self._get(cloud_job_id)
+        if record is None:
+            return False
         if record.state not in _TERMINAL_STATES:
             message = f"cannot clean artifacts for active execution: {cloud_job_id}"
             raise RuntimeError(message)
-        if not record.artifact_retained or record.work_dir is None:
-            return False
         configured_root = self._work_root.resolve()
         supplied_root = Path(work_root).expanduser().resolve()
         if supplied_root != configured_root:
             message = f"unexpected SLURM work root: {supplied_root}"
             raise ValueError(message)
-        work_dir = Path(record.work_dir)
+        token = hashlib.sha256(cloud_job_id.encode()).hexdigest()[:32]
+        work_dir = (
+            Path(record.work_dir)
+            if record.work_dir is not None
+            else self._work_root / token
+        )
         if work_dir.is_symlink() or work_dir.resolve().parent != configured_root:
             message = f"refusing to clean unsafe SLURM work directory: {work_dir}"
             raise ValueError(message)
         if work_dir.exists():
             shutil.rmtree(work_dir)
-        updated = record.model_copy(
-            update={
-                "work_dir": None,
-                "request_path": None,
-                "result_path": None,
-                "artifact_retained": False,
-                "updated_at": _now(),
-                "revision": record.revision + 1,
-            }
-        )
-        self._write_record(updated)
+        self._metadata_path(cloud_job_id).unlink(missing_ok=True)
         return True
 
     def _require(self, cloud_job_id: str) -> ExecutionRecord:

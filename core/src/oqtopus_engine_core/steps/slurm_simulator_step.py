@@ -113,14 +113,21 @@ class SlurmSimulatorStep(Step):
             if is_internal
             else self._execution_repository
         )
-        if is_internal:
+        if job.parent is not None:
+            parent = await self._get_cloud_job_with_retry(job.parent.job_id, None)
+            if parent is not None and parent.status in {"failed", "succeeded"}:
+                _raise_cancelled("root job finished before child SLURM execution")
             await execution_repository.initialize()
         record = await execution_repository.get(job.job_id)
         if record is None:
             if not is_internal:
                 message = "root SLURM execution was not initialized"
                 raise RuntimeError(message)
-            await execution_repository.claim(job.job_id, job.job_type)
+            await self._internal_execution_repository.claim(
+                job.job_id,
+                job.job_type,
+                parent_job_id=job.parent.job_id if job.parent is not None else None,
+            )
             record = await execution_repository.get(job.job_id)
         if record is None:  # pragma: no cover
             message = f"failed to claim SLURM execution: {job.job_id}"
@@ -270,6 +277,21 @@ class SlurmSimulatorStep(Step):
                 job.job_id,
                 ExecutionState.SUCCEEDED,
                 expected={ExecutionState.RESULT_READY},
+            )
+        try:
+            parent = await self._job_reader.get_job(job.parent.job_id)
+            if parent is not None and parent.status in {
+                "failed",
+                "cancelled",
+                "succeeded",
+            }:
+                await self._internal_execution_repository.cleanup_artifacts(
+                    job.job_id, self._work_root
+                )
+        except Exception:
+            logger.exception(
+                "failed to clean completed child of a terminal root",
+                extra={"job_id": job.job_id, "parent_job_id": job.parent.job_id},
             )
         return StepResult()
 

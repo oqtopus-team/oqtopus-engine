@@ -215,6 +215,8 @@ async def _run(args: argparse.Namespace) -> None:
             await SlurmPipelineExceptionHandler(
                 execution_repository,
                 execution_repository,
+                str(args.work_root),
+                step._slurm_client,
             ).handle_exception(error, gctx, jctx, job)
             record = await execution_repository.get(job.job_id)
             _write_outcome(

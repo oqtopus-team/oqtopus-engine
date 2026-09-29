@@ -10,6 +10,7 @@ from oqtopus_engine_core.framework import (
     TranspileResult,
 )
 from oqtopus_engine_core.repositories import NullJobRepository
+from oqtopus_engine_core.handlers import SlurmPipelineExceptionHandler
 from oqtopus_engine_core.simulator import (
     ExecutionState,
     SchedulerJobStatus,
@@ -157,6 +158,89 @@ def make_simulator_lifecycle_step(step):
         work_root=str(step._work_root),
         finalize_retry_count=0,
     )
+
+
+@pytest.mark.asyncio
+async def test_internal_allocation_failure_removes_real_local_record(tmp_path):
+    failed = SchedulerJobStatus("12345", SchedulerState.FAILED, "TIMEOUT", "1:0")
+    client = StubSlurmClient([failed, failed])
+    cloud = RecordingJobRepository(["running"])
+    step = make_step(tmp_path, client, cloud)
+    parent = make_job()
+    child = make_job()
+    child.job_id = "job-1-estimation-0"
+    child.parent = parent
+    parent.children = [child]
+    root_records = step._execution_repository
+    await root_records.claim(parent.job_id, "sampling")
+    await root_records.update(parent.job_id, ExecutionState.RUNNING)
+    gctx = GlobalContext(config={}, job_repository=cloud)
+
+    with pytest.raises(RuntimeError, match="TIMEOUT") as caught:
+        await step.pre_process(gctx, JobContext(), child)
+    local = step._internal_execution_repository
+    record = await local.get(child.job_id)
+    assert record.parent_job_id == parent.job_id
+    await SlurmPipelineExceptionHandler(
+        root_records, cloud, str(step._work_root), client
+    ).handle_exception(caught.value, gctx, JobContext(), child)
+
+    assert (await root_records.get(parent.job_id)).state is ExecutionState.FAILED
+    assert await local.get(child.job_id) is None
+    assert list(step._work_root.iterdir()) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("parent_status", ["running", "failed", "cancelled"])
+async def test_child_finishing_after_root_failure_cleans_its_artifacts(
+    tmp_path, parent_status
+):
+    client = StubSlurmClient(
+        [SchedulerJobStatus("12345", SchedulerState.COMPLETED, "COMPLETED", "0:0")],
+        result={
+            "schema_version": 1,
+            "status": "succeeded",
+            "job_type": "sampling",
+            "counts": {"1": 10},
+            "duration_seconds": 2.5,
+        },
+    )
+    cloud = RecordingJobRepository(["running"])
+    step = make_step(tmp_path, client, cloud)
+    child = make_job()
+    child.job_id = "job-1-estimation-0"
+    child.parent = make_job()
+    gctx = GlobalContext(config={}, job_repository=cloud)
+    await step.pre_process(gctx, JobContext(), child)
+    cloud.current_status = parent_status
+
+    await step.post_process(gctx, JobContext(), child)
+
+    record = await step._internal_execution_repository.get(child.job_id)
+    if parent_status == "running":
+        assert record.state is ExecutionState.SUCCEEDED
+        assert list(step._work_root.iterdir())
+    else:
+        assert record is None
+        assert list(step._work_root.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_queued_child_does_not_recreate_artifacts_after_root_failure(tmp_path):
+    client = StubSlurmClient([])
+    cloud = RecordingJobRepository(["failed"])
+    step = make_step(tmp_path, client, cloud)
+    child = make_job()
+    child.job_id = "job-1-estimation-0"
+    child.parent = make_job()
+
+    with pytest.raises(JobCancelledError, match="root job finished"):
+        await step.pre_process(
+            GlobalContext(config={}, job_repository=cloud), JobContext(), child
+        )
+
+    assert client.submit_count == 0
+    assert not step._work_root.exists()
 
 
 def test_step_expands_user_paths(tmp_path, monkeypatch):
