@@ -127,16 +127,10 @@ updates its qubit count and availability but does not create the row or upload a
 Device Gateway calibration archive.
 
 The recovery-aware fetcher polls both `submitted` jobs and stranded `ready`
-jobs. It claims each job by advancing the existing `ready` to `running` status
-before scheduling pipeline work. This Cloud transition is not a conditional or
-atomic claim across independent Core processes. A deployment must run only one
-Core process for each simulator `device_id`; competing processes on the same
-login node are excluded by the shared `SLURM_PROCESS_LOCK_PATH`. Active-active
-ownership of one device is out of scope. Supporting multiple owners would
-require a Cloud-side conditional transition and a way to identify an ambiguous
-write response. The existing job `device_id` identifies the runtime that owns
-recovery. Jobs outside `sampling` and `estimation`, and jobs with an enabled
-mitigation method, are rejected before execution.
+jobs. It claims each job with the existing atomic `ready` to `running` status
+update before scheduling pipeline work. The existing job `device_id` identifies
+the runtime that owns recovery. Jobs outside `sampling` and `estimation`, and
+jobs with an enabled mitigation method, are rejected before execution.
 
 ### 4.2 Input Conversion and Worker Request
 
@@ -421,9 +415,8 @@ cannot replace the result.
 
 Engine restart does not cause a state transition and is intentionally omitted
 from the diagram. Recovery resumes observation in `RUNNING` or `cancelling`,
-checks a retained submit intent from a terminal `cancelled` job for a lingering
-allocation, or restores its retained result. Cancelled work is never submitted
-again.
+or restores a retained result from a terminal `cancelled` job. A recovered
+cancelled result is never submitted again.
 
 For a running job, the User API atomically changes the Cloud status from
 `running` to `cancelling`. Engine then confirms `succeeded`, `failed`, or
@@ -485,9 +478,7 @@ flowchart TD
   CancelledCloud -->|yes| CancelledResult{"[Local] Valid result.json?"}
   CancelledResult -->|yes| Return
   CancelledResult -->|no| InvalidResult["Retained checkpoint<br/>[Action] preserve and retry validation"]
-  CancelledCloud -->|no| CancelledRequest{"[Local] request.json exists?"}
-  CancelledRequest -->|no| CancelledTerminal["Pre-execution cancellation<br/>[Action] do not submit"]
-  CancelledRequest -->|yes| Slurm
+  CancelledCloud -->|no| CancelledTerminal["Terminal cancellation<br/>[Action] do not reattach or submit"]
   Cloud -->|submitted, ready, running, cancelling| Result{"[Local] Valid result.json?"}
 
   Result -->|yes| Return["RESULT_READY checkpoint<br/>[Action] restore result and finalize"]
@@ -497,7 +488,7 @@ flowchart TD
   Reconcile -->|no safe allocation| Submit["No durable allocation<br/>[Action] submit or cancel before submit"]
 
   Request -->|yes| Slurm{"[SLURM] squeue then sacct"}
-  Slurm -->|PENDING or RUNNING| CancelCheck{"[Cloud] cancelling or cancelled?"}
+  Slurm -->|PENDING or RUNNING| CancelCheck{"[Cloud] status is cancelling?"}
   CancelCheck -->|no| Continue
   CancelCheck -->|yes| Cancel["Active allocation<br/>[Action] send scancel and poll"]
   Slurm -->|COMPLETED| Validate["[Local] validate result.json<br/>[Action] return result or fail"]
@@ -526,13 +517,9 @@ The corresponding decision matrix keeps each raw input in its own column. The
 | `running` or `cancelling` | present or absent | valid result | not queried | The local result checkpoint is authoritative for finalization. | **Return result**: skip scheduler actions and retry restoration and finalization. |
 | `cancelled` | any | valid result | not queried | Completion left a usable checkpoint after Cloud cancellation. | **Return result**: restore the result, finalize success, and never resubmit. |
 | `cancelled` | any | present but invalid | not queried | A retained checkpoint exists, but validation must succeed before finalization. | **Preserve checkpoint**: retain `RESULT_READY`, report the validation error, and retry repair or finalization. |
-| `cancelled` | absent | absent | not queried | No durable submit intent exists. | **Pre-execution cancellation**: keep `cancelled` and never submit. |
-| `cancelled` | present | absent | `PENDING` or `RUNNING` | Cloud cancellation does not prove that the allocation has stopped. | **Stop the allocation**: resolve its JobName, send `scancel`, and retry until termination is confirmed. Preserve artifacts even after their TTL expires. |
-| `cancelled` | present | absent | `CANCELLED` or `FAILED` | The allocation has terminated without a usable result. | **Confirm cancellation**: keep Cloud `cancelled`; artifact cleanup may proceed after the normal retention period. |
-| `cancelled` | present | appears during reconciliation | `COMPLETED` or `CANCELLED` | A result was published after the initial recovery listing. | **Return result**: preserve the checkpoint and requeue validation and finalization, without submission. |
-| `cancelled` | present | absent | `COMPLETED` | Scheduler completion lacks its expected checkpoint. | **Preserve diagnostics**: keep the request for retry or operator reconciliation; do not resubmit or perform TTL cleanup. |
+| `cancelled` | any | absent | not queried | Cloud cancellation is terminal and no result checkpoint exists. | **Confirm cancellation**: keep `cancelled` and clean retained artifacts after the normal retention period. |
 | any active status | any | any | allocation absent from both `squeue` and `sacct`, or observation failed transiently | No authoritative terminal state exists yet. | **Retry observation**: keep the active state and never resubmit a persisted submit intent. |
-| any active status | any | any | Cloud Job is missing | A 404 does not establish cancellation intent. | **Retry observation**: an executing simulator retains the allocation and artifacts and retries Cloud reads before proceeding. Startup skips missing jobs for later recovery or operator reconciliation. Do not infer cancellation or submit new work from a missing record. |
+| any active status | any | any | Cloud Job is missing | There is no authoritative Cloud record for a safe update. | **Skip recovery**: log the condition and wait for retry or operator reconciliation. |
 
 The Cloud Job, local execution record, and SLURM allocation are linked through
 deterministic identifiers rather than a SLURM-specific Cloud column:
@@ -540,7 +527,7 @@ deterministic identifiers rather than a SLURM-specific Cloud column:
 | Layer | Identifier or artifact | Relation to the next layer |
 | --- | --- | --- |
 | Cloud Job | `job_id` | The source identifier for all derived paths and scheduler labels. |
-| Local work directory | `SLURM_WORK_ROOT / sha256(job_id)[:32]` | Contains `request.json`, `result.json`, `slurm_job_id`, stdout, and stderr for that Cloud Job. |
+| Local work directory | `SLURM_WORK_ROOT / sha256(job_id)[:32]` | Contains `request.json`, `result.json`, stdout, and stderr for that Cloud Job. |
 | Request identity | Hash of the canonical request and resolved scheduler options | Recomputed after restart and used to derive the scheduler JobName. |
 | SLURM JobName | `oqtopus-{sha256(job_id)[:16]}-{request_hash[:16]}` | The exact lookup key for reattachment in `squeue` and `sacct`. |
 | SLURM comment | `oqtopus:{sha256(job_id)[:16]}:{request_hash[:16]}` | Diagnostic metadata only; recovery does not depend on accounting comments. |
@@ -560,13 +547,9 @@ Cloud job_id
 `find_job()` searches both `squeue --name` and `sacct --name` and accepts only
 one exact allocation match. `get_status()` uses the numeric allocation ID to
 query `squeue` first and `sacct` after queue eviction. The Cloud-backed
-execution repository does not add a scheduler-specific column: once an
-allocation is attached, its numeric ID is atomically persisted as the local
-`slurm_job_id` artifact. If that artifact is missing, such as after an older
-deployment or before an uncertain `sbatch` response is reconciled, the
-allocation ID is recovered from the deterministic JobName. JobName matching
-remains the identity fallback and rejects ambiguous matches instead of
-submitting a duplicate allocation.
+execution repository does not add a scheduler-specific column; after restart,
+the allocation ID is recovered from the deterministic JobName when it is not
+already available in the execution record.
 
 If `sbatch` may have accepted the job without returning a usable response, Core
 does not repeat the command. A later recovery searches accounting from before
@@ -576,19 +559,13 @@ requires manual reconciliation. The specific reconciliation failure remains
 available through the existing job `message` field.
 
 Under the race-aware cancellation contract, Cloud persists cancellation intent
-as `cancelling`, then Core checks the allocation state. Core also treats
-`cancelled` as a stop request when an allocation is still active. It sends `scancel`
+as `cancelling`, then Core checks the allocation state. It sends `scancel`
 only while the allocation is active and waits for scheduler confirmation. A
 `COMPLETED` observation restores and validates the result before moving to
 `RESULT_READY`; a `CANCELLED` observation updates the existing Job status to
 `cancelled`.
 Transient observation or cancellation failures remain recoverable from
-`cancelling`, or from `cancelled` with a retained submit intent. Restart recovery
-includes these cancelled requests and never resubmits them. Cancellation that
-arrives while `sbatch` is returning also proceeds to allocation monitoring.
-Cloud status alone does not authorize TTL cleanup of a cancelled request:
-Core first checks the scheduler and retains artifacts while termination is
-unconfirmed. A valid result checkpoint still takes precedence over cancellation.
+`cancelling`.
 
 Finalization is retried in process. If retries are exhausted, the validated
 result remains `RESULT_READY` and startup recovery attempts finalization again.
@@ -597,24 +574,6 @@ Terminal status and result fields are committed by one existing
 immediately. Failed and cancelled artifacts are retained until their configured
 TTL expires, then cleanup removes the derived local work directory. Terminal
 Job statuses prevent a second claim.
-
-Internal children retain their results until the root finishes. When a child
-fails, the exception handler first synchronizes the root failure, then closes
-and removes the failed child's work directory and local metadata if the
-allocation is confirmed terminal (or submission has not started). Completed
-siblings are removed too; siblings still executing retain their artifacts and
-clean them after finishing. Root join failures also clean completed children.
-Uncertain submissions and pending cancellation delivery preserve the child
-record and root recovery state instead of deleting tracking information.
-An active or unobservable allocation must not be marked terminal just to
-permit cleanup; its artifacts remain available for reconciliation.
-
-Cleanup errors do not prevent the root status update. Local child records
-include `parent_job_id`; startup and fetch-loop cleanup retry terminal records
-older than `SLURM_ARTIFACT_TTL_SECONDS` only after Cloud confirms that the root
-is terminal. Successful children of an active root remain available for join
-and recovery. Legacy records without a parent ID are excluded from this scan;
-they can still be cleaned when their owning root finalizes in process.
 
 ## 6. Job Options
 
