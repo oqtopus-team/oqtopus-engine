@@ -383,15 +383,24 @@ class SlurmJobFetcher(RepositoryJobFetcher):
         for job in candidates.values():
             if job.job_id in self._scheduled_job_ids:
                 continue
-            record = await self._execution_repository.get(job.job_id)
-            if record is None or record.state is ExecutionState.READY:
-                if not await self._execution_repository.claim(job.job_id, job.job_type):
+            try:
+                record = await self._execution_repository.get(job.job_id)
+                if record is None or record.state is ExecutionState.READY:
+                    if not await self._execution_repository.claim(
+                        job.job_id, job.job_type
+                    ):
+                        continue
+                elif record.state in {
+                    ExecutionState.CANCELLED,
+                    ExecutionState.FAILED,
+                    ExecutionState.SUCCEEDED,
+                }:
                     continue
-            elif record.state in {
-                ExecutionState.CANCELLED,
-                ExecutionState.FAILED,
-                ExecutionState.SUCCEEDED,
-            }:
+            except Exception:
+                logger.exception(
+                    "failed to claim SLURM job; continuing with remaining candidates",
+                    extra={"job_id": job.job_id},
+                )
                 continue
             claimed.append(job)
         await self._enqueue(claimed)

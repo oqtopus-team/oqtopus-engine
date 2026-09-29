@@ -2,11 +2,14 @@ import hashlib
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from oqtopus_engine_core.interfaces.oqtopus_cloud.models import JobsJob
+from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
+    JobsJob,
+    JobsJobStatusUpdateResponse,
+)
 from oqtopus_engine_core.fetchers import SlurmJobFetcher
 from oqtopus_engine_core.framework import Device, GlobalContext, Job
 from oqtopus_engine_core.repositories import NullJobRepository
@@ -340,6 +343,73 @@ async def test_poll_claims_cloud_derived_ready_execution():
 
     assert execution_repository.claim_count == 1
     assert [job.job_id for job in pipeline.jobs] == ["job-1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["get", "claim"])
+@pytest.mark.parametrize("failed_job_id", ["job-1", "job-2", "job-3"])
+async def test_poll_isolates_claim_errors_and_retries_failed_candidate(
+    tmp_path, caplog, operation, failed_job_id
+):
+    jobs = {
+        job_id: JobsJob(
+            job_id=job_id,
+            device_id="large-simulator",
+            job_type="sampling",
+            shots=10,
+            input="input.zip",
+            status="ready",
+            transpiler_info={},
+            simulator_info={},
+            mitigation_info={},
+        )
+        for job_id in ("job-1", "job-2", "job-3")
+    }
+    fault_enabled = True
+
+    def get_job(*, job_id, **kwargs):
+        if fault_enabled and job_id == failed_job_id and operation == "get":
+            raise TimeoutError("Cloud read failed")
+        return deepcopy(jobs[job_id])
+
+    def patch_job(*, job_id, body, **kwargs):
+        if fault_enabled and job_id == failed_job_id and operation == "claim":
+            raise TimeoutError("Cloud claim failed before update")
+        jobs[job_id].status = body.status
+        return JobsJobStatusUpdateResponse(message="Job status updated")
+
+    async def get_jobs(device_id, status, limit):
+        return [Job(**job.to_dict()) for job in jobs.values() if job.status == status]
+
+    cloud = StubJobRepository(make_job("ready"))
+    cloud.get_jobs = get_jobs
+    api = Mock()
+    api.get_job.side_effect = get_job
+    api.patch_job.side_effect = patch_job
+    pipeline = RecordingPipeline()
+    fetcher, _, _ = make_fetcher(tmp_path, cloud, pipeline)
+    fetcher._execution_repository = OqtopusCloudExecutionRepository(
+        device_id="large-simulator", work_root=str(tmp_path / "work"), jobs_api=api
+    )
+    expected_ids = [job_id for job_id in jobs if job_id != failed_job_id]
+
+    assert await fetcher.poll_once() == 2
+
+    assert [job.job_id for job in pipeline.jobs] == expected_ids
+    assert all(jobs[job_id].status == "running" for job_id in expected_ids)
+    assert jobs[failed_job_id].status == "ready"
+    assert fetcher._scheduled_job_ids == set(expected_ids)
+    assert any(
+        record.job_id == failed_job_id and record.exc_info is not None
+        for record in caplog.records
+        if hasattr(record, "job_id")
+    )
+
+    fault_enabled = False
+    assert await fetcher.poll_once() == 1
+    assert await fetcher.poll_once() == 0
+    assert [job.job_id for job in pipeline.jobs] == [*expected_ids, failed_job_id]
+    assert all(job.status == "running" for job in jobs.values())
 
 
 @pytest.mark.asyncio
