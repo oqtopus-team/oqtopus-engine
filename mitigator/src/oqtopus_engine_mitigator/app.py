@@ -159,8 +159,8 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
             context: The gRPC context for the request.
 
         Returns:
-            The gRPC response containing the
-                mitigated counts.
+            The gRPC response containing mitigated counts and the
+                intermediate quasi-probability distribution.
 
         """
         with tracer.start_as_current_span("mitigator.ReqMitigation") as span:
@@ -177,14 +177,19 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                 device_topology = request.device_topology
                 counts = request.counts
                 program = request.program
-                mitigated_counts = self.ro_error_mitigation(
-                    device_topology, counts, program
+                mitigated_counts, quasi_probabilities = (
+                    self.ro_error_mitigation_with_quasi_probabilities(
+                        device_topology, counts, program
+                    )
                 )
                 logger.debug(
                     "Readout-error mitigation result",
                     extra={"mitigated_counts": mitigated_counts},
                 )
-                return ReqMitigationResponse(counts=mitigated_counts)
+                return ReqMitigationResponse(
+                    counts=mitigated_counts,
+                    quasi_probabilities=quasi_probabilities,
+                )
             except Exception as e:
                 logger.exception("mitigation process failed. Exception occurred")
                 if span.is_recording():
@@ -217,7 +222,11 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                         "paulis": request.paulis,
                     },
                 )
-                expectation_values, standard_deviation_upper_bounds = (
+                (
+                    expectation_values,
+                    standard_deviation_upper_bounds,
+                    before_expectation_values,
+                ) = (
                     self.ro_error_mitigation_expectation_values(
                         request.device_topology,
                         request.counts,
@@ -232,11 +241,15 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                         "standard_deviation_upper_bounds": (
                             standard_deviation_upper_bounds
                         ),
+                        "before_expectation_values": (
+                            before_expectation_values
+                        ),
                     },
                 )
                 return ReqExpectationValueMitigationResponse(
                     expectation_values=expectation_values,
                     standard_deviation_upper_bounds=standard_deviation_upper_bounds,
+                    before_expectation_values=before_expectation_values,
                 )
             except Exception as e:
                 logger.exception(
@@ -264,6 +277,33 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
             Mitigated counts projected onto the nearest probability distribution.
 
         """
+        mitigated_counts, _ = (
+            ErrorMitigator.ro_error_mitigation_with_quasi_probabilities(
+                device_topology,
+                counts,
+                program,
+            )
+        )
+        return mitigated_counts
+
+    @staticmethod
+    def ro_error_mitigation_with_quasi_probabilities(
+        device_topology: _DeviceTopology,
+        counts: Mapping[str, int],
+        program: str,
+    ) -> tuple[dict[str, int], dict[str, float]]:
+        """Calculate mitigated counts and the intermediate quasi-probabilities.
+
+        Args:
+            device_topology: Device readout assignment error data.
+            counts: Observed counts keyed by bit string.
+            program: OpenQASM 3 program containing measurements.
+
+        Returns:
+            Mitigated counts projected onto the nearest probability distribution
+            and the raw quasi-probability distribution before projection.
+
+        """
         shots = sum(counts.values())
         local_mitigator, layout = create_local_readout_mitigator(
             device_topology,
@@ -284,13 +324,19 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                 qubits=list(range(n_qubits)),
                 clbits=layout.clbits,
             )
+            quasi_probabilities = {
+                key: float(value)
+                for key, value in quasi_dist.binary_probabilities(
+                    num_bits=n_qubits
+                ).items()
+            }
             nearest_prob: ProbDistribution = (
                 quasi_dist.nearest_probability_distribution()
             )
             bin_prob = nearest_prob.binary_probabilities(num_bits=n_qubits)
             mitigated_counts = {k: int(v * shots) for k, v in bin_prob.items()}
         logger.debug("finish error mitigation")
-        return mitigated_counts
+        return mitigated_counts, quasi_probabilities
 
     @staticmethod
     def ro_error_mitigation_expectation_values(
@@ -298,8 +344,8 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
         counts: Mapping[str, int],
         program: str,
         paulis: Sequence[str],
-    ) -> tuple[list[float], list[float]]:
-        """Calculate mitigated Pauli expectation values and uncertainty bounds.
+    ) -> tuple[list[float], list[float], list[float]]:
+        """Calculate raw and mitigated Pauli expectation values.
 
         Args:
             device_topology: Device readout assignment error data.
@@ -308,7 +354,8 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
             paulis: Pauli labels corresponding to the measured basis.
 
         Returns:
-            Mitigated expectation values and standard-deviation upper bounds.
+            Mitigated expectation values, standard-deviation upper bounds, and
+            before expectation values.
 
         Raises:
             ValueError: If the program, measured-qubit count, or Pauli is invalid.
@@ -328,6 +375,13 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
         qiskit_counts = Counts(dict(counts), memory_slots=layout.memory_slots)
         expectation_values = []
         standard_deviations = []
+        before_expectation_values = (
+            ErrorMitigator._before_expectation_values_from_counts(
+                qiskit_counts,
+                paulis,
+                layout.clbits,
+            )
+        )
 
         for pauli in paulis:
             support = [
@@ -346,7 +400,35 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
             expectation_values.append(float(expectation_value))
             standard_deviations.append(float(standard_deviation))
 
-        return expectation_values, standard_deviations
+        return (
+            expectation_values,
+            standard_deviations,
+            before_expectation_values,
+        )
+
+    @staticmethod
+    def _before_expectation_values_from_counts(
+        counts: Counts,
+        paulis: Sequence[str],
+        clbits: Sequence[int],
+    ) -> list[float]:
+        shots = sum(counts.values())
+        if shots == 0:
+            message = "counts must contain at least one shot"
+            raise ValueError(message)
+
+        integer_counts = counts.int_outcomes()
+        values = []
+        for pauli in paulis:
+            support = [
+                index for index, char in enumerate(reversed(pauli)) if char != "I"
+            ]
+            value = 0.0
+            for outcome, count in integer_counts.items():
+                parity = sum((outcome >> clbits[index]) & 1 for index in support)
+                value += (-1.0 if parity % 2 else 1.0) * count
+            values.append(value / shots)
+        return values
 
 
 def create_local_readout_mitigator(

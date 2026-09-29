@@ -8,6 +8,7 @@ from oqtopus_engine_core.steps.estimator_step import (
     ESTIMATION_EXPECTATION_VALUES_KEY,
     ESTIMATION_PAULIS_KEY,
     ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY,
+    ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY,
 )
 from oqtopus_engine_core.steps.ro_error_mitigation_step import ReadoutErrorMitigationStep
 
@@ -52,7 +53,13 @@ async def test_post_process_sampling_calls_grpc_and_updates_counts(
 ) -> None:
     gctx, jctx, job = setup_sampling_job
     mitigation_step._stub.ReqMitigation.return_value = SimpleNamespace(
-        counts={"00": 480, "01": 320, "10": 140, "11": 60}
+        counts={"00": 480, "01": 320, "10": 140, "11": 60},
+        quasi_probabilities={
+            "00": 0.48,
+            "01": -0.02,
+            "10": 0.14,
+            "11": 0.4,
+        },
     )
 
     await mitigation_step.post_process(gctx, jctx, job)
@@ -75,6 +82,21 @@ async def test_post_process_sampling_calls_grpc_and_updates_counts(
         "10": 140,
         "11": 60,
     }
+    details = job.result.mitigation_details.ro_error_mitigation
+    assert details.method == "local_readout_mitigation"
+    assert details.raw_counts == {
+        "00": 500,
+        "01": 300,
+        "10": 150,
+        "11": 50,
+    }
+    assert details.quasi_probabilities == {
+        "00": 0.48,
+        "01": -0.02,
+        "10": 0.14,
+        "11": 0.4,
+    }
+    assert details.expectation_values is None
 
 
 @pytest.mark.asyncio
@@ -103,9 +125,11 @@ async def test_post_process_estimation_child_updates_expectation_values(
     gctx, _, job = setup_sampling_job
     jctx = {ESTIMATION_PAULIS_KEY: ["XX", "II"]}
     original_counts = dict(job.result.sampling.counts)
+    job.result.mitigation_details = None
     mitigation_step._stub.ReqExpectationValueMitigation.return_value = SimpleNamespace(
         expectation_values=[0.8, 1.0],
         standard_deviation_upper_bounds=[0.03, 0.0],
+        before_expectation_values=[0.6, 1.0],
     )
 
     await mitigation_step.post_process(gctx, jctx, job)
@@ -117,6 +141,8 @@ async def test_post_process_estimation_child_updates_expectation_values(
     assert job.result.sampling.counts == original_counts
     assert jctx[ESTIMATION_EXPECTATION_VALUES_KEY] == [0.8, 1.0]
     assert jctx[ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY] == [0.03, 0.0]
+    assert jctx[ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY] == [0.6, 1.0]
+    assert job.result.mitigation_details is None
 
 
 @pytest.mark.asyncio
@@ -129,6 +155,7 @@ async def test_post_process_estimation_child_rejects_mismatched_response(
     mitigation_step._stub.ReqExpectationValueMitigation.return_value = SimpleNamespace(
         expectation_values=[0.8],
         standard_deviation_upper_bounds=[],
+        before_expectation_values=[0.6],
     )
 
     with pytest.raises(RuntimeError, match="must have equal lengths"):

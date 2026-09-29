@@ -26,6 +26,7 @@ from oqtopus_engine_core.steps.estimator_step import (
     ESTIMATION_JOIN_INFO_KEY,
     ESTIMATION_PAULIS_KEY,
     ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY,
+    ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY,
     EstimationJoinInfo,
     EstimatorStep,
 )
@@ -195,6 +196,7 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
                     ESTIMATION_CHILD_INDEX_KEY: 0,
                     ESTIMATION_EXPECTATION_VALUES_KEY: [0.4],
                     ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY: [0.06],
+                    ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY: [0.35],
                 }
             ),
             JobContext(
@@ -202,6 +204,7 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
                     ESTIMATION_CHILD_INDEX_KEY: 1,
                     ESTIMATION_EXPECTATION_VALUES_KEY: [0.25],
                     ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY: [0.05],
+                    ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY: [0.2],
                 }
             ),
         ],
@@ -236,6 +239,25 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     ]
     assert parent_job.result.estimation.exp_value == 0.25
     assert parent_job.result.estimation.stds == 0.05
+    details = parent_job.result.mitigation_details.ro_error_mitigation
+    assert details.method == "local_readout_mitigation"
+    assert details.raw_counts is None
+    assert [item.model_dump() for item in details.expectation_values] == [
+        {
+            "pauli": "XX",
+            "coefficient": 2.0,
+            "before_expectation_value": 0.35,
+            "after_expectation_value": 0.4,
+            "standard_deviation_upper_bound": 0.06,
+        },
+        {
+            "pauli": "ZZ",
+            "coefficient": 1.0,
+            "before_expectation_value": 0.2,
+            "after_expectation_value": 0.25,
+            "standard_deviation_upper_bound": 0.05,
+        },
+    ]
     assert parent_job.execution_time == 0.7
     assert parent_job.message == "child-0-message"
 

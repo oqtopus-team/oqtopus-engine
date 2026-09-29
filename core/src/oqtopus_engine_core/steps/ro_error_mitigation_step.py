@@ -7,9 +7,12 @@ from typing import Any, Protocol
 import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
+    LOCAL_READOUT_MITIGATION_METHOD,
     GlobalContext,
     Job,
     JobContext,
+    MitigationDetails,
+    ReadoutErrorMitigationDetails,
     SamplingResult,
     Step,
     StepResult,
@@ -19,6 +22,7 @@ from oqtopus_engine_core.interfaces.mitigator_interface.v1 import (
     mitigator_pb2_grpc,
 )
 from oqtopus_engine_core.steps.estimator_step import (
+    ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY,
     ESTIMATION_EXPECTATION_VALUES_KEY,
     ESTIMATION_PAULIS_KEY,
     ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY,
@@ -34,6 +38,9 @@ class _ExpectationValueMitigationResponse(Protocol):
     @property
     def standard_deviation_upper_bounds(self) -> Sequence[float]: ...
 
+    @property
+    def before_expectation_values(self) -> Sequence[float]: ...
+
 
 def _apply_expectation_value_mitigation_response(
     jctx: JobContext,
@@ -42,12 +49,17 @@ def _apply_expectation_value_mitigation_response(
 ) -> None:
     expectation_values = list(response.expectation_values)
     standard_deviation_upper_bounds = list(response.standard_deviation_upper_bounds)
+    before_expectation_values = list(response.before_expectation_values)
     if not (
-        len(expectation_values) == len(standard_deviation_upper_bounds) == len(paulis)
+        len(expectation_values)
+        == len(standard_deviation_upper_bounds)
+        == len(before_expectation_values)
+        == len(paulis)
     ):
         message = (
             "mitigator response expectation values, standard-deviation upper "
-            "bounds, and Pauli labels must have equal lengths"
+            "bounds, before expectation values, and Pauli labels must have "
+            "equal lengths"
         )
         raise RuntimeError(message)
 
@@ -55,10 +67,14 @@ def _apply_expectation_value_mitigation_response(
     jctx[ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY] = (
         standard_deviation_upper_bounds
     )
+    jctx[ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY] = (
+        before_expectation_values
+    )
     logger.debug(
         "Readout-error-mitigated expectation values",
         extra={
             "expectation_values": expectation_values,
+            "before_expectation_values": before_expectation_values,
             "standard_deviation_upper_bounds": standard_deviation_upper_bounds,
         },
     )
@@ -278,6 +294,13 @@ class ReadoutErrorMitigationStep(Step):
                 )
                 mitigated_counts = dict(response.counts)
                 sampling.counts = mitigated_counts
+                job.result.mitigation_details = MitigationDetails(  # type: ignore[union-attr]
+                    ro_error_mitigation=ReadoutErrorMitigationDetails(
+                        method=LOCAL_READOUT_MITIGATION_METHOD,
+                        raw_counts=dict(orig_counts),
+                        quasi_probabilities=dict(response.quasi_probabilities),
+                    )
+                )
                 logger.debug(
                     "Readout-error-mitigated counts",
                     extra={

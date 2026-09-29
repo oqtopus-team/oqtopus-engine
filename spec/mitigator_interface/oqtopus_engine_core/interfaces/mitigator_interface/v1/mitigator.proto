@@ -34,6 +34,7 @@ message ReqMitigationRequest{
 
 message ReqMitigationResponse{
     map<string, int32> counts =1;
+    map<string, double> quasi_probabilities = 2;
 }
 
 message ReqExpectationValueMitigationRequest{
@@ -46,4 +47,5 @@ message ReqExpectationValueMitigationRequest{
 message ReqExpectationValueMitigationResponse{
     repeated double expectation_values = 1;
     repeated double standard_deviation_upper_bounds = 2;
+    repeated double before_expectation_values = 3;
 }
