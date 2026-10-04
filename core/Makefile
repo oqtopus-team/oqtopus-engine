@@ -2,7 +2,10 @@ SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-.PHONY: run run-sse format lint test verify help
+.PHONY: install run run-sse format lint test verify help
+
+install: ## Install dependencies
+	@uv sync --all-groups
 
 run: ## Run application
 	@uv run python -m oqtopus_engine_core.app -c config/config.yaml -l config/logging.yaml

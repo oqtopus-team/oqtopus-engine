@@ -69,7 +69,13 @@ class Job(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
+    # Engine-unique execution unit ID; see docs/design/pipeline_execution.md
+    # (Job ID Conventions) for how this differs from repository_job_id.
     job_id: str
+    # Cloud record ID, or None if this Job has no repository entity of its
+    # own. A marker only: never substitute this for job_id in a request
+    # path. See docs/design/pipeline_execution.md and resolve_repository_jobs.
+    repository_job_id: str | None = None
     name: str | None = None
     description: str | None = None
     device_id: str
@@ -126,3 +132,58 @@ class Job(BaseModel):
 
         """
         return self.__repr__()
+
+
+# Local Job.status values that mean a job's own pipeline execution is
+# finished and must never be silently overwritten. Shared by
+# `mark_job_terminal` below and any code that polls a Job's local status
+# until it stops changing (e.g. `fetchers/sse_engine_gateway.py`), so both
+# stay in sync by construction.
+TERMINAL_JOB_STATUSES = frozenset({"succeeded", "failed", "cancelled"})
+
+
+def mark_job_terminal(job: Job, status: str) -> None:
+    """Set `job.status` to a terminal value, unless it already has one.
+
+    Used by whichever code is in a position to know that `job`'s own local
+    pipeline processing has definitively ended — a step returning JOIN or
+    SPLIT_WITHOUT_JOIN for a job with no job repository record of its own
+    (it will never reach `JobRepositoryUpdateStep`, the usual place a
+    Cloud-tracked job's terminal status is set), or the pipeline framework
+    itself when a job's path ends in an exception. Never overwriting an
+    existing terminal status protects e.g. a join that fails after its
+    children already succeeded, and the succeeded-then-fallback-to-failed
+    handling in `JobRepositoryUpdateStep.post_process`.
+    """
+    if job.status not in TERMINAL_JOB_STATUSES:
+        job.status = status
+
+
+def resolve_repository_jobs(job: Job) -> list[Job]:
+    """Resolve the Job objects that a repository (Cloud) update applies to.
+
+    Returns Job objects, not job_id strings, so callers can mutate the
+    shared object directly. Already deduped by job_id (e.g. two estimation
+    children of the same parent, combined together, both resolve to that
+    one parent). An empty result is expected, not an error. See
+    docs/design/pipeline_execution.md (Job ID Conventions) for the four
+    job/repository-entity relationships this covers and why.
+
+    Returns:
+        The repository-tracked Job objects to update, deduped by job_id.
+
+    """
+    if job.repository_job_id is None:
+        # Dedupe by job_id: two children can resolve to the same target
+        # (e.g. two estimation children of the same parent combined
+        # together), and callers must not be updated twice for it.
+        unique: dict[str, Job] = {}
+        for child in job.children:
+            for resolved in resolve_repository_jobs(child):
+                unique[resolved.job_id] = resolved
+        return list(unique.values())
+
+    current = job
+    while current.job_id != current.repository_job_id and current.parent is not None:
+        current = current.parent
+    return [current] if current.job_id == current.repository_job_id else []

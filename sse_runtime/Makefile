@@ -4,7 +4,11 @@ SHELL := bash
 
 SSE_IMAGE := sse-runtime:latest
 
-.PHONY: build-sse lint test help
+.PHONY: install build-sse lint test help
+
+install: ## Install dependencies
+	@uv sync --all-groups
+
 build-sse: ## Run docker build
 	docker build -t $(SSE_IMAGE) .
 

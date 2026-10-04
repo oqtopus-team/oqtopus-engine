@@ -54,7 +54,6 @@ def _make_transpile_result() -> dict[str, Any]:
 
 def _make_gctx() -> GlobalContext:
     mock_repo = AsyncMock(spec=JobRepository)
-    mock_repo.get_job_upload_url.return_value = ["https://invalid.example.com/upload"]
     return GlobalContext(config={}, job_repository=mock_repo)
 
 
@@ -135,7 +134,9 @@ class TestSseStepPreProcess:
             await sse_step.pre_process(mock_gctx, {}, sample_job)
 
         assert sample_job.status == "running"
-        mock_gctx.job_repository.update_job_status.assert_awaited_once()
+        mock_gctx.job_repository.update_job_status.assert_awaited_once_with(
+            sample_job, include_output_files=False
+        )
 
     @pytest.mark.asyncio
     async def test_pre_process_calls_run_sse(
@@ -359,6 +360,7 @@ class TestRunSse:
         mock_runner = MagicMock()
         mock_runner.run_sse = AsyncMock()
         mock_runner.result_job = result_job
+        mock_runner.logs_content = None
 
         with patch(
             "oqtopus_engine_core.steps.sse_step.SseRunner",
@@ -367,9 +369,9 @@ class TestRunSse:
             await sse_step._run_sse(
                 sample_job, mock_gctx, sse_step._settings, temp_dirs
             )
-
         assert sample_job.status == "succeeded"
         mock_gctx.job_repository.update_job_transpiler_info.assert_awaited_once()
+        mock_runner.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_sse_user_program_error_raises(
@@ -392,6 +394,7 @@ class TestRunSse:
         mock_runner = MagicMock()
         mock_runner.run_sse = AsyncMock(side_effect=SseRuntimeError("user error"))
         mock_runner.result_job = result_job
+        mock_runner.logs_content = None
 
         with patch(
             "oqtopus_engine_core.steps.sse_step.SseRunner",
@@ -422,6 +425,7 @@ class TestRunSse:
         mock_runner = MagicMock()
         mock_runner.run_sse = AsyncMock(side_effect=OSError("network"))
         mock_runner.result_job = result_job
+        mock_runner.logs_content = None
 
         with patch(
             "oqtopus_engine_core.steps.sse_step.SseRunner",
@@ -441,16 +445,16 @@ class TestRunSse:
     ) -> None:
         temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
 
-        sample_job.message = "custom failure message"
-
         result_job = _make_job(
             job_id=sample_job.job_id, job_type="sse", status="failed",
+            message="custom failure message",
             transpile_result=_make_transpile_result(),
         )
 
         mock_runner = MagicMock()
         mock_runner.run_sse = AsyncMock()
         mock_runner.result_job = result_job
+        mock_runner.logs_content = None
 
         with patch(
             "oqtopus_engine_core.steps.sse_step.SseRunner",
@@ -499,6 +503,21 @@ class TestSseRunnerInit:
         assert runner._job_id == sample_job.job_id
         assert runner._container_name == sample_job.job_id
         assert runner.result_job is None
+
+
+class TestSseRunnerClose:
+    def test_close_closes_docker_client(self, make_runner: _MakeRunner) -> None:
+        runner, mock_docker, _ = make_runner()
+
+        runner.close()
+
+        mock_docker.DockerClient.return_value.close.assert_called_once()
+
+    def test_close_swallows_error(self, make_runner: _MakeRunner) -> None:
+        runner, mock_docker, _ = make_runner()
+        mock_docker.DockerClient.return_value.close.side_effect = Exception("boom")
+
+        runner.close()
 
 
 class TestSseRunnerRunSse:
@@ -828,23 +847,23 @@ class TestCopyUserProgramIntoContainer:
 # SseRunner._get_result_from_container
 # ---------------------------------------------------------------------------
 
-def _make_tar_bytes(filename: str, content: bytes) -> list:
+def _make_tar_bytes(filename: str, content: bytes) -> tuple:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
         info = tarfile.TarInfo(name=filename)
         info.size = len(content)
         tar.addfile(tarinfo=info, fileobj=io.BytesIO(content))
-    return [(buf.getvalue(), None)]
+    return (buf.getvalue(), None)
 
 
-def _make_tar_bytes_directory(dirname: str) -> list:
+def _make_tar_bytes_directory(dirname: str) -> tuple:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
         info = tarfile.TarInfo(name=dirname)
         info.type = tarfile.DIRTYPE
         info.mode = 0o755
         tar.addfile(tarinfo=info)
-    return [(buf.getvalue(), None)]
+    return (buf.getvalue(), None)
 
 
 class TestGetResultFromContainer:
@@ -858,20 +877,21 @@ class TestGetResultFromContainer:
             "transpiler_info": {}, "simulator_info": {},
             "mitigation_info": {},
         }
-        chunks = _make_tar_bytes("result.json", json.dumps(job_data).encode())
-        runner._container.exec_run.return_value = (0, iter(chunks))
+        output = _make_tar_bytes("result.json", json.dumps(job_data).encode())
+        runner._container.exec_run.return_value = (0, output)
 
         result = runner._get_result_from_container(
             user="appuser", container_path=Path("/sse/out"), filename="result.json"
         )
         assert result.job_id == "j1"
         assert result.status == "succeeded"
+        assert runner._container.exec_run.call_args.kwargs["stream"] is False
 
     def test_stderr_raises(self, make_runner: _MakeRunner) -> None:
         runner, _, _ = make_runner()
         runner._container = MagicMock()
         runner._container.exec_run.return_value = (
-            0, iter([(None, b"tar: file not found")])
+            0, (None, b"tar: file not found")
         )
 
         with pytest.raises(RuntimeError, match="error when getting file"):
@@ -883,8 +903,8 @@ class TestGetResultFromContainer:
         runner, _, _ = make_runner()
         runner._container = MagicMock()
 
-        chunks = _make_tar_bytes("result.json", b"")
-        runner._container.exec_run.return_value = (0, iter(chunks))
+        output = _make_tar_bytes("result.json", b"")
+        runner._container.exec_run.return_value = (0, output)
 
         with pytest.raises(RuntimeError, match="result file is empty"):
             runner._get_result_from_container(
@@ -897,8 +917,8 @@ class TestGetResultFromContainer:
         runner, _, _ = make_runner()
         runner._container = MagicMock()
 
-        chunks = _make_tar_bytes_directory("result.json")
-        runner._container.exec_run.return_value = (0, iter(chunks))
+        output = _make_tar_bytes_directory("result.json")
+        runner._container.exec_run.return_value = (0, output)
 
         with pytest.raises(RuntimeError, match="result file not found in tar"):
             runner._get_result_from_container(
@@ -1118,6 +1138,83 @@ class TestPostprocessContainer:
 
 
 # ---------------------------------------------------------------------------
+# SseRunner._postprocess_container (container log saved to host)
+# ---------------------------------------------------------------------------
+
+def _host_temp_dirs(tmp_path: Path, job_id: str) -> dict[str, Path]:
+    base = tmp_path / "work" / job_id
+    dirs = {"base": base, "in": base / "in", "out": base / "out"}
+    for d in dirs.values():
+        d.mkdir(parents=True, exist_ok=True)
+    return dirs
+
+
+class TestPostprocessContainerSavesLog:
+    @pytest.fixture
+    def runner(self, make_runner: _MakeRunner, tmp_path: Path) -> SseRunner:
+        runner, _, _ = make_runner()
+        runner._host_work_path = _host_temp_dirs(tmp_path, runner._job_id)
+        runner._container = MagicMock()
+        runner._container.logs.return_value = b"Traceback: boom\n"
+        return runner
+
+    @pytest.mark.asyncio
+    async def test_saves_log_on_success(self, runner: SseRunner) -> None:
+        result_job = _make_job(job_id="internal-1")
+        runner._get_result_from_container = MagicMock(return_value=result_job)
+
+        await runner._postprocess_container(exec_is_success=True)
+
+        log_path = runner._host_work_path["out"] / "log.txt"
+        assert log_path.read_text(encoding="utf-8") == "Traceback: boom\n"
+        assert (log_path.stat().st_mode & 0o777) == 0o600
+        assert result_job.sse_log == "Traceback: boom\n"
+
+    @pytest.mark.asyncio
+    async def test_saves_log_when_result_file_missing(
+        self, runner: SseRunner
+    ) -> None:
+        # e.g. the user program crashed before calling submit_job(), so no
+        # result.json exists and result_job stays None.
+        runner._get_result_from_container = MagicMock(
+            side_effect=RuntimeError("result file not found")
+        )
+
+        with pytest.raises(RuntimeError, match="failed to get result or log"):
+            await runner._postprocess_container(exec_is_success=False)
+
+        log_path = runner._host_work_path["out"] / "log.txt"
+        assert log_path.read_text(encoding="utf-8") == "Traceback: boom\n"
+        assert runner.result_job is None
+
+    @pytest.mark.asyncio
+    async def test_host_write_failure_does_not_fail(
+        self, runner: SseRunner
+    ) -> None:
+        runner._get_result_from_container = MagicMock(
+            return_value=_make_job(job_id="internal-1")
+        )
+        runner._host_work_path["out"].rmdir()  # make the write fail
+
+        # must not raise: saving to host is a debugging aid only
+        await runner._postprocess_container(exec_is_success=True)
+
+    @pytest.mark.asyncio
+    async def test_no_host_file_when_log_retrieval_fails(
+        self, runner: SseRunner
+    ) -> None:
+        runner._get_result_from_container = MagicMock(
+            return_value=_make_job(job_id="internal-1")
+        )
+        runner._container.logs.side_effect = docker.errors.APIError("gone")
+
+        with pytest.raises(RuntimeError, match="failed to get result or log"):
+            await runner._postprocess_container(exec_is_success=True)
+
+        assert not (runner._host_work_path["out"] / "log.txt").exists()
+
+
+# ---------------------------------------------------------------------------
 # SseStep._run_sse — edge case: message is None falls back to default
 # ---------------------------------------------------------------------------
 
@@ -1142,6 +1239,7 @@ class TestRunSseAdditional:
         mock_runner = MagicMock()
         mock_runner.run_sse = AsyncMock()
         mock_runner.result_job = result_job
+        mock_runner.logs_content = None
 
         with patch(
             "oqtopus_engine_core.steps.sse_step.SseRunner",
@@ -1150,3 +1248,444 @@ class TestRunSseAdditional:
             await sse_step._run_sse(
                 sample_job, mock_gctx, sse_step._settings, temp_dirs
             )
+
+
+# ---------------------------------------------------------------------------
+# Issue B: a failure in post-run Cloud reporting (finally-node cleanup) must
+# not overwrite the job's actual success/failure outcome from run_sse().
+# ---------------------------------------------------------------------------
+
+class TestFinallyOverwriteProtection:
+    @pytest.mark.asyncio
+    async def test_delete_tmpdir_failure_does_not_fail_successful_job(
+        self,
+        sse_step: SseStep,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        tmp_path: Path,
+    ) -> None:
+        sse_step._settings["host_work_path"] = str(tmp_path / "work")
+        with (
+            patch.object(sse_step, "_run_sse", new_callable=AsyncMock),
+            patch(
+                "oqtopus_engine_core.steps.sse_step.shutil.rmtree",
+                side_effect=OSError("busy"),
+            ),
+        ):
+            # must not raise, even though cleanup failed
+            await sse_step.pre_process(mock_gctx, {}, sample_job)
+
+    @pytest.mark.asyncio
+    async def test_delete_tmpdir_failure_does_not_mask_original_failure(
+        self,
+        sse_step: SseStep,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        tmp_path: Path,
+    ) -> None:
+        sse_step._settings["host_work_path"] = str(tmp_path / "work")
+        with (
+            patch.object(
+                sse_step,
+                "_run_sse",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("original failure"),
+            ),
+            patch(
+                "oqtopus_engine_core.steps.sse_step.shutil.rmtree",
+                side_effect=OSError("busy"),
+            ),
+            pytest.raises(RuntimeError, match="original failure"),
+        ):
+            await sse_step.pre_process(mock_gctx, {}, sample_job)
+
+    @pytest.mark.asyncio
+    async def test_transpiler_info_report_failure_does_not_mask_original_failure(
+        self,
+        sse_step: SseStep,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        tmp_path: Path,
+    ) -> None:
+        """On the failure path, a secondary Cloud-reporting failure must not
+        override the job's original failure message."""
+        temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
+
+        result_job = _make_job(
+            job_id=sample_job.job_id, job_type="sse", status="failed",
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.run_sse = AsyncMock(side_effect=SseRuntimeError("user error"))
+        mock_runner.result_job = result_job
+        mock_runner.logs_content = None
+
+        mock_gctx.job_repository.update_job_transpiler_info = AsyncMock(
+            side_effect=RuntimeError("cloud unavailable")
+        )
+
+        with patch(
+            "oqtopus_engine_core.steps.sse_step.SseRunner",
+            return_value=mock_runner,
+        ), pytest.raises(RuntimeError, match="user program execution error"):
+            await sse_step._run_sse(
+                sample_job, mock_gctx, sse_step._settings, temp_dirs
+            )
+
+    @pytest.mark.asyncio
+    async def test_transpiler_info_report_failure_propagates_on_success(
+        self,
+        sse_step: SseStep,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        tmp_path: Path,
+    ) -> None:
+        """On the success path, a Cloud-reporting failure IS the failure:
+        the job would otherwise be reported succeeded with missing data."""
+        temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
+
+        result_job = _make_job(
+            job_id=sample_job.job_id, job_type="sse", status="succeeded",
+        )
+
+        mock_runner = MagicMock()
+        mock_runner.run_sse = AsyncMock()
+        mock_runner.result_job = result_job
+        mock_runner.logs_content = None
+
+        mock_gctx.job_repository.update_job_transpiler_info = AsyncMock(
+            side_effect=RuntimeError("cloud unavailable")
+        )
+
+        with patch(
+            "oqtopus_engine_core.steps.sse_step.SseRunner",
+            return_value=mock_runner,
+        ), pytest.raises(RuntimeError, match="cloud unavailable"):
+            await sse_step._run_sse(
+                sample_job, mock_gctx, sse_step._settings, temp_dirs
+            )
+
+
+# ---------------------------------------------------------------------------
+# A-1: detailed failure messages
+# ---------------------------------------------------------------------------
+
+class TestBuildFailureMessage:
+    def test_uses_result_job_message_when_not_succeeded(self) -> None:
+        result_job = _make_job(
+            job_id="j1", job_type="sse", status="failed",
+            message="device error XYZ",
+        )
+        mock_runner = MagicMock()
+        mock_runner.result_job = result_job
+        mock_runner.logs_content = None
+
+        msg = SseStep._build_failure_message(mock_runner, default="sse job failed")
+        assert msg == "sse job failed: device error XYZ"
+
+    def test_ignores_result_job_message_when_succeeded(self) -> None:
+        # A leftover result.json from an earlier, successful submit_job()
+        # call inside the same container run must not be reported as the
+        # reason for *this* failure.
+        result_job = _make_job(
+            job_id="j1", job_type="sse", status="succeeded",
+            message="unrelated success info",
+        )
+        mock_runner = MagicMock()
+        mock_runner.result_job = result_job
+        mock_runner.logs_content = (
+            "Traceback (most recent call last):\nRuntimeError: boom"
+        )
+
+        msg = SseStep._build_failure_message(
+            mock_runner, default="user program execution error"
+        )
+        assert "unrelated success info" not in msg
+        assert "RuntimeError: boom" in msg
+
+    def test_falls_back_to_log_tail_when_no_result_job(self) -> None:
+        mock_runner = MagicMock()
+        mock_runner.result_job = None
+        mock_runner.logs_content = "line1\nline2\nTraceback: crash"
+
+        msg = SseStep._build_failure_message(
+            mock_runner, default="user program execution error"
+        )
+        assert msg == "user program execution error: line1\nline2\nTraceback: crash"
+
+    def test_falls_back_to_default_when_no_detail_available(self) -> None:
+        mock_runner = MagicMock()
+        mock_runner.result_job = None
+        mock_runner.logs_content = None
+
+        msg = SseStep._build_failure_message(mock_runner, default="sse job failed")
+        assert msg == "sse job failed"
+
+    def test_truncates_overly_long_detail(self) -> None:
+        mock_runner = MagicMock()
+        mock_runner.result_job = None
+        mock_runner.logs_content = "x" * 3000
+
+        msg = SseStep._build_failure_message(mock_runner, default="sse job failed")
+        assert msg.endswith("...(truncated)")
+        assert len(msg) < 2100
+
+
+# ---------------------------------------------------------------------------
+# A-2: sse_log upload on the failure path
+# ---------------------------------------------------------------------------
+
+class TestReportFailureOutputsBestEffort:
+    @pytest.mark.asyncio
+    async def test_uploads_sse_log_on_failure(
+        self,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        runner_settings: dict,
+    ) -> None:
+        sample_job.sse_log = "boom log"
+        mock_runner = MagicMock()
+        mock_runner.logs_content = None
+
+        await SseStep._report_failure_outputs_best_effort(
+            sample_job, mock_gctx, runner_settings, mock_runner
+        )
+
+        mock_gctx.job_repository.upload_job_outputs.assert_awaited_once()
+        call = mock_gctx.job_repository.upload_job_outputs.call_args
+        assert call.kwargs["job"] is sample_job
+        assert call.kwargs["outputs"] == [
+            ("sse_log", "boom log", ".log", runner_settings["log_file_name"])
+        ]
+
+    @pytest.mark.asyncio
+    async def test_uploads_sse_log_from_runner_when_result_job_is_none(
+        self,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        runner_settings: dict,
+    ) -> None:
+        # The user program crashed before ever calling submit_job(): no
+        # result.json exists, so job.sse_log was never populated, but the
+        # container's raw log is still available on the runner.
+        sample_job.sse_log = None
+        mock_runner = MagicMock()
+        mock_runner.logs_content = "raw container log"
+
+        await SseStep._report_failure_outputs_best_effort(
+            sample_job, mock_gctx, runner_settings, mock_runner
+        )
+
+        mock_gctx.job_repository.upload_job_outputs.assert_awaited_once()
+        outputs = mock_gctx.job_repository.upload_job_outputs.call_args.kwargs[
+            "outputs"
+        ]
+        assert outputs == [
+            ("sse_log", "raw container log", ".log", runner_settings["log_file_name"])
+        ]
+
+    @pytest.mark.asyncio
+    async def test_skips_sse_log_upload_when_no_log_available(
+        self,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        runner_settings: dict,
+    ) -> None:
+        sample_job.sse_log = None
+        mock_runner = MagicMock()
+        mock_runner.logs_content = None
+
+        await SseStep._report_failure_outputs_best_effort(
+            sample_job, mock_gctx, runner_settings, mock_runner
+        )
+
+        mock_gctx.job_repository.upload_job_outputs.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_sse_log_upload_failure_is_swallowed(
+        self,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        runner_settings: dict,
+    ) -> None:
+        sample_job.sse_log = "boom log"
+        mock_runner = MagicMock()
+        mock_runner.logs_content = None
+        mock_gctx.job_repository.upload_job_outputs = AsyncMock(
+            side_effect=RuntimeError("storage down")
+        )
+
+        # must not raise
+        await SseStep._report_failure_outputs_best_effort(
+            sample_job, mock_gctx, runner_settings, mock_runner
+        )
+
+    @pytest.mark.asyncio
+    async def test_transpiler_info_failure_does_not_block_sse_log_upload(
+        self,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        runner_settings: dict,
+    ) -> None:
+        sample_job.sse_log = "boom log"
+        mock_runner = MagicMock()
+        mock_runner.logs_content = None
+        mock_gctx.job_repository.update_job_transpiler_info = AsyncMock(
+            side_effect=RuntimeError("cloud unavailable")
+        )
+
+        await SseStep._report_failure_outputs_best_effort(
+            sample_job, mock_gctx, runner_settings, mock_runner
+        )
+
+        mock_gctx.job_repository.upload_job_outputs.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# A-2: end-to-end through SseStep._run_sse — sse_log must be awaited (not
+# fire-and-forget) before the failure is re-raised, so that by the time the
+# pipeline's FailJobRepositoryHandler PATCHes the job, job.output_files
+# already contains the uploaded key.
+# ---------------------------------------------------------------------------
+
+class TestRunSseUploadsSseLogOnFailure:
+    @pytest.mark.asyncio
+    async def test_failure_path_uploads_sse_log_before_raising(
+        self,
+        sse_step: SseStep,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        tmp_path: Path,
+    ) -> None:
+        temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
+
+        result_job = _make_job(
+            job_id=sample_job.job_id, job_type="sse", status="failed",
+        )
+        result_job.sse_log = "container crashed"
+
+        mock_runner = MagicMock()
+        mock_runner.run_sse = AsyncMock(side_effect=SseRuntimeError("user error"))
+        mock_runner.result_job = result_job
+        mock_runner.logs_content = None
+
+        with patch(
+            "oqtopus_engine_core.steps.sse_step.SseRunner",
+            return_value=mock_runner,
+        ), pytest.raises(RuntimeError, match="user program execution error"):
+            await sse_step._run_sse(
+                sample_job, mock_gctx, sse_step._settings, temp_dirs
+            )
+
+        mock_gctx.job_repository.upload_job_outputs.assert_awaited_once()
+        outputs = mock_gctx.job_repository.upload_job_outputs.call_args.kwargs[
+            "outputs"
+        ]
+        assert outputs[0] == (
+            "sse_log", "container crashed", ".log", sse_step._settings["log_file_name"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_failure_path_uploads_sse_log_even_when_result_job_is_none(
+        self,
+        sse_step: SseStep,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        tmp_path: Path,
+    ) -> None:
+        # e.g. the user program crashed before ever calling submit_job(), so
+        # run_sse() raises a plain RuntimeError (not SseRuntimeError) and
+        # result_job stays None, but the container's raw log is still on
+        # the runner.
+        temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
+
+        mock_runner = MagicMock()
+        mock_runner.run_sse = AsyncMock(
+            side_effect=RuntimeError("sse result retrieval failed")
+        )
+        mock_runner.result_job = None
+        mock_runner.logs_content = "user program crashed before submit_job()"
+
+        with patch(
+            "oqtopus_engine_core.steps.sse_step.SseRunner",
+            return_value=mock_runner,
+        ), pytest.raises(RuntimeError, match="internal server error"):
+            await sse_step._run_sse(
+                sample_job, mock_gctx, sse_step._settings, temp_dirs
+            )
+
+        mock_gctx.job_repository.upload_job_outputs.assert_awaited_once()
+        outputs = mock_gctx.job_repository.upload_job_outputs.call_args.kwargs[
+            "outputs"
+        ]
+        assert outputs[0][1] == "user program crashed before submit_job()"
+
+    @pytest.mark.asyncio
+    async def test_sse_log_upload_failure_does_not_mask_original_failure(
+        self,
+        sse_step: SseStep,
+        mock_gctx: GlobalContext,
+        sample_job: Job,
+        tmp_path: Path,
+    ) -> None:
+        temp_dirs = SseStep._make_tmpdir(sample_job.job_id, str(tmp_path))
+
+        result_job = _make_job(
+            job_id=sample_job.job_id, job_type="sse", status="failed",
+        )
+        result_job.sse_log = "container crashed"
+
+        mock_runner = MagicMock()
+        mock_runner.run_sse = AsyncMock(side_effect=SseRuntimeError("user error"))
+        mock_runner.result_job = result_job
+        mock_runner.logs_content = None
+
+        mock_gctx.job_repository.upload_job_outputs = AsyncMock(
+            side_effect=RuntimeError("storage down")
+        )
+
+        with patch(
+            "oqtopus_engine_core.steps.sse_step.SseRunner",
+            return_value=mock_runner,
+        ), pytest.raises(RuntimeError, match="user program execution error"):
+            await sse_step._run_sse(
+                sample_job, mock_gctx, sse_step._settings, temp_dirs
+            )
+
+
+# ---------------------------------------------------------------------------
+# SseRunner.logs_content: independent of result_job
+# ---------------------------------------------------------------------------
+
+class TestSseRunnerLogsContent:
+    @pytest.mark.asyncio
+    async def test_logs_content_set_even_when_result_file_missing(
+        self, make_runner: _MakeRunner, tmp_path: Path
+    ) -> None:
+        runner, _, _ = make_runner()
+        runner._host_work_path = _host_temp_dirs(tmp_path, runner._job_id)
+        runner._container = MagicMock()
+        runner._container.logs.return_value = b"Traceback: boom\n"
+        runner._get_result_from_container = MagicMock(
+            side_effect=RuntimeError("result file not found")
+        )
+
+        with pytest.raises(RuntimeError, match="failed to get result or log"):
+            await runner._postprocess_container(exec_is_success=False)
+
+        assert runner.result_job is None
+        assert runner.logs_content == "Traceback: boom\n"
+
+    @pytest.mark.asyncio
+    async def test_logs_content_set_on_success(
+        self, make_runner: _MakeRunner
+    ) -> None:
+        runner, _, _ = make_runner()
+        runner._container = MagicMock()
+        runner._container.logs.return_value = b"log output"
+        result_job = _make_job(job_id="j1", job_type="sse", status="succeeded")
+        runner._get_result_from_container = MagicMock(return_value=result_job)
+
+        await runner._postprocess_container(exec_is_success=True)
+
+        assert runner.logs_content == "log output"

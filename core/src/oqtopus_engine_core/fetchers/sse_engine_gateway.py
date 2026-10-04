@@ -7,6 +7,7 @@ from typing import Any
 import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
+    TERMINAL_JOB_STATUSES,
     GlobalContext,
     Job,
     JobContext,
@@ -136,7 +137,7 @@ class SseEngineGatewayServicer:
             # set timeout to prevent hanging
             # and wait for job completion
             async with asyncio.timeout(PIPELINE_TIMEOUT_SECONDS_DEFAULT):
-                while job.status not in {"failed", "succeeded", "cancelled"}:
+                while job.status not in TERMINAL_JOB_STATUSES:
                     asyncio.Event().set()
                     await asyncio.sleep(0.1)
         except TimeoutError:
@@ -191,6 +192,18 @@ class SseEngineGatewayServicer:
 
         try:
             job = Job.model_validate_json(job_json)
+            # Self-referential, like any fetcher-origin job (see
+            # OqtopusCloudJobRepository.get_jobs). This is safe here only
+            # because sse_driver.py numbers every internal call with its own
+            # engine-unique job_id (`{parent}-sse-{index}`, never the parent
+            # SSE job's own job_id), so this internal job never collides
+            # with, or is mistaken for, the parent's real Cloud record. The
+            # SSE engine is a sidecar of the core engine: it is only ever
+            # wired to NullJobRepository (see sse_engine_config.yaml), so
+            # resolve_repository_jobs treating this job as its own
+            # repository-tracked entity never reaches a real Cloud record.
+            # See docs/design/pipeline_execution.md (Job ID Conventions).
+            job.repository_job_id = job.job_id
             logger.debug(
                 "converted strings of job json to a Job object", extra={"job": job}
             )

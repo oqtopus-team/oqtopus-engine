@@ -1,12 +1,15 @@
 import logging
+from http import HTTPStatus
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
     Job,
     JobContext,
+    JobOutput,
     Step,
     StepResult,
 )
+from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
 
 logger = logging.getLogger(__name__)
 
@@ -66,41 +69,68 @@ class JobRepositoryUpdateStep(Step):
 
         Raises:
             ValueError: If the job result or SSE log is missing.
+            RuntimeError: If no job repository is configured.
 
         Returns:
             StepResult: NONE directive — the pipeline continues normally.
 
         """
-        items = ["result"]
-        if job.job_type == "sse":
-            items.append("sse_log")
-        urls = await gctx.job_repository.get_job_upload_url(  # type: ignore[union-attr]
-            job=job,
-            items=items,
-        )
-
         if job.result is None:
             message = "job result is None"
             raise ValueError(message)
-        await gctx.job_repository.upload_job_output(  # type: ignore[union-attr]
-            job=job,
-            presigned_url=urls[0],
-            data=job.result.model_dump(),
-            arcname_ext=".json",
-        )
+        if gctx.job_repository is None:
+            message = "job repository is not configured"
+            raise RuntimeError(message)
+        job_repository = gctx.job_repository
 
+        outputs: list[JobOutput] = [("result", job.result.model_dump(), ".json", None)]
         if job.job_type == "sse":
             if job.sse_log is None:
                 message = "job sse_log is None"
                 raise ValueError(message)
-            await gctx.job_repository.upload_job_output(  # type: ignore[union-attr]
-                job=job,
-                presigned_url=urls[1],
-                data=job.sse_log,
-                arcname_ext=".log",
-                arcname=self._get_sse_log_file_name(gctx),
-            )
+            outputs.append((
+                "sse_log",
+                job.sse_log,
+                ".log",
+                self._get_sse_log_file_name(gctx),
+            ))
+
+        await job_repository.upload_job_outputs(
+            job=job,
+            outputs=outputs,
+        )
 
         job.status = "succeeded"
-        await gctx.job_repository.update_job_status_nowait(job)  # type: ignore[union-attr]
+        try:
+            await job_repository.update_job_status_ordered(job)
+        except Exception as e:
+            logger.exception(
+                "failed to report succeeded status; falling back to failed",
+                extra={"job_id": job.job_id, "job_type": job.job_type},
+            )
+            job.status = "failed"
+            job.message = f"engine could not report succeeded status: {e}"
+            try:
+                await job_repository.update_job_status_ordered(
+                    job, include_output_files=False
+                )
+            except ApiException as fallback_ex:
+                if fallback_ex.status == HTTPStatus.CONFLICT:
+                    # The job already reached a terminal state through
+                    # another path (e.g. cancelled by the user). Not an
+                    # engine-side failure, so this is not raised to ERROR.
+                    logger.info(
+                        "fallback to failed status rejected; job already terminal",
+                        extra={"job_id": job.job_id, "job_type": job.job_type},
+                    )
+                else:
+                    logger.exception(
+                        "failed to fall back to failed status",
+                        extra={"job_id": job.job_id, "job_type": job.job_type},
+                    )
+            except Exception:
+                logger.exception(
+                    "failed to fall back to failed status",
+                    extra={"job_id": job.job_id, "job_type": job.job_type},
+                )
         return StepResult()

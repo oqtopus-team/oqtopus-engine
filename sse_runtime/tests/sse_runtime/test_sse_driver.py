@@ -3,7 +3,9 @@
 import datetime
 import importlib.util
 import json
+import re
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -276,20 +278,27 @@ def _assert_full_job_info_fields(job: JobsJob, *, message: str) -> None:
 def _assert_make_request_payload(
     request: dict[str, Any],
     *,
-    expected_request: dict[str, Any],
+    parent_job_id: str,
+    expected_request_sans_job_id: dict[str, Any],
 ) -> None:
-    assert request == expected_request
+    """Assert the request matches, without pinning the exact generated job_id.
+
+    _next_internal_job_id's counter is process-wide (shared across every
+    test in this file, in call order), so only its shape — distinct from
+    the parent, prefixed by it — is guaranteed, not a particular index.
+    """
+    job_id = request.pop("job_id")
+    assert job_id != parent_job_id
+    assert job_id.startswith(f"{parent_job_id}-sse-")
+    assert request == expected_request_sans_job_id
 
 
 def _build_expected_request(
     input_job: JobsSubmitJobRequest,
     upload_info: JobsS3SubmitJobInfo,
-    *,
-    parent_job_id: str,
 ) -> dict[str, Any]:
     expected_request = input_job.model_dump()
     expected_upload_info = upload_info.model_dump()
-    expected_request["job_id"] = parent_job_id
     expected_request["status"] = "ready"
     expected_request["name"] = expected_request["name"] or ""
     expected_request["program"] = expected_upload_info.get("program") or []
@@ -330,11 +339,8 @@ def test_make_request_merges_submit_job_request_and_upload_info(
 
     _assert_make_request_payload(
         request,
-        expected_request=_build_expected_request(
-            input_job,
-            upload_info,
-            parent_job_id="parent-id",
-        ),
+        parent_job_id=job_id,
+        expected_request_sans_job_id=_build_expected_request(input_job, upload_info),
     )
 
 
@@ -346,6 +352,38 @@ def test_make_request_serializes_operator_items() -> None:
     )
 
     assert request["operator"] == [{"pauli": "Z0", "coeff": 1.0}]
+
+
+def test_next_internal_job_id_increments_per_call() -> None:
+    """Each call within one container's process gets the next sequential id.
+
+    Asserts relative sequencing, not an absolute start value: the counter is
+    process-wide (shared across every test in this file), so its starting
+    point depends on how many calls earlier tests already made.
+    """
+    job_ids = [sse_driver._next_internal_job_id("parent-id") for _ in range(3)]
+    indices = [int(job_id.removeprefix("parent-id-sse-")) for job_id in job_ids]
+
+    assert indices == [indices[0], indices[0] + 1, indices[0] + 2]
+
+
+def test_next_internal_job_id_is_never_the_parent_job_id() -> None:
+    # Must never collide with the parent SSE job's own job_id: see
+    # docs/design/pipeline_execution.md (Job ID Conventions) for why the
+    # engine treats self-referential repository_job_id as safe only because
+    # of this.
+    assert sse_driver._next_internal_job_id("parent-id") != "parent-id"
+
+
+def test_next_internal_job_id_is_unique_under_concurrent_calls() -> None:
+    """The lock must prevent two threads from ever getting the same index."""
+    call_count = 200
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        job_ids = list(
+            pool.map(sse_driver._next_internal_job_id, ["parent-id"] * call_count)
+        )
+
+    assert len(set(job_ids)) == call_count
 
 
 # -----------------
@@ -597,7 +635,11 @@ def test_submit_job_grpc_success_path(
         ("grpc.max_receive_message_length", 4 * 1024 * 1024),
         ("grpc.max_send_message_length", 4 * 1024 * 1024),
     ]
-    assert '"job_id": "parent-1"' in str(observed["request_job_json"])
+    # Exact index not pinned: the counter is process-wide, shared across
+    # every test in this file.
+    assert re.search(
+        r'"job_id":\s*"parent-1-sse-\d+"', str(observed["request_job_json"])
+    )
     assert '"status": "ready"' in str(observed["request_job_json"])
     assert job.submitted_at is not None
     assert job.ready_at is not None

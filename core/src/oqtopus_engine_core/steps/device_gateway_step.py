@@ -15,116 +15,25 @@ from oqtopus_engine_core.framework import (
     SamplingResult,
     Step,
     StepResult,
+    resolve_repository_jobs,
 )
-from oqtopus_engine_core.framework.context import HAS_ORIGINAL_JOB_CHILDREN_KEY
 from oqtopus_engine_core.interfaces.qpu_interface.v1 import qpu_pb2, qpu_pb2_grpc
 
 logger = logging.getLogger(__name__)
 
 
-def _collect_status_update_targets(
-    jctx: JobContext,
-    job: Job,
-) -> list[Job]:
-    """Collect jobs to be updated.
-
-    When the context has HAS_ORIGINAL_JOB_CHILDREN_KEY, the leaf children are the actual
-    execution units sent to the device — return them directly.
-    Otherwise traverse down to leaves and then up to root parents.
+def _collect_status_update_targets(job: Job) -> list[Job]:
+    """Collect the repository-tracked Job objects to update to "running".
 
     Args:
-        jctx: The job context of the current job.
         job: The current job.
 
     Returns:
-        A list of Job objects to be updated.
+        The repository-tracked Job objects to update (already deduped by
+        job_id; see `resolve_repository_jobs`).
 
     """
-    leaf_pairs = _find_all_leaf_jobs(jctx, job)
-
-    if HAS_ORIGINAL_JOB_CHILDREN_KEY in jctx:
-        # The leaves are the repository-tracked children being executed on devices.
-        return [leaf_job for _, leaf_job in leaf_pairs]
-
-    # Traverse upwards from each leaf to find the user-visible root jobs.
-    unique_jobs: dict[str, Job] = {}
-    visited_up: set[str] = set()
-    for leaf_jctx, leaf_job in leaf_pairs:
-        root_pairs = _find_all_root_jobs(leaf_jctx, leaf_job, visited=visited_up)
-        for _, root_job in root_pairs:
-            unique_jobs[root_job.job_id] = root_job
-    return list(unique_jobs.values())
-
-
-def _find_all_leaf_jobs(
-    jctx: JobContext,
-    job: Job,
-    visited: set[str] | None = None,
-) -> list[tuple[JobContext, Job]]:
-    """Recursively find all terminal leaf jobs.
-
-    Args:
-        jctx: The job context of the current job.
-        job: The current job.
-        visited: A set of job IDs that have already been visited to prevent cycles.
-
-    Returns:
-        A list of (JobContext, Job) tuples for all leaf jobs
-
-    """
-    if visited is None:
-        visited = set()
-
-    if job.job_id in visited:
-        return []
-    visited.add(job.job_id)
-
-    leaves: list[tuple[JobContext, Job]] = []
-
-    if HAS_ORIGINAL_JOB_CHILDREN_KEY in jctx:
-        # Continue traversing down if children exist
-        for child_jctx, child_job in zip(jctx.children, job.children, strict=True):
-            leaves.extend(_find_all_leaf_jobs(child_jctx, child_job, visited))
-    else:
-        # Reached a leaf node, append the pair to the list
-        leaves.append((jctx, job))
-
-    return leaves
-
-
-def _find_all_root_jobs(
-    jctx: JobContext,
-    job: Job,
-    visited: set[str] | None = None,
-) -> list[tuple[JobContext, Job]]:
-    """Recursively find all root jobs.
-
-    Args:
-        jctx: The job context of the current job.
-        job: The current job.
-        visited: A set of job IDs that have already been visited to prevent cycles.
-
-    Returns:
-        A list of (JobContext, Job) tuples for all root jobs
-
-    """
-    if visited is None:
-        visited = set()
-
-    if job.job_id in visited:
-        return []
-    visited.add(job.job_id)
-
-    roots: list[tuple[JobContext, Job]] = []
-
-    if job.parent is not None and jctx.parent is not None:
-        # Continue traversing up to find the entry point of the job graph
-        roots.extend(_find_all_root_jobs(jctx.parent, job.parent, visited))
-    else:
-        # Reached a root node, append the pair to the list
-        roots.append((jctx, job))
-
-    return roots
+    return resolve_repository_jobs(job)
 
 
 def _select_program(job: Job) -> str:
@@ -132,6 +41,29 @@ def _select_program(job: Job) -> str:
     if transpile_result is None or transpile_result.transpiled_program is None:
         return job.program[0]  # type: ignore[index]
     return transpile_result.transpiled_program
+
+
+def _mark_ready_descendants_running(job: Job) -> None:
+    """Mark `job` and its "ready" descendants "running", locally only.
+
+    `_update_jobs_status` only PATCHes `resolve_repository_jobs(job)`
+    targets, which never include a job with no job repository record of its
+    own (e.g. an MP-combined job) nor, transitively, that job's own
+    descendants (e.g. estimation children combined into it — they never
+    reach this step individually). Without this, their local status stays
+    "ready" for the rest of the run. A job_id visited-set guards against
+    cycles, though parent/child links are one-directional by convention.
+    """
+    visited: set[str] = set()
+    stack = [job]
+    while stack:
+        current = stack.pop()
+        if current.job_id in visited:
+            continue
+        visited.add(current.job_id)
+        if current.status == "ready":
+            current.status = "running"
+        stack.extend(current.children)
 
 
 class DeviceGatewayStep(Step):
@@ -147,8 +79,12 @@ class DeviceGatewayStep(Step):
             options=grpc_options,
         )
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
-        # Engine owns device access orchestration, so all jobs, including
-        # internal estimation children, must serialize gateway execution here.
+        # Guards the "ready" -> "running" check-and-set below (status
+        # update + local bookkeeping) so concurrent sibling estimation
+        # jobs never transition the same parent twice. It does NOT
+        # serialize gateway execution: GetServiceStatus and CallJob run
+        # outside this lock. Gateway execution is serialized separately,
+        # by the buffer's max_concurrency (see config.yaml).
         self._execution_lock = asyncio.Lock()
         logger.info(
             "DeviceGatewayStep was initialized",
@@ -161,7 +97,7 @@ class DeviceGatewayStep(Step):
     async def pre_process(
         self,
         gctx: GlobalContext,
-        jctx: JobContext,
+        jctx: JobContext,  # noqa: ARG002
         job: Job,
     ) -> StepResult:
         """Pre-process the job by sending a request to the device gateway.
@@ -175,7 +111,9 @@ class DeviceGatewayStep(Step):
             job: The job object.
 
         Raises:
-            RuntimeError: If the device status is not available.
+            RuntimeError: If the device status is not available, if `job`
+                is an unsplit estimation job, or if `job.job_type` is not
+                one this step supports.
 
         Returns:
             StepResult: NONE directive — the pipeline continues normally.
@@ -184,9 +122,14 @@ class DeviceGatewayStep(Step):
         start = time.perf_counter()
 
         async with self._execution_lock:
-            # Identify all jobs that require a status update (roots and leaves)
-            update_targets = _collect_status_update_targets(jctx, job)
+            # Identify all jobs that require a status update
+            update_targets = _collect_status_update_targets(job)
             await self._update_jobs_status(gctx, update_targets)
+            # Local-only bookkeeping for jobs with no job repository record
+            # of their own; kept out of the PATCH loop above so it never
+            # sends a status update for a job `_is_repository_tracked`
+            # would reject.
+            _mark_ready_descendants_running(job)
 
         # Check device status immediately before using the gateway.
         service_status = await self._stub.GetServiceStatus(
@@ -250,6 +193,9 @@ class DeviceGatewayStep(Step):
         elif job.job_type == "estimation":
             message = "estimation jobs must be split before reaching device gateway"
             raise RuntimeError(message)
+        else:
+            message = f"unsupported job_type at device gateway: {job.job_type}"
+            raise RuntimeError(message)
         return StepResult()
 
     async def post_process(  # noqa: PLR6301
@@ -277,4 +223,8 @@ class DeviceGatewayStep(Step):
         for job in jobs:
             if job.status == "ready":
                 job.status = "running"
-                await gctx.job_repository.update_job_status_nowait(job)  # type: ignore[union-attr]
+                # No outputs exist yet at this transition, so output_files is
+                # irrelevant here.
+                await gctx.job_repository.update_job_status_nowait(  # type: ignore[union-attr]
+                    job, include_output_files=False
+                )

@@ -2,7 +2,10 @@ SHELL := bash
 .SHELLFLAGS := -eu -o pipefail -c
 .DEFAULT_GOAL := help
 
-.PHONY: run, format, lint, test, verify, grpcurl-list, build, up, down, help
+.PHONY: install run format lint test verify grpcurl-list build up down help
+
+install: ## Install dependencies
+	@uv sync --all-groups
 
 run: ## Run application
 	@MITIGATOR_WORKERS=10 MITIGATOR_ADDRESS="localhost:51011" uv run python -m oqtopus_engine_mitigator.app -c config/config.yaml -l config/logging.yaml

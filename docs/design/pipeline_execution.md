@@ -443,6 +443,20 @@ Each step is executed in a “safe call” wrapper:
 
 This prevents inconsistent pipeline states and provides clear diagnostics.
 
+### 10.1 Local Terminal Status on Failure
+
+Beyond logging, each “safe call” wrapper (`_safe_call`, `_safe_handle_split`,
+`_safe_handle_join`, `_safe_buffer_put`) marks the failing Job — and any of
+its non-terminal descendants — `"failed"` locally before invoking the
+configured `PipelineExceptionHandler`, via `mark_job_terminal`
+(`framework/model.py`). This is a framework-level concern rather than a
+step's: an exception can originate outside any step (inside
+`_handle_split`, `_handle_join`, or a `Buffer.put()`), and only these four
+call sites can guarantee a Job is never processed again once caught, so
+only they are in a position to give it a terminal status. See §12.4 for
+how this pairs with the *succeeded* side, which is decided by steps
+instead, and why.
+
 ## 11. Step History Tracking
 
 Each job maintains an execution history stored inside its `JobContext`
@@ -512,7 +526,215 @@ Final accumulated histories:
 - **Children**:  
   `[("pre-process", 2), ("post-process", 2), ("post-process", 1)]`
 
-## 12. Summary
+## 12. Job ID Conventions
+
+Splitting (estimation) and MP auto-combining both create Jobs that have no
+entity of their own in the Cloud repository, or that stand in for more than
+one. `Job` carries two identifiers to keep this distinction explicit:
+
+- **`job_id`**: the identifier of an execution unit, unique within the
+  engine. Every correlation key uses this: logs, OTel baggage, the FIFO
+  ordering key (`OqtopusCloudJobRepository._job_tails`), tranqu's
+  `request_id`, the combiner's `assigned_ids`. Internally generated jobs
+  (estimation children named `{parent}-estimation-{index}`, MP-auto-combined
+  jobs named `mpa-comb-{uuid7}`) have a `job_id` that does not exist in the
+  Cloud repository.
+- **`repository_job_id`**: the record ID in the repository (Cloud). The only
+  value that may be placed in an HTTP request path or body. `None` means
+  this Job has no repository entity of its own.
+
+`repository_job_id` is a **marker only**: it must never be substituted for
+`job_id` in a request path. A "replace" scheme, where a repository
+implementation addresses the record by `repository_job_id` directly, would
+let N estimation children overwrite the same parent record in turn instead
+of being rejected, trading a loud 404 for a silent overwrite.
+
+### 12.1 Four Job/Repository-Entity Relationships
+
+Read `x:y` as **x Job objects (`job_id` space) : y distinct Cloud
+repository entities (`repository_job_id` space) they resolve to** — it is
+not "child:parent" in a fixed position. Which Job(s) `x` refers to differs
+per row: a single Job considered on its own (1:1, 1:0, 1:N), or a group of
+sibling children considered together (N:1).
+
+| Relationship | Example |
+| --- | --- |
+| 1:1 | An ordinary sampling / estimation parent, an SSE-internal job (see §12.3): one Job resolves to one Cloud entity — itself |
+| 1:0 | An MP-auto-combined job (`mpa-comb-*`): its own `repository_job_id` is `None`, so considered alone it resolves to no Cloud entity of its own |
+| N:1 | An estimation job's sampling children: N sibling Jobs (the children) all resolve to the same one Cloud entity — their shared parent |
+| 1:N | A combined job whose children span more than one estimation parent: once its children are resolved, this one Job maps to more than one distinct Cloud entity |
+
+SSE-internal jobs are listed under 1:1, not 1:0: unlike an MP-auto-combined
+job, an SSE-internal job is a real, independent execution unit a user
+program dispatched, not a stand-in for others (see §12.3). It resolves to
+itself, the same as an ordinary top-level job.
+
+1:N arises because `MpAutoCombiningBuffer` groups jobs to combine only by
+`pipeline_name` (see §2.3 above), so `P1-estimation-0` and `P2-estimation-1`
+can end up in the same combined job.
+
+`resolve_repository_jobs(job)` (in `framework/model.py`) resolves any Job to
+the list of repository-tracked Job objects a Cloud update should target:
+
+```python
+def resolve_repository_jobs(job: Job) -> list[Job]:
+    if job.repository_job_id is None:
+        unique: dict[str, Job] = {}
+        for child in job.children:
+            for resolved in resolve_repository_jobs(child):
+                unique[resolved.job_id] = resolved
+        return list(unique.values())
+    current = job
+    while current.job_id != current.repository_job_id and current.parent is not None:
+        current = current.parent
+    return [current] if current.job_id == current.repository_job_id else []
+```
+
+It returns `Job` objects, not `job_id` strings, already deduped by
+`job_id` (two children can resolve to the same target, e.g. two estimation
+children of the same parent combined together), so callers can mutate the
+shared object directly: the `job.status == "ready"` guard in
+`DeviceGatewayStep._update_jobs_status` only prevents duplicate PATCHes if
+every child resolving to the same parent resolves to that exact same `Job`
+instance. An empty result (no repository entity and no children to
+delegate to) is expected, not an error, and defensive code should keep
+handling it, but in practice no job-creation rule below produces one: an
+MP-auto-combined job always has `children` to delegate to, so this path is
+a safety net, not something a normal job graph hits.
+`OqtopusCloudJobRepository._is_repository_tracked` is the single point that
+logs a warning if some other caller bypasses this resolution and reaches
+the repository directly with an untracked Job.
+
+### 12.2 Where `repository_job_id` Is Set
+
+The rule is: **a Job created by a fetcher gets `repository_job_id =
+job_id`**. Every fetcher follows it:
+
+| Where | Value |
+| --- | --- |
+| `OqtopusCloudJobRepository.get_jobs` (`Job(**job_oas.to_dict())`) | same as `job_id` (all Cloud-origin jobs go through here) |
+| `MockJobFetcher` | same as `job_id` |
+| `SseEngineGateway._get_job_from_request` (`Job.model_validate_json`) | same as `job_id`, see §12.3 for why this is safe |
+
+Two exceptions, both for Jobs *not* created by a fetcher — an execution
+unit spawned by the engine itself from an already-running job:
+
+| Where | Value |
+| --- | --- |
+| `EstimatorStep._build_child_job` | the parent's `repository_job_id` |
+| `MpAutoCombiningBuffer.create_combined_job` | `None` |
+
+### 12.3 SSE-Internal Job IDs
+
+`sse_runtime/src/sse_runtime/sse_driver.py` gives every internal job that a
+container's user program sends (sampling/estimation circuit calls) its own
+engine-unique `job_id`, numbered per gRPC call within that container's
+process lifetime:
+
+```python
+job_id = os.environ.get("JOB_ID")   # the parent SSE job's Cloud job_id
+...
+request["job_id"] = _next_internal_job_id(job_id)  # f"{job_id}-sse-{index}", 0-origin
+request["status"] = "ready"
+```
+
+`SseEngineGateway._get_job_from_request` then sets `repository_job_id =
+job_id` on the received Job, following the same fetcher-origin rule as
+every other Job source (§12.2) — this used to be the one exception, left
+`None`, because at the time `job_id` here was the **parent SSE job's own
+Cloud `job_id`**, reused unchanged for every internal call. Setting
+`repository_job_id = job_id` under that old scheme would have made every
+internal job pass the repository entry guard as if it were the parent's
+own record and, had a real repository ever been wired in for the SSE
+engine, would have clobbered the parent's actual Cloud record
+mid-execution: a spurious `running` PATCH racing the outer job's own
+transition, a spurious `succeeded` PATCH firing while the user program was
+still executing, and the parent's `result`/`transpile_result` overwritten
+by an internal child's.
+
+Two changes together close that gap instead of merely leaving
+`repository_job_id` unset:
+
+1. **The internal job_id is now engine-unique** (`{parent}-sse-{index}`),
+   never equal to the parent SSE job's own `job_id`. `resolve_repository_jobs`
+   can no longer mistake an internal job for its own parent's Cloud record.
+2. **The SSE engine is a sidecar of the core engine**: only the core engine
+   ever holds a real, Cloud-backed `JobRepository`; `sse_engine_config.yaml`
+   always wires `NullJobRepository` for the SSE engine's own
+   `di_container.registry`. This is an architectural invariant, not a
+   coincidence of today's config — the SSE engine is never meant to talk to
+   Cloud directly. Every PATCH/upload call `resolve_repository_jobs` routes
+   to therefore resolves against `NullJobRepository` and is a no-op,
+   regardless of what `repository_job_id` holds.
+
+With both in place, `repository_job_id = job_id` is safe the same way it is
+for any other fetcher-origin job, and the engine no longer needs a
+special-cased "leave it `None`" exception for SSE. This also means an
+SSE-internal `estimation` job's sampling children resolve correctly: a
+child's `repository_job_id` (inherited from its parent, per
+`EstimatorStep._build_child_job`) now differs from the child's own
+`job_id`, and the child's `.parent` is a real, live reference to the exact
+`Job` object `SseEngineGatewayServicer.SseEngine` is polling — the same
+split/join mechanism as any other estimation job, entirely within one
+`SseEngine()` gRPC call. `resolve_repository_jobs` therefore climbs to that
+parent correctly, the same as the ordinary N:1 case in §12.1.
+
+### 12.4 Local `job.status` vs. Repository Status
+
+`resolve_repository_jobs` decides which Job objects a repository (Cloud)
+update targets; it says nothing about the *local* `job.status` field on
+the Job that triggered the update. The two are decided independently:
+
+- A 1:1 or N:1 Job (§12.1) that owns, or resolves to, a repository entity
+  has its local status set at the same places its repository status is:
+  `DeviceGatewayStep` (→ `"running"`), `JobRepositoryUpdateStep` (→
+  `"succeeded"`/`"failed"`), `FailJobRepositoryHandler` (→ `"failed"`).
+- A 1:0 Job (an MP-auto-combined job) never reaches
+  `JobRepositoryUpdateStep` — nothing in the pipeline calls it for a Job
+  with no repository entity of its own, so nothing sets its local status
+  there. Left alone, it stays `"ready"` forever once its pipeline
+  finishes, even though its work completed normally: a misleading dump
+  when debugging, and a potential hang for any future code that waits on
+  local status (the class of bug SSE's 60-second timeout in
+  `SseEngineGateway` was added to guard against).
+
+Local terminal status is therefore decided separately, by whichever code
+is in a position to know a Job's own local pipeline processing has
+definitively ended:
+
+- **Succeeded**: the step returning `JOIN`/`SPLIT_WITHOUT_JOIN` for a Job
+  with no repository entity of its own marks it, since only that step's
+  own domain logic knows its work is done at that point —
+  `EstimatorStep.post_process` for a split child reaching `JOIN`,
+  `MpAutoCombiningStep.post_process` for a combined job right before
+  `SPLIT_WITHOUT_JOIN`. `PipelineExecutor` itself makes no decision here.
+- **Failed**: `PipelineExecutor`'s four “safe call” wrappers mark it
+  instead (§10.1), since an exception can originate outside any step, and
+  only those call sites can guarantee the Job is never processed again
+  afterward. This also cascades to any non-terminal descendant that
+  `DeviceGatewayStep` already marked `"running"` locally — children of a
+  combined job never reach `DeviceGatewayStep` individually, only the
+  combined job owning them does, recursing through `job.children` — so a
+  parent failing before reaching its own split/join step doesn't strand
+  them.
+
+Both paths funnel through `mark_job_terminal(job, status)`
+(`framework/model.py`), which never overwrites an already-terminal status
+(`TERMINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled"}`) — e.g. a
+join that fails after its child already succeeded leaves the child
+`"succeeded"`.
+
+**Known accepted gap**: if `MpAutoCombiningStep`'s own split preparation
+fails before it marks the combined job succeeded and starts its children
+(inside `PipelineExecutor._handle_split`, not the step's own
+`post_process`), the combined job's local status is not corrected to
+`"failed"`. Its repository status is unaffected — `FailJobRepositoryHandler`
+still resolves and fails the real underlying job(s) via
+`resolve_repository_jobs` — so this is a local-diagnostics-only gap, left
+unfixed because the combined job itself is never visible outside the
+engine.
+
+## 13. Summary
 
 The pipeline execution model supports:
 

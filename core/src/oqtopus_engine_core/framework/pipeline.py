@@ -11,6 +11,7 @@ from opentelemetry import context as otel_context
 
 from .buffer import Buffer
 from .context import link_parent_and_children
+from .model import TERMINAL_JOB_STATUSES, mark_job_terminal
 from .observability import (
     job_completed_counter,
     job_duration_histogram,
@@ -27,6 +28,36 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _mark_job_and_descendants_failed(job: Job) -> None:
+    """Mark `job` and any non-terminal descendant (via `job.children`) failed.
+
+    This is a framework-level concern, not a step's: an exception can
+    originate outside any step (`_handle_split`/`_handle_join`/
+    `Buffer.put()`), and once caught here, `job`'s own local processing is
+    guaranteed to never run again (every catch site below returns right
+    after handling it — see the "handle_exception is called" comment at
+    each site), so this is the only place that can still give it a
+    terminal status. Never overwriting an existing terminal status
+    protects e.g. a child already marked succeeded by its own step at a
+    join point. It also cascades to non-terminal descendants that
+    `DeviceGatewayStep` already marked "running" locally but that never
+    reach their own split/join step because `job`'s own pipeline fails
+    first (e.g. `MpAutoCombiningStep.post_process` raising before it can
+    return SPLIT_WITHOUT_JOIN, leaving the combined job's children
+    stranded). A job_id visited-set guards against cycles, though
+    parent/child links are one-directional by convention.
+    """
+    visited: set[str] = set()
+    stack = [job]
+    while stack:
+        current = stack.pop()
+        if current.job_id in visited:
+            continue
+        visited.add(current.job_id)
+        mark_job_terminal(current, "failed")
+        stack.extend(current.children)
 
 
 class StepPhase(StrEnum):
@@ -142,26 +173,13 @@ class PipelineExecutor:
         while True:
             try:
                 gctx, jctx, job = await buffer.get()
-                # Worker tasks are spawned at pipeline startup with an empty
-                # OTel context. Re-attach the per-job context that was saved
-                # on jctx during the first `_run_from` entry so spans created
-                # after a Buffer transit stay parented under the job's root
-                # `oqtopus_engine.job.process` span.
-                token = None
-                saved_ctx = jctx.get("_oqtopus_obs_ctx")
-                if saved_ctx is not None:
-                    token = otel_context.attach(saved_ctx)
-                try:
-                    await self._run_from(
-                        step_phase=StepPhase.PRE_PROCESS,
-                        index=buffer_index + 1,
-                        gctx=gctx,
-                        jctx=jctx,
-                        job=job,
-                    )
-                finally:
-                    if token is not None:
-                        otel_context.detach(token)
+                await self._run_from(
+                    step_phase=StepPhase.PRE_PROCESS,
+                    index=buffer_index + 1,
+                    gctx=gctx,
+                    jctx=jctx,
+                    job=job,
+                )
             except Exception:
                 logger.exception(
                     "worker crashed and recovered",
@@ -210,8 +228,8 @@ class PipelineExecutor:
         ``oqtopus_engine.job.process`` span and attaches the per-job OTel
         context (with ``oqtopus.*`` baggage) so child spans created during
         processing become its descendants. The context is saved on jctx so
-        workers can re-attach it after Buffer transits; the span is ended
-        in ``_finalize_job_observability``.
+        every later entry can re-attach it after a Buffer transit; the span
+        is ended in ``_finalize_job_observability``.
 
         Args:
             step_phase: The current phase of execution (pre_process or post_process).
@@ -233,9 +251,9 @@ class PipelineExecutor:
 
         # Root jobs only: open the long-lived `oqtopus_engine.job.process`
         # span and attach an OTel context carrying it (plus oqtopus.* baggage)
-        # to the current task. The context is also saved on jctx so worker
-        # tasks can re-attach it after a Buffer transit. The span is ended in
-        # `_finalize_job_observability`.
+        # to the current task. The context is also saved on jctx so later
+        # entries can re-attach it after a Buffer transit. The span is ended
+        # in `_finalize_job_observability`.
         token = None
         if (
             index == 0
@@ -247,16 +265,23 @@ class PipelineExecutor:
             # directly without going through PipelineManager (e.g. tests),
             # since OTel attribute values must not be None.
             pipeline_name = jctx.get("pipeline_name") or "unknown"
+            # Combined/internal jobs have no repository_job_id (None); fall
+            # back to "" since OTel attribute/baggage values must not be None.
+            repository_job_id = job.repository_job_id or ""
             root_span = tracer.start_span(
                 "oqtopus_engine.job.process",
                 attributes={
                     "oqtopus.job_id": job.job_id,
+                    "oqtopus.repository_job_id": repository_job_id,
                     "oqtopus.pipeline_name": pipeline_name,
                     "oqtopus.device_id": job.device_id,
                 },
             )
             ctx = trace.set_span_in_context(root_span)
             ctx = baggage.set_baggage("oqtopus.job_id", job.job_id, context=ctx)
+            ctx = baggage.set_baggage(
+                "oqtopus.repository_job_id", repository_job_id, context=ctx
+            )
             ctx = baggage.set_baggage(
                 "oqtopus.pipeline_name", pipeline_name, context=ctx
             )
@@ -266,6 +291,23 @@ class PipelineExecutor:
             jctx["_oqtopus_obs_finalized"] = False
             job_ready_counter.add(1, {"oqtopus.pipeline_name": pipeline_name})
             token = otel_context.attach(ctx)
+        else:
+            # Re-entries run with whatever OTel context their caller left
+            # ambient. Buffer hand-offs are the gap: the worker tasks that
+            # dequeue from a Buffer are spawned at startup
+            # (`PipelineManager._shared_worker_loop`, `_worker_loop`), so they
+            # start from an empty context and every re-entry they drive
+            # inherits it. Without re-attaching the context saved above, those
+            # step spans become trace roots instead of children of
+            # `oqtopus_engine.job.process`, and the oqtopus.* baggage is absent
+            # from the ambient context, so auto-instrumented client spans and
+            # the downstream services they call lose `oqtopus.job_id`.
+            # Re-entries that stay inside the job's own task tree (DETACH via
+            # `asyncio.create_task`, split children) already inherit a copy of
+            # the context; re-attaching it is a no-op for them.
+            saved_ctx = jctx.get("_oqtopus_obs_ctx")
+            if saved_ctx is not None:
+                token = otel_context.attach(saved_ctx)
 
         try:
             await self._run_state_machine(step_phase, index, gctx, jctx, job)
@@ -273,7 +315,7 @@ class PipelineExecutor:
             if token is not None:
                 otel_context.detach(token)
 
-    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912
+    async def _run_state_machine(  # noqa: C901, PLR0911, PLR0912, PLR0915
         self,
         step_phase: StepPhase,
         index: int,
@@ -317,6 +359,23 @@ class PipelineExecutor:
                 # to ancestor parents if their counters reach zero.
                 if job.parent is not None:
                     await self._cascade_cleanup(job)
+
+                # Reaching here means the backward pass ran to completion
+                # through index 0, which always sets a terminal status
+                # before returning. A non-terminal status here means that
+                # invariant broke somewhere — warn rather than silently
+                # setting one, so the underlying bug surfaces instead of
+                # being masked.
+                if job.status not in TERMINAL_JOB_STATUSES:
+                    logger.warning(
+                        "job pipeline finished without reaching a terminal"
+                        " local status",
+                        extra={
+                            "job_id": job.job_id,
+                            "status": job.status,
+                            "pipeline_name": jctx.get("pipeline_name"),
+                        },
+                    )
 
                 logger.info(
                     "job processing finished",
@@ -543,6 +602,7 @@ class PipelineExecutor:
                 f"oqtopus_engine.pipeline.{step.__class__.__name__}.{phase.value}",
                 attributes={
                     "oqtopus.job_id": job.job_id,
+                    "oqtopus.repository_job_id": job.repository_job_id or "",
                     "oqtopus.pipeline_name": pipeline_name or "unknown",
                     "oqtopus.pipeline.step": step.__class__.__name__,
                     "oqtopus.pipeline.phase": phase.value,
@@ -577,6 +637,9 @@ class PipelineExecutor:
             # counter so that the parent is not resumed by a later join.
             if job.parent is not None:
                 await self._cancel_pending_children_for_parent(job)
+
+            # `job` is never processed again after this point.
+            _mark_job_and_descendants_failed(job)
 
             if self._exception_handler:
                 await self._exception_handler.handle_exception(e, gctx, jctx, job)
@@ -628,6 +691,9 @@ class PipelineExecutor:
             if job.parent is not None:
                 await self._cancel_pending_children_for_parent(job)
 
+            # `job` is never processed again after this point.
+            _mark_job_and_descendants_failed(job)
+
             if self._exception_handler:
                 await self._exception_handler.handle_exception(e, gctx, jctx, job)
 
@@ -662,6 +728,9 @@ class PipelineExecutor:
             if job.parent is not None:
                 await self._cancel_pending_children_for_parent(job)
 
+            # `job` is never processed again after this point.
+            _mark_job_and_descendants_failed(job)
+
             if self._exception_handler:
                 await self._exception_handler.handle_exception(e, gctx, jctx, job)
 
@@ -686,6 +755,9 @@ class PipelineExecutor:
             if job.parent is not None:
                 await self._cancel_pending_children_for_parent(job)
 
+            # `job` is never processed again after this point.
+            _mark_job_and_descendants_failed(job)
+
             if self._exception_handler:
                 await self._exception_handler.handle_exception(e, gctx, jctx, job)
 
@@ -698,8 +770,8 @@ class PipelineExecutor:
 
         Safe to call multiple times for the same job; only the first call
         records metrics and ends the span. The per-invocation OTel context
-        tokens are managed by their callers (`_run_from` / `_worker_loop`),
-        so this function only owns the span lifecycle.
+        tokens are managed by their caller (`_run_from`), so this function
+        only owns the span lifecycle.
 
         If any descendant step has marked the root jctx via
         `_mark_root_observability_failed`, the caller's status is overridden
@@ -859,8 +931,8 @@ class PipelineExecutor:
 
         # Propagate the parent's per-job OTel context (if any) to each child
         # via jctx. Children inherit the active context naturally when
-        # spawned in this task, but the saved context is needed so workers
-        # can re-attach it after a child crosses a Buffer.
+        # spawned in this task, but the saved context is needed so that it
+        # can be re-attached after a child crosses a Buffer.
         parent_obs_ctx = jctx.get("_oqtopus_obs_ctx")
         pipeline_name = jctx.get("pipeline_name")
 

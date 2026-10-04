@@ -5,8 +5,9 @@ from .device_repository import DeviceRepository
 from .engine import Engine
 from .exception_handler import PipelineExceptionHandler
 from .job_fetcher import JobFetcher
-from .job_repository import JobRepository
+from .job_repository import JobOutput, JobRepository
 from .model import (
+    TERMINAL_JOB_STATUSES,
     Device,
     EstimationResult,
     Job,
@@ -15,6 +16,8 @@ from .model import (
     OperatorItem,
     SamplingResult,
     TranspileResult,
+    mark_job_terminal,
+    resolve_repository_jobs,
 )
 from .pipeline import PipelineExecutor
 from .pipeline_builder import PipelineBuilder
@@ -26,6 +29,7 @@ from .step import (
 )
 
 __all__ = [
+    "TERMINAL_JOB_STATUSES",
     "Buffer",
     "Device",
     "DeviceFetcher",
@@ -37,6 +41,7 @@ __all__ = [
     "JobContext",
     "JobFetcher",
     "JobInput",
+    "JobOutput",
     "JobRepository",
     "JobResult",
     "OperatorItem",
@@ -49,4 +54,6 @@ __all__ = [
     "Step",
     "StepResult",
     "TranspileResult",
+    "mark_job_terminal",
+    "resolve_repository_jobs",
 ]

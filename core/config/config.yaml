@@ -102,6 +102,7 @@ di_container:
       oidc_client_id: ${OIDC_CLIENT_ID, ""}
       oidc_client_secret: ${OIDC_CLIENT_SECRET, ""}
       oidc_scope: ${OIDC_SCOPE, ""}
+      max_file_size: ${MAX_FILE_SIZE, 10485760}
 
     # buffer configurations
     buffer:

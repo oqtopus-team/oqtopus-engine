@@ -10,7 +10,7 @@ from oqtopus_engine_core.auth import (
     BearerAuthApiClient,
     ClientCredentialsTokenProvider,
 )
-from oqtopus_engine_core.framework import Job, JobRepository
+from oqtopus_engine_core.framework import Job, JobOutput, JobRepository
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
     ApiClient,
     Configuration,
@@ -161,6 +161,35 @@ class OqtopusCloudJobRepository(JobRepository):
             },
         )
 
+    @staticmethod
+    def _is_repository_tracked(job: Job) -> bool:
+        """Guard against Cloud requests for a Job with no repository entity.
+
+        Callers (DeviceGatewayStep, FailJobRepositoryHandler,
+        MpAutoCombiningBuffer) are expected to have already resolved each
+        Job to the correct repository-tracked target via
+        `resolve_repository_jobs` before calling into this repository, so
+        this is a last line of defense: it should not normally trigger.
+        `job.repository_job_id is None` means the job has no Cloud entity
+        of its own (an MP-auto-combined job); `!= job.job_id` means it is
+        an internal child (its
+        repository_job_id names its parent instead).
+
+        Returns:
+            True if the request should proceed.
+
+        """
+        if job.repository_job_id is None or job.repository_job_id != job.job_id:
+            logger.warning(
+                "skip repository call for non-tracked job",
+                extra={
+                    "job_id": job.job_id,
+                    "repository_job_id": job.repository_job_id,
+                },
+            )
+            return False
+        return True
+
     async def _request_with_error_logging(
         self,
         call: Callable[[], T],
@@ -241,6 +270,8 @@ class OqtopusCloudJobRepository(JobRepository):
         self,
         job_id: str,
         coroutine: Coroutine[Any, Any, Any],
+        *,
+        propagate: bool = False,
     ) -> None:
         """Schedule a coroutine for the given job_id while preserving execution order.
 
@@ -284,6 +315,14 @@ class OqtopusCloudJobRepository(JobRepository):
                 The coroutine that performs the actual operation
                 (typically an HTTP request).
 
+            propagate:
+                If ``True``, an exception raised by ``coroutine`` (not by a
+                previous task in the chain) is re-raised after being logged,
+                so it reaches the caller awaiting this method. If ``False``
+                (default), the exception is only logged and swallowed, and
+                subsequent operations for the same ``job_id`` proceed as if
+                nothing happened.
+
         """
         async with self._job_tails_lock:
             previous = self._job_tails.get(job_id)
@@ -312,6 +351,8 @@ class OqtopusCloudJobRepository(JobRepository):
                         "job task failed",
                         extra={"job_id": job_id},
                     )
+                    if propagate:
+                        raise
 
             # Create the new task and set it as the new tail.
             task = asyncio.create_task(runner())
@@ -418,10 +459,13 @@ class OqtopusCloudJobRepository(JobRepository):
         jobs: list[Job] = []
         for job_oas in response:  # type: ignore[attr-defined]
             job = Job(**job_oas.to_dict())  # type: ignore[call-arg]
+            # Every job fetched from Cloud is itself the repository-tracked
+            # entity (never an internal estimation child or combined job).
+            job.repository_job_id = job.job_id
             jobs.append(job)
         return jobs
 
-    async def get_job_upload_url(
+    async def get_job_upload_urls(
         self, job: Job, items: list[str]
     ) -> list[JobsJobInfoUploadPresignedURL]:
         """Fetch presigned URLs for job information item uploads.
@@ -503,10 +547,7 @@ class OqtopusCloudJobRepository(JobRepository):
 
         logger.info(
             "job input download started",
-            extra={
-                **extra,
-                "presigned_url": job.input,
-            },
+            extra={**extra},
         )
 
         start = time.perf_counter()
@@ -522,13 +563,72 @@ class OqtopusCloudJobRepository(JobRepository):
             extra={
                 "elapsed_ms": round(elapsed_ms, 3),
                 **extra,
-                "presigned_url": job.input,
             },
         )
 
         return response
 
-    async def upload_job_output(
+    async def upload_job_outputs(
+        self,
+        job: Job,
+        outputs: list[JobOutput],
+    ) -> None:
+        """Fetch presigned URLs and upload a group of job output files.
+
+        Each output is represented as ``(item, data, arcname_ext, arcname)``.
+        The order of ``outputs`` is preserved for both URL allocation and upload.
+
+        Raises:
+            ValueError: If the number of returned URLs does not match ``outputs``.
+
+        """
+        if not self._is_repository_tracked(job):
+            return
+        urls = await self.get_job_upload_urls(
+            job=job,
+            items=[item for item, _, _, _ in outputs],
+        )
+        if len(urls) != len(outputs):
+            msg = (
+                "Job repository returned a different number of upload URLs "
+                "than requested"
+            )
+            raise ValueError(msg)
+
+        for url, (_, data, arcname_ext, arcname) in zip(urls, outputs, strict=True):
+            await self._upload_one_output(
+                job=job,
+                presigned_url=url,
+                data=data,
+                arcname_ext=arcname_ext,
+                arcname=arcname,
+            )
+
+    async def upload_job_outputs_nowait(
+        self,
+        job: Job,
+        outputs: list[JobOutput],
+        *,
+        preserve_order: bool = True,
+    ) -> None:
+        """Upload a group of job output files without waiting."""
+        if preserve_order:
+            task = asyncio.create_task(
+                self._enqueue_and_run(
+                    job.job_id,
+                    self.upload_job_outputs(job, outputs),
+                )
+            )
+        else:
+            task = asyncio.create_task(self.upload_job_outputs(job, outputs))
+
+        self._track_background_request(
+            task,
+            label="job outputs upload",
+            extra={"job_id": job.job_id, "job_type": job.job_type},
+        )
+
+    async def _upload_one_output(
         self,
         job: Job,
         presigned_url: JobsJobInfoUploadPresignedURL,
@@ -586,60 +686,31 @@ class OqtopusCloudJobRepository(JobRepository):
 
         job.output_files.append(presigned_url.fields.key)
 
-    async def upload_job_output_nowait(  # noqa: PLR0913
-        self,
-        job: Job,
-        presigned_url: JobsJobInfoUploadPresignedURL,
-        data: dict[str, Any] | str,
-        arcname_ext: str = "",
-        arcname: str | None = None,
-        *,
-        preserve_order: bool = True,
-    ) -> None:
-        """Upload job output data to cloud storage without waiting."""
-        if preserve_order:
-            task = asyncio.create_task(
-                self._enqueue_and_run(
-                    job.job_id,
-                    self.upload_job_output(
-                        job,
-                        presigned_url,
-                        data,
-                        arcname_ext,
-                        arcname,
-                    ),
-                )
-            )
-        else:
-            task = asyncio.create_task(
-                self.upload_job_output(
-                    job,
-                    presigned_url,
-                    data,
-                    arcname_ext,
-                    arcname,
-                )
-            )
-
-        self._track_background_request(
-            task,
-            label="job output upload",
-            extra={"job_id": job.job_id, "job_type": job.job_type},
-        )
-
     async def update_job_status(
         self,
         job: Job,
+        *,
+        include_output_files: bool = True,
     ) -> None:
         """Send a PATCH request to update job status and related data.
 
         Args:
             job: The job to patch.
+            include_output_files:
+                If ``True`` (default), the current ``job.output_files`` is
+                included in the request body. If ``False``, ``output_files``
+                is omitted from the request entirely (dropped during
+                serialization rather than sent as ``null``, since only
+                ``status`` is required by the API). Callers pass ``False``
+                when the update carries no new information about job
+                outputs, e.g. an early ``ready`` -> ``running`` transition.
 
         """
+        if not self._is_repository_tracked(job):
+            return
         body = JobsJobStatusUpdate(
             status=job.status,
-            output_files=job.output_files,
+            output_files=job.output_files if include_output_files else None,
             message=job.message,
             execution_time=job.execution_time,
         )
@@ -684,12 +755,15 @@ class OqtopusCloudJobRepository(JobRepository):
         self,
         job: Job,
         *,
+        include_output_files: bool = True,
         preserve_order: bool = True,
     ) -> None:
         """Send a PATCH request to update job status without waiting.
 
         Args:
             job: The job to patch
+            include_output_files:
+                Forwarded to :meth:`update_job_status`; see there for details.
             preserve_order:
                 If ``True`` (default), operations targeting the same ``job_id``
                 are executed sequentially so that updates cannot overtake each
@@ -697,24 +771,75 @@ class OqtopusCloudJobRepository(JobRepository):
                 request may run concurrently with other updates for the same job.
 
         """
-        # Take a shallow copy immediately to capture the current 'status'.
-        # This prevents the value from changing while waiting in the queue.
-        output_files_snapshot = copy.deepcopy(job.output_files)
+        # Take a shallow copy immediately to capture 'status', 'message' and
+        # 'execution_time' as they are at call time, so they cannot change
+        # while this task is waiting in the per-job queue.
         job_snapshot = job.model_copy(deep=False)
-        job_snapshot.output_files = output_files_snapshot
+
+        async def _patch() -> None:
+            if include_output_files:
+                # Unlike the scalar fields above, 'output_files' is read here,
+                # at execution time, instead of being snapshotted at call
+                # time. Outputs such as transpile_result/combined_program are
+                # appended to job.output_files only after their upload
+                # completes (see upload_job_outputs_nowait), and
+                # preserve_order=True guarantees those uploads have already
+                # finished by the time this coroutine runs.
+                job_snapshot.output_files = list(job.output_files)
+            await self.update_job_status(
+                job_snapshot, include_output_files=include_output_files
+            )
 
         if preserve_order:
-            task = asyncio.create_task(
-                self._enqueue_and_run(job.job_id, self.update_job_status(job_snapshot))
-            )
+            task = asyncio.create_task(self._enqueue_and_run(job.job_id, _patch()))
         else:
-            task = asyncio.create_task(self.update_job_status(job_snapshot))
+            task = asyncio.create_task(_patch())
 
         self._track_background_request(
             task,
             label="PATCH /jobs/{job_id}/status",
             extra={"job_id": job.job_id, "job_type": job.job_type},
         )
+
+    async def update_job_status_ordered(
+        self,
+        job: Job,
+        *,
+        include_output_files: bool = True,
+    ) -> None:
+        """Send a PATCH request to update job status, awaiting the result.
+
+        Preserves the same per-``job_id`` FIFO ordering as
+        `update_job_status_nowait` (so this update waits for any previously
+        queued output uploads or status updates for the same job to finish
+        before its own `job.output_files` snapshot is taken), but unlike that
+        method, this one is awaited directly by the caller and re-raises any
+        exception instead of only logging it. Intended for terminal status
+        transitions where the caller must know whether the update succeeded.
+
+        Args:
+            job: The job to patch
+            include_output_files:
+                Forwarded to :meth:`update_job_status`; see there for details.
+
+        """
+        # Take a shallow copy immediately to capture 'status', 'message' and
+        # 'execution_time' as they are at call time, so they cannot change
+        # while this task is waiting in the per-job queue.
+        job_snapshot = job.model_copy(deep=False)
+
+        async def _patch() -> None:
+            if include_output_files:
+                # See the identical comment in update_job_status_nowait:
+                # reading 'output_files' here (at execution time) instead of
+                # at call time relies on this task's position in the
+                # per-job_id queue to guarantee prior uploads have finished.
+                job_snapshot.output_files = list(job.output_files)
+            await self.update_job_status(
+                job_snapshot, include_output_files=include_output_files
+            )
+
+        await self._enqueue_and_run(job.job_id, _patch(), propagate=True)
 
     async def update_job_transpiler_info(
         self,
@@ -726,6 +851,8 @@ class OqtopusCloudJobRepository(JobRepository):
             job: The job to update.
 
         """
+        if not self._is_repository_tracked(job):
+            return
         # Use deepcopy for transpiler_info to ensure all nested structures
         # are preserved as they were at the moment of the call.
         body = copy.deepcopy(job.transpiler_info)

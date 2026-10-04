@@ -97,6 +97,7 @@ di_container:
       api_key: ${DEVICE_REPOSITORY_API_KEY, ""}
       workers: ${DEVICE_REPOSITORY_WORKERS, 1}
       api_request_timeout_seconds: ${DEVICE_REPOSITORY_API_REQUEST_TIMEOUT_SECONDS, 10}
+      max_file_size: ${MAX_FILE_SIZE, 10485760}
 
     # buffer configurations
     buffer:
@@ -185,8 +186,9 @@ di_container:
 
 A few notes on the pipelines above:
 
-- **`sampling`**: `sampling` and `multi_manual` jobs share the exact same `steps` list (`multi_manual_step` no-ops when `job.job_type != "multi_manual"`), and `MpAutoCombiningBuffer` (used when `${JOB_BUFFER, buffer}` resolves to `buffer_mp_auto_combining` below) can combine both types together. Keeping them as a single pipeline avoids the two step lists silently drifting apart. `MpAutoCombiningBuffer` never combines jobs across different pipelines, so this pool never mixes with, for example, the `estimation` pipeline's sub-circuits, even though their `job.job_type` is also `"sampling"`.
+- **`sampling`**: `sampling` and `multi_manual` jobs share the exact same `steps` list (`multi_manual_step` no-ops when `job.job_type != "multi_manual"`), and `MpAutoCombiningBuffer` (used when `${JOB_BUFFER, buffer}` resolves to `buffer_mp_auto_combining` below) can combine both types together. Keeping them as a single pipeline avoids the two step lists silently drifting apart. `MpAutoCombiningBuffer` never combines jobs across different pipelines, so this pool never mixes with, for example, the `estimation` pipeline's sub-circuits, even though their `job.job_type` is also `"sampling"`. When `buffer_mp_auto_combining` is in use, a combined job (and an estimation job's sampling children) has no Cloud entity of its own; see [Pipeline Execution: Job ID Conventions](../design/pipeline_execution.md#12-job-id-conventions) for how the engine resolves Cloud repository updates back to the right job.
 - **`sse`**: SSE jobs run entirely inside the SSE runner (`sse_step`) — they are not transpiled, combined, or sent to the device gateway — so this pipeline omits `tranqu_step`, `mp_auto_combining_step`, and `device_gateway_step` entirely, rather than relying on those steps' own `job.job_type` checks to no-op.
+- **`sse` container log**: on every SSE run, `sse_step` saves the container's stdout/stderr to `<host_work_path>/<job_id>/out/<log_file_name>` on the host, as a debugging aid independent of the `sse_log` uploaded to Cloud. With the default `SSE_DELETE_HOST_TEMP_DIRS=true`, this directory (and the log file in it) is deleted as soon as the job's `pre_process` finishes, so it is never actually available for inspection. To keep it around for debugging, set `SSE_DELETE_HOST_TEMP_DIRS=false` — but note this also disables cleanup of `host_work_path`, so per-job directories accumulate and must be swept manually by the operator.
 
 ## sse_engine_config.yaml
 

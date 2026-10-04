@@ -6,6 +6,7 @@ package mitigator_interface.v1;
 // RPC service for Error Mitigation
 service MitigatorService {
     rpc ReqMitigation (ReqMitigationRequest) returns (ReqMitigationResponse);
+    rpc ReqExpectationValueMitigation (ReqExpectationValueMitigationRequest) returns (ReqExpectationValueMitigationResponse);
 }
 message MesError{
     float p0m1 = 1;
@@ -33,4 +34,16 @@ message ReqMitigationRequest{
 
 message ReqMitigationResponse{
     map<string, int32> counts =1;
+}
+
+message ReqExpectationValueMitigationRequest{
+    DeviceTopology device_topology = 1;
+    map<string, int32> counts = 2;
+    string program = 3;
+    repeated string paulis = 4;
+}
+
+message ReqExpectationValueMitigationResponse{
+    repeated double expectation_values = 1;
+    repeated double standard_deviation_upper_bounds = 2;
 }
