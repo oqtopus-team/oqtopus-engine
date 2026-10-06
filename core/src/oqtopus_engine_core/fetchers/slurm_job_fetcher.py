@@ -303,6 +303,14 @@ class SlurmJobFetcher(RepositoryJobFetcher):
             raise RuntimeError(message) from exc
         digest = request_hash(request, options)
         job_name, _ = build_slurm_job_labels(record.cloud_job_id, digest)
+        logger.info(
+            "reconciling SLURM allocation by deterministic JobName",
+            extra={
+                "job_id": record.cloud_job_id,
+                "slurm_job_name": job_name,
+                "request_hash": digest,
+            },
+        )
         try:
             slurm_job_id = await self._slurm_client.find_job(
                 job_name=job_name,

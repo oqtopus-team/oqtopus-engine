@@ -127,10 +127,16 @@ updates its qubit count and availability but does not create the row or upload a
 Device Gateway calibration archive.
 
 The recovery-aware fetcher polls both `submitted` jobs and stranded `ready`
-jobs. It claims each job with the existing atomic `ready` to `running` status
-update before scheduling pipeline work. The existing job `device_id` identifies
-the runtime that owns recovery. Jobs outside `sampling` and `estimation`, and
-jobs with an enabled mitigation method, are rejected before execution.
+jobs. It claims each job by advancing the existing `ready` to `running` status
+before scheduling pipeline work. This Cloud transition is not a conditional or
+atomic claim across independent Core processes. A deployment must run only one
+Core process for each simulator `device_id`; competing processes on the same
+login node are excluded by the shared `SLURM_PROCESS_LOCK_PATH`. Active-active
+ownership of one device is out of scope. Supporting multiple owners would
+require a Cloud-side conditional transition and a way to identify an ambiguous
+write response. The existing job `device_id` identifies the runtime that owns
+recovery. Jobs outside `sampling` and `estimation`, and jobs with an enabled
+mitigation method, are rejected before execution.
 
 ### 4.2 Input Conversion and Worker Request
 
@@ -488,7 +494,7 @@ flowchart TD
   Reconcile -->|no safe allocation| Submit["No durable allocation<br/>[Action] submit or cancel before submit"]
 
   Request -->|yes| Slurm{"[SLURM] squeue then sacct"}
-  Slurm -->|PENDING or RUNNING| CancelCheck{"[Cloud] status is cancelling?"}
+  Slurm -->|PENDING or RUNNING| CancelCheck{"[Cloud] cancelling or cancelled?"}
   CancelCheck -->|no| Continue
   CancelCheck -->|yes| Cancel["Active allocation<br/>[Action] send scancel and poll"]
   Slurm -->|COMPLETED| Validate["[Local] validate result.json<br/>[Action] return result or fail"]
@@ -517,7 +523,11 @@ The corresponding decision matrix keeps each raw input in its own column. The
 | `running` or `cancelling` | present or absent | valid result | not queried | The local result checkpoint is authoritative for finalization. | **Return result**: skip scheduler actions and retry restoration and finalization. |
 | `cancelled` | any | valid result | not queried | Completion left a usable checkpoint after Cloud cancellation. | **Return result**: restore the result, finalize success, and never resubmit. |
 | `cancelled` | any | present but invalid | not queried | A retained checkpoint exists, but validation must succeed before finalization. | **Preserve checkpoint**: retain `RESULT_READY`, report the validation error, and retry repair or finalization. |
-| `cancelled` | any | absent | not queried | Cloud cancellation is terminal and no result checkpoint exists. | **Confirm cancellation**: keep `cancelled` and clean retained artifacts after the normal retention period. |
+| `cancelled` | absent | absent | not queried | No durable submit intent exists. | **Pre-execution cancellation**: keep `cancelled` and never submit. |
+| `cancelled` | present | absent | `PENDING` or `RUNNING` | Cloud cancellation does not prove that the allocation has stopped. | **Stop the allocation**: resolve its JobName, send `scancel`, and retry until termination is confirmed. Preserve artifacts even after their TTL expires. |
+| `cancelled` | present | absent | `CANCELLED` or `FAILED` | The allocation has terminated without a usable result. | **Confirm cancellation**: keep Cloud `cancelled`; artifact cleanup may proceed after the normal retention period. |
+| `cancelled` | present | appears during reconciliation | `COMPLETED` or `CANCELLED` | A result was published after the initial recovery listing. | **Return result**: preserve the checkpoint and requeue validation and finalization, without submission. |
+| `cancelled` | present | absent | `COMPLETED` | Scheduler completion lacks its expected checkpoint. | **Preserve diagnostics**: keep the request for retry or operator reconciliation; do not resubmit or perform TTL cleanup. |
 | any active status | any | any | allocation absent from both `squeue` and `sacct`, or observation failed transiently | No authoritative terminal state exists yet. | **Retry observation**: keep the active state and never resubmit a persisted submit intent. |
 | any active status | any | any | Cloud Job is missing | There is no authoritative Cloud record for a safe update. | **Skip recovery**: log the condition and wait for retry or operator reconciliation. |
 

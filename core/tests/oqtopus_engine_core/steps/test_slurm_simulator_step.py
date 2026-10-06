@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 from unittest.mock import AsyncMock
 
 import pytest
@@ -889,7 +890,7 @@ async def test_submitted_job_transitions_through_ready(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_reconciled_allocation_is_not_submitted_again(tmp_path):
+async def test_reconciled_allocation_is_not_submitted_again(tmp_path, caplog):
     job = make_job()
     options = SlurmSimulatorOptions.model_validate(job.simulator_info)
     digest = request_hash(build_execution_request(job, options), options)
@@ -910,6 +911,10 @@ async def test_reconciled_allocation_is_not_submitted_again(tmp_path):
         found_job_id="12345",
     )
     repository = RecordingJobRepository(["running", "running"])
+    caplog.set_level(
+        logging.INFO,
+        logger="oqtopus_engine_core.steps.slurm_simulator_step",
+    )
 
     step = make_step(tmp_path, client, repository)
     await run_root_step(
@@ -925,6 +930,14 @@ async def test_reconciled_allocation_is_not_submitted_again(tmp_path):
     assert len(client.find_calls) == 1
     assert set(client.find_calls[0]) == {"job_name", "start_time"}
     assert client.find_calls[0]["job_name"] == (f"oqtopus-{job_token}-{digest[:16]}")
+    identity_log = next(
+        record
+        for record in caplog.records
+        if record.getMessage() == "SLURM allocation identity prepared"
+    )
+    assert identity_log.job_id == job.job_id
+    assert identity_log.slurm_job_name == client.find_calls[0]["job_name"]
+    assert identity_log.request_hash == digest
 
 
 @pytest.mark.asyncio

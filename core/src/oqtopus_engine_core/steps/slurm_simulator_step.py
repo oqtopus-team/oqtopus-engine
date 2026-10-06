@@ -205,6 +205,14 @@ class SlurmSimulatorStep(Step):
                 message = "root SLURM execution was not started"
                 raise RuntimeError(message)
         job_name, comment = build_slurm_job_labels(job.job_id, digest)
+        logger.info(
+            "SLURM allocation identity prepared",
+            extra={
+                "job_id": job.job_id,
+                "slurm_job_name": job_name,
+                "request_hash": digest,
+            },
+        )
         slurm_job_id = record.slurm_job_id
         if slurm_job_id is None:
             try:

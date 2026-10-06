@@ -121,6 +121,14 @@ only after checking the scheduler and node capacity.
 | `SLURM_FINALIZE_RETRY_COUNT` | `2` | Cloud result-finalization retries |
 | `SLURM_FINALIZE_RETRY_INTERVAL_SECONDS` | `1` | Delay between finalization retries |
 
+The Cloud `ready` to `running` claim is a check-then-act transition and is not
+atomic across independent Core processes. Run only one Core process for each
+simulator `device_id`. When competing processes run on the same login node,
+they must share `SLURM_PROCESS_LOCK_PATH` so the process lock rejects the
+second owner. Active-active operation for the same device is not supported;
+supporting it requires a Cloud-side conditional status transition and an
+ownership mechanism for ambiguous write responses.
+
 When `n_nodes` is omitted from `simulator_info`, Core derives the minimum node
 count as:
 
