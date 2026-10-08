@@ -187,6 +187,7 @@ def test_req_expectation_value_mitigation_returns_expectation_values(
     assert list(response.expectation_values) == pytest.approx([1.0])
     assert list(response.standard_deviation_upper_bounds)[0] > 0
     assert list(response.before_expectation_values) == pytest.approx([0.8])
+    assert response.mitigation_details_available is True
 
 
 def test_req_mitigation_returns_quasi_probabilities(
@@ -212,6 +213,7 @@ def test_req_mitigation_returns_quasi_probabilities(
         "0": pytest.approx(1.0),
         "1": pytest.approx(0.0, abs=1e-8),
     }
+    assert response.mitigation_details_available is True
 
 
 def test_ro_error_mitigation(error_mitigator):

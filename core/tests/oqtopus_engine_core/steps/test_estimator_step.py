@@ -68,7 +68,13 @@ async def test_pre_process_calls_grpc_and_creates_children(
 
     estimator_step_instance._stub.ReqEstimationPreProcess.return_value = SimpleNamespace(
         qasm_codes=["preprocessed-qasm-0", "preprocessed-qasm-1"],
-        grouped_operators=json.dumps([[["X"], ["Z"]], [[1.0], [2.0]]]),
+        grouped_operators=json.dumps(
+            [
+                [["X"], ["Z"]],
+                [[1.0], [2.0]],
+                [["X 0"], ["Z 1"]],
+            ]
+        ),
     )
 
     result = await estimator_step_instance.pre_process(gctx, jctx, job)
@@ -82,7 +88,11 @@ async def test_pre_process_calls_grpc_and_creates_children(
 
     join_info = jctx[ESTIMATION_JOIN_INFO_KEY]
     assert isinstance(join_info, EstimationJoinInfo)
-    assert join_info.grouped_operators == [[["X"], ["Z"]], [[1.0], [2.0]]]
+    assert join_info.grouped_operators == [
+        [["X"], ["Z"]],
+        [[1.0], [2.0]],
+        [["X 0"], ["Z 1"]],
+    ]
     assert result.directive == PipelineDirective.SPLIT_FOR_JOIN
     assert len(result.child_jobs) == 2
     assert len(result.child_contexts) == 2
@@ -182,7 +192,11 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     ]
 
     join_info = EstimationJoinInfo()
-    join_info.grouped_operators = [[["XX"], ["ZZ"]], [[2.0], [1.0]]]
+    join_info.grouped_operators = [
+        [["XX"], ["ZZ"]],
+        [[2.0], [1.0]],
+        [["X 0 X 1"], ["Z 0 Z 2"]],
+    ]
     join_info.child_order = [
         "job-4-0",
         "job-4-1",
@@ -236,6 +250,7 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     assert json.loads(request.grouped_operators) == [
         [["XX"], ["ZZ"]],
         [[2.0], [1.0]],
+        [["X 0 X 1"], ["Z 0 Z 2"]],
     ]
     assert parent_job.result.estimation.exp_value == 0.25
     assert parent_job.result.estimation.stds == 0.05
@@ -244,14 +259,14 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     assert details.raw_counts is None
     assert [item.model_dump() for item in details.expectation_values] == [
         {
-            "pauli": "XX",
+            "pauli": "X 0 X 1",
             "coefficient": 2.0,
             "before_expectation_value": 0.35,
             "after_expectation_value": 0.4,
             "standard_deviation_upper_bound": 0.06,
         },
         {
-            "pauli": "ZZ",
+            "pauli": "Z 0 Z 2",
             "coefficient": 1.0,
             "before_expectation_value": 0.2,
             "after_expectation_value": 0.25,
@@ -260,6 +275,57 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     ]
     assert parent_job.execution_time == 0.7
     assert parent_job.message == "child-0-message"
+
+
+@pytest.mark.asyncio
+async def test_join_jobs_legacy_grouped_operators_omit_mitigation_details(
+    estimator_step_instance: EstimatorStep,
+) -> None:
+    parent_job = _make_estimation_job("job-legacy-estimator")
+    child = Job(
+        job_id="job-legacy-estimator-0",
+        job_type="sampling",
+        device_id="device-1",
+        shots=100,
+        input="job-legacy-estimator-0/input.zip",
+        program=["qasm-0"],
+        result=JobResult(sampling=SamplingResult(counts={"0": 100})),
+        transpiler_info={},
+        simulator_info={},
+        mitigation_info={},
+        status="running",
+    )
+    parent_job.children = [child]
+    join_info = EstimationJoinInfo()
+    join_info.grouped_operators = [[["Z"]], [[1.0]]]
+    join_info.child_order = [child.job_id]
+    parent_jctx = JobContext(
+        initial={ESTIMATION_JOIN_INFO_KEY: join_info},
+        children=[
+            JobContext(
+                initial={
+                    ESTIMATION_CHILD_INDEX_KEY: 0,
+                    ESTIMATION_EXPECTATION_VALUES_KEY: [0.8],
+                    ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY: [0.03],
+                    ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY: [0.6],
+                }
+            )
+        ],
+    )
+    estimator_step_instance._stub.ReqEstimationPostProcessFromExpectationValues.return_value = SimpleNamespace(
+        expectation_value=0.8,
+        standard_deviation_upper_bound=0.03,
+    )
+
+    await estimator_step_instance.join_jobs(
+        gctx=MagicMock(),
+        parent_jctx=parent_jctx,
+        parent_job=parent_job,
+        last_child=child,
+    )
+
+    assert parent_job.result.estimation.exp_value == 0.8
+    assert parent_job.result.mitigation_details is None
 
 
 @pytest.mark.asyncio

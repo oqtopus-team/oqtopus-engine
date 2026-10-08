@@ -41,6 +41,7 @@ ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY = (
 ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY = (
     "estimation_before_expectation_values"
 )
+GROUPED_SOURCE_PAULIS_INDEX = 2
 
 
 class EstimationJoinInfo:
@@ -206,10 +207,7 @@ def _build_estimation_mitigation_details(
 ) -> MitigationDetails:
     expectation_values: list[MitigationExpectationValue] = []
     for index, child_jctx in enumerate(child_contexts):
-        paulis: list[str] = child_jctx.get(
-            ESTIMATION_PAULIS_KEY,
-            grouped_operators[0][index],
-        )
+        paulis: list[str] = grouped_operators[GROUPED_SOURCE_PAULIS_INDEX][index]
         coefficients: list[float] = grouped_operators[1][index]
         values: list[float] = child_jctx[ESTIMATION_EXPECTATION_VALUES_KEY]
         standard_deviations: list[float] = child_jctx[
@@ -434,9 +432,13 @@ class EstimatorStep(Step):
             parent_job,
             child_order,
         )
-        has_after_expectation_values = bool(
+        has_mitigation_details = bool(
             child_contexts
-            and ESTIMATION_EXPECTATION_VALUES_KEY in child_contexts[0]
+            and len(join_info.grouped_operators) > GROUPED_SOURCE_PAULIS_INDEX
+            and all(
+                ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY in child_jctx
+                for child_jctx in child_contexts
+            )
         )
         rpc_name, request = _build_estimation_postprocess_request(
             ordered_children,
@@ -483,7 +485,7 @@ class EstimatorStep(Step):
             parent_job.result.estimation = EstimationResult()
         parent_job.result.estimation.exp_value = float(expectation_value)
         parent_job.result.estimation.stds = float(standard_deviation)
-        if has_after_expectation_values:
+        if has_mitigation_details:
             parent_job.result.mitigation_details = _build_estimation_mitigation_details(
                 child_contexts,
                 join_info.grouped_operators,

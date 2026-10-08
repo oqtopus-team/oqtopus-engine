@@ -189,6 +189,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                 return ReqMitigationResponse(
                     counts=mitigated_counts,
                     quasi_probabilities=quasi_probabilities,
+                    mitigation_details_available=True,
                 )
             except Exception as e:
                 logger.exception("mitigation process failed. Exception occurred")
@@ -250,6 +251,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                     expectation_values=expectation_values,
                     standard_deviation_upper_bounds=standard_deviation_upper_bounds,
                     before_expectation_values=before_expectation_values,
+                    mitigation_details_available=True,
                 )
             except Exception as e:
                 logger.exception(

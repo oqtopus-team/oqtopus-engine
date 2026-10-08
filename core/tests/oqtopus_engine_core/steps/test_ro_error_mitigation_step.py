@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from oqtopus_engine_core.interfaces.mitigator_interface.v1 import mitigator_pb2
 from oqtopus_engine_core.steps.estimator_step import (
     ESTIMATION_EXPECTATION_VALUES_KEY,
     ESTIMATION_PAULIS_KEY,
@@ -60,6 +61,7 @@ async def test_post_process_sampling_calls_grpc_and_updates_counts(
             "10": 0.14,
             "11": 0.4,
         },
+        mitigation_details_available=True,
     )
 
     await mitigation_step.post_process(gctx, jctx, job)
@@ -130,6 +132,7 @@ async def test_post_process_estimation_child_updates_expectation_values(
         expectation_values=[0.8, 1.0],
         standard_deviation_upper_bounds=[0.03, 0.0],
         before_expectation_values=[0.6, 1.0],
+        mitigation_details_available=True,
     )
 
     await mitigation_step.post_process(gctx, jctx, job)
@@ -156,10 +159,49 @@ async def test_post_process_estimation_child_rejects_mismatched_response(
         expectation_values=[0.8],
         standard_deviation_upper_bounds=[],
         before_expectation_values=[0.6],
+        mitigation_details_available=True,
     )
 
     with pytest.raises(RuntimeError, match="must have equal lengths"):
         await mitigation_step.post_process(gctx, jctx, job)
+
+
+@pytest.mark.asyncio
+async def test_post_process_sampling_accepts_legacy_response_without_details(
+    setup_sampling_job,
+    mitigation_step: ReadoutErrorMitigationStep,
+) -> None:
+    gctx, jctx, job = setup_sampling_job
+    job.result.mitigation_details = None
+    mitigation_step._stub.ReqMitigation.return_value = (
+        mitigator_pb2.ReqMitigationResponse(counts={"00": 60, "11": 40})
+    )
+
+    await mitigation_step.post_process(gctx, jctx, job)
+
+    assert job.result.sampling.counts == {"00": 60, "11": 40}
+    assert job.result.mitigation_details is None
+
+
+@pytest.mark.asyncio
+async def test_post_process_estimation_accepts_legacy_response_without_details(
+    setup_sampling_job,
+    mitigation_step: ReadoutErrorMitigationStep,
+) -> None:
+    gctx, _, job = setup_sampling_job
+    jctx = {ESTIMATION_PAULIS_KEY: ["XX"]}
+    mitigation_step._stub.ReqExpectationValueMitigation.return_value = (
+        mitigator_pb2.ReqExpectationValueMitigationResponse(
+            expectation_values=[0.8],
+            standard_deviation_upper_bounds=[0.03],
+        )
+    )
+
+    await mitigation_step.post_process(gctx, jctx, job)
+
+    assert jctx[ESTIMATION_EXPECTATION_VALUES_KEY] == [0.8]
+    assert jctx[ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY] == [0.03]
+    assert ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY not in jctx
 
 
 @pytest.mark.asyncio
