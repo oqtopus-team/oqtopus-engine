@@ -30,6 +30,7 @@ OQTOPUS Engine is organized as a microservice architecture centered around the c
 
 - [Error Mitigation](./features/error_mitigation/overview.md)
 - [Estimation](./features/estimation/overview.md)
+- [SLURM MPI-Qulacs Simulator](./features/slurm_simulator/overview.md)
 
 ## Developer Guidelines
 

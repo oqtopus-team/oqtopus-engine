@@ -1,0 +1,100 @@
+from typing import Literal
+
+# ruff: noqa: DOC201, DOC501
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class SlurmSimulatorOptions(BaseModel):
+    """Validated user-selectable options for the MPI-Qulacs backend."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    backend: Literal["mpi-qulacs"] = "mpi-qulacs"
+    estimation_method: Literal["direct", "sampling"] = "direct"
+    n_nodes: int | None = Field(default=None, ge=1)
+    n_per_node: int = Field(default=1, ge=1)
+    seed_simulation: int | None = Field(
+        default=None,
+        ge=-(2**31),
+        le=2**31 - 1,
+    )
+    timeout_seconds: int = Field(default=600, ge=1)
+
+    def resolve(
+        self,
+        *,
+        n_qubits: int,
+        qubits_per_node: int,
+        max_nodes: int,
+        max_n_per_node: int,
+        max_timeout_seconds: int,
+    ) -> "SlurmSimulatorOptions":
+        """Apply circuit-derived and administrator-configured limits."""
+        if qubits_per_node < 1:
+            message = "qubits_per_node must be positive"
+            raise ValueError(message)
+        minimum_nodes = 2 ** max(n_qubits - qubits_per_node, 0)
+        n_nodes = self.n_nodes or minimum_nodes
+        if n_nodes < minimum_nodes:
+            message = f"n_nodes must be at least {minimum_nodes} for {n_qubits} qubits"
+            raise ValueError(message)
+        if n_nodes > max_nodes:
+            message = f"n_nodes exceeds administrator limit {max_nodes}"
+            raise ValueError(message)
+        if self.n_per_node > max_n_per_node:
+            message = f"n_per_node exceeds administrator limit {max_n_per_node}"
+            raise ValueError(message)
+        if self.timeout_seconds > max_timeout_seconds:
+            message = (
+                f"timeout_seconds exceeds administrator limit {max_timeout_seconds}"
+            )
+            raise ValueError(message)
+        return self.model_copy(update={"n_nodes": n_nodes})
+
+
+class OperatorTerm(BaseModel):
+    """One real-valued Pauli term in a direct estimation request."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    pauli: str
+    coeff: float
+
+
+class QulacsGate(BaseModel):
+    """One allowlisted Qulacs gate operation."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    name: str
+    qubits: list[int]
+    params: list[float] = Field(default_factory=list)
+
+
+class QulacsExecutionRequest(BaseModel):
+    """Versioned filesystem contract consumed by the MPI worker."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    job_type: Literal["sampling", "estimation"]
+    n_qubits: int = Field(ge=1)
+    gates: list[QulacsGate]
+    measurement_mapping: dict[int, int] = Field(default_factory=dict)
+    shots: int | None = Field(default=None, ge=1)
+    operators: list[OperatorTerm] = Field(default_factory=list)
+    seed_simulation: int | None = None
+    n_per_node: int = Field(ge=1)
+
+
+class QulacsExecutionResult(BaseModel):
+    """Versioned raw result produced by the standalone MPI worker."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    status: Literal["succeeded"]
+    job_type: Literal["sampling", "estimation"]
+    counts: dict[str, int] | None = None
+    exp_value: list[float] | None = None
+    duration_seconds: float = Field(ge=0)
