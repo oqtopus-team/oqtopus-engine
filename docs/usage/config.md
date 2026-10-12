@@ -162,7 +162,7 @@ di_container:
     sse_step:
       _target_: oqtopus_engine_core.steps.sse_step.SseStep
       runner_settings:
-        sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:51014"}
+        sse_engine_address: ${SSE_ENGINE_ADDRESS, "sse_engine:51014"}
         grpc_options: *grpc_options
         host_work_path: ${SSE_HOST_WORK_PATH, "/sse_work"}
         delete_host_temp_dirs: ${SSE_DELETE_HOST_TEMP_DIRS, true}
@@ -174,9 +174,9 @@ di_container:
         container_disk_quota: ${SSE_CONTAINER_DISK_QUOTA, 67108864}
         container_memory: ${SSE_CONTAINER_MEMORY, 268435456}
         container_cpu_set: ${SSE_CONTAINER_CPU_SET, "0"}
-        container_network: ${SSE_CONTAINER_NETWORK, "context_app_net"}
+        # container_network: ${SSE_CONTAINER_NETWORK, "context_app_net"}
         container_extra_hosts:
-          - sse_engine:${SSE_ENGINE_IP, localhost}
+          sse_engine: ${SSE_ENGINE_IP, "host-gateway"}
         timeout: ${SSE_TIMEOUT, 600}
 
     # exception handler configurations
@@ -239,7 +239,7 @@ di_container:
 
     job_fetcher:
       _target_: oqtopus_engine_core.fetchers.SseEngineGateway
-      sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:51014"}
+      sse_engine_address: ${SSE_ENGINE_BIND_ADDRESS, "172.17.0.1:51014"}
       grpc_options: *grpc_options
 
     device_fetcher:
@@ -318,3 +318,40 @@ di_container:
     pipeline_exception_handler:
       _target_: oqtopus_engine_core.handlers.FailJobRepositoryHandler
 ```
+
+## SSE Network Settings
+
+SSE jobs run user programs in an `sse_runtime` Docker container. The container
+connects to `sse_engine`, which runs as a host process, over gRPC:
+
+```text
+sse_runtime container --(sse_engine:51014)--> docker0 (172.17.0.1) --> sse_engine (host)
+```
+
+Two environment variables control this, and they have different roles:
+
+| Variable | Default | Role |
+|---|---|---|
+| `SSE_ENGINE_ADDRESS` | `"sse_engine:51014"` | Address the container connects to. `sse_engine` is resolved inside the container through `container_extra_hosts` (`host-gateway`). |
+| `SSE_ENGINE_BIND_ADDRESS` | `"172.17.0.1:51014"` | Address `sse_engine` listens on, in `host:port` form. The port is required. |
+
+`SSE_ENGINE_BIND_ADDRESS` must be an address the container can reach, i.e. the
+IP of `docker0`, which is also what `host-gateway` resolves to. If your
+`docker0` uses a different IP, check it and update the variable:
+
+```bash
+ip -4 addr show docker0 | grep inet
+```
+
+Notes:
+
+- `127.0.0.1` is not reachable from the container, so SSE jobs fail.
+- `0.0.0.0` works but listens on all interfaces. Avoid it on shared machines.
+- Docker must be running before `sse_engine` starts. Otherwise `docker0` does
+  not exist and binding fails.
+- Docker Desktop (Mac / Windows, including WSL2 integration) is not supported,
+  because `docker0` is not present on the host side. Use Docker Engine
+  installed directly on Linux.
+- Rootless Docker is supported only if you configure the network yourself. Its
+  `host-gateway` target differs from `docker0`, so set `SSE_ENGINE_BIND_ADDRESS`
+  and `SSE_ENGINE_IP` to an address reachable from the container.

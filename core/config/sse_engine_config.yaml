@@ -45,7 +45,7 @@ di_container:
 
     job_fetcher:
       _target_: oqtopus_engine_core.fetchers.SseEngineGateway
-      sse_engine_address: ${SSE_ENGINE_ADDRESS, "localhost:51014"}
+      sse_engine_address: ${SSE_ENGINE_BIND_ADDRESS, "172.17.0.1:51014"}
       grpc_options: *grpc_options
 
     device_fetcher:
