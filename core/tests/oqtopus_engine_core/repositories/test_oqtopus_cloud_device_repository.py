@@ -128,9 +128,15 @@ async def test_update_device_info_passes_api_request_timeout_seconds():
         mock_devices_api = mock_devices_api_cls.return_value
         mock_devices_api.get_device_info_upload_url_with_http_info.return_value = (
             DevicesDeviceInfoUploadResponse(
+                upload_id="upload-device-1",
                 presigned_url=DevicesDeviceInfoUploadPresignedURL(
                     url="https://example.test/",
-                    fields={"key": "devices/device-1/device_info.zip"},
+                    fields={
+                        "key": (
+                            "device_info_uploads/device-1/upload-device-1/"
+                            "device_info.zip"
+                        )
+                    },
                 )
             ),
             200,
@@ -156,9 +162,12 @@ async def test_update_device_info_uploads_payload_before_patch():
     device = make_device()
     devices_api = repo._devices_api  # noqa: SLF001
     upload_response = DevicesDeviceInfoUploadResponse(
+        upload_id="upload-qulacs",
         presigned_url=DevicesDeviceInfoUploadPresignedURL(
             url="https://example.test/",
-            fields={"key": "devices/qulacs/device_info.zip"},
+            fields={
+                "key": "device_info_uploads/qulacs/upload-qulacs/device_info.zip"
+            },
         )
     )
     devices_api.get_device_info_upload_url_with_http_info.return_value = (
@@ -191,6 +200,7 @@ async def test_update_device_info_uploads_payload_before_patch():
     )
     devices_api.patch_device_info_with_http_info.assert_called_once()
     patch_body = devices_api.patch_device_info_with_http_info.call_args.kwargs["body"]
+    assert patch_body.upload_id == upload_response.upload_id
     assert patch_body.calibrated_at == device.calibrated_at
 
 
@@ -200,9 +210,12 @@ async def test_update_device_info_does_not_patch_when_upload_fails():
     device = make_device()
     devices_api = repo._devices_api  # noqa: SLF001
     upload_response = DevicesDeviceInfoUploadResponse(
+        upload_id="upload-qulacs",
         presigned_url=DevicesDeviceInfoUploadPresignedURL(
             url="https://example.test/",
-            fields={"key": "devices/qulacs/device_info.zip"},
+            fields={
+                "key": "device_info_uploads/qulacs/upload-qulacs/device_info.zip"
+            },
         )
     )
     devices_api.get_device_info_upload_url_with_http_info.return_value = (
