@@ -63,14 +63,6 @@ paths:
                 $ref: '#/components/schemas/error.NotFoundError'
               example:
                 message: Device not found
-        '409':
-          description: Conflict
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/error.ConflictError'
-              example:
-                message: Device history already exists
         '500':
           description: Internal Server Error
           content:
@@ -154,7 +146,7 @@ paths:
             nullable: false
             example: qulacs
       requestBody:
-        description: Upload identifier returned with the presigned URL and the calibration timestamp for that upload.
+        description: Calibration timestamp for the uploaded device_info.
         content:
           application/json:
             schema:
@@ -579,14 +571,6 @@ components:
           nullable: false
       required:
         - message
-    error.ConflictError:
-      type: object
-      properties:
-        message:
-          type: string
-          nullable: false
-      required:
-        - message
     error.InternalServerError:
       type: object
       properties:
@@ -619,17 +603,12 @@ components:
     devices.DeviceInfoUpdate:
       type: object
       properties:
-        upload_id:
-          description: Identifier returned when the device_info upload URL was issued.
-          type: string
-          format: uuid
         calibrated_at:
           description: Calibration timestamp for the uploaded device_info.
           type: string
           format: date-time
           example: '2023-09-10T14:00:00Z'
       required:
-        - upload_id
         - calibrated_at
     devices.DeviceInfoUploadPresignedURL:
       type: object
@@ -647,13 +626,9 @@ components:
     devices.DeviceInfoUploadResponse:
       type: object
       properties:
-        upload_id:
-          type: string
-          format: uuid
         presigned_url:
           $ref: '#/components/schemas/devices.DeviceInfoUploadPresignedURL'
       required:
-        - upload_id
         - presigned_url
     jobs.JobStatus:
       type: string
@@ -872,6 +847,14 @@ components:
       required:
         - status
     jobs.JobStatusUpdateResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          nullable: false
+      required:
+        - message
+    error.ConflictError:
       type: object
       properties:
         message:
