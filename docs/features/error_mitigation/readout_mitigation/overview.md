@@ -27,8 +27,8 @@ Sampling and estimation consume measurement results differently:
 
 | Result path | Input | Output | Detailed flow |
 | --- | --- | --- | --- |
-| Sampling | Raw counts | Mitigated integer counts | [Sampling REM](./sampling.md) |
-| Estimation | Raw counts and Pauli labels | Corrected expectation values and standard-deviation upper bounds | [Estimation REM](./estimation.md) |
+| Sampling | Raw counts | Mitigated integer counts plus raw counts and quasi-probabilities in `mitigation_details` | [Sampling REM](./sampling.md) |
+| Estimation | Raw counts and Pauli labels | Aggregated estimate plus per-source-Pauli before/after values in `mitigation_details` | [Estimation REM](./estimation.md) |
 
 Core owns orchestration and determines which result contract is required. The
 Mitigator service owns numerical mitigation and exposes separate RPCs:
@@ -37,6 +37,11 @@ Mitigator service owns numerical mitigation and exposes separate RPCs:
 | --- | --- |
 | `ReqMitigation` | Convert raw counts into mitigated integer counts for sampling results. |
 | `ReqExpectationValueMitigation` | Compute corrected Pauli expectation values directly from raw counts. |
+
+Both responses set `mitigation_details_available` when they contain the
+intermediate values required for the public result. This capability flag lets a
+new Core continue processing legacy Mitigator responses during a rolling
+upgrade while omitting unavailable details.
 
 Keeping the RPCs separate prevents optional request fields from changing the
 meaning of an existing operation. It also allows Core to validate that an
