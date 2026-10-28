@@ -1,9 +1,11 @@
 # Sampling Readout Mitigation
 
 This document describes the local readout-mitigation path for sampling results.
-The path converts raw measurement counts into mitigated integer counts and
-stores them back in the sampling result. It covers pipeline responsibilities,
-the correction algorithm, external-library usage, and the gRPC contract.
+The path converts raw measurement counts into mitigated integer counts, stores
+them in the sampling result, and preserves the raw counts and intermediate
+quasi-probabilities under `mitigation_details`. It covers pipeline
+responsibilities, the correction algorithm, external-library usage, and the
+gRPC contract.
 
 For the shared assignment-error model and measurement mapping, see
 [Readout Error Mitigation](./overview.md).
@@ -17,6 +19,7 @@ The REM path therefore:
 - projects potentially negative quasi-probabilities onto a valid probability
     distribution
 - converts the projected probabilities back to integer counts
+- exposes the observed counts and pre-projection quasi-probabilities
 - keeps Pauli operators and expectation-value semantics out of the sampling RPC
 
 The probability-to-count conversion can discard fractional counts. Estimation
@@ -27,8 +30,8 @@ uses a separate direct expectation-value path to avoid that loss of precision.
 | Component | Responsibility |
 | --- | --- |
 | Device Gateway and QPU | Execute the sampling circuit and return raw counts. |
-| Core `ReadoutErrorMitigationStep` | Select the counts path, build the request from device calibration data, and replace the sampling result counts. |
-| Mitigator service | Reconstruct the measurement layout, configure local REM, and convert the corrected distribution to integer counts. |
+| Core `ReadoutErrorMitigationStep` | Select the counts path, build the request from device calibration data, replace the sampling result counts, and store available intermediate details. |
+| Mitigator service | Reconstruct the measurement layout, configure local REM, and return the quasi-probabilities plus projected integer counts. |
 
 ## 3. Processing Sequence
 
@@ -48,8 +51,8 @@ sequenceDiagram
         Mitigator->>Mitigator: Reconstruct measurement layout
         Mitigator->>Mitigator: Build local assignment matrices
         Mitigator->>Mitigator: Compute and project quasi-probabilities
-        Mitigator-->>Core: Mitigated integer counts
-        Note over Core: Replace sampling result counts
+        Mitigator-->>Core: Counts, quasi-probabilities, details capability
+        Note over Core: Replace counts and store available details
     else REM is not configured
         Note over Core: Preserve raw counts
     end
@@ -68,6 +71,9 @@ operations:
 3. It sends the device topology, raw counts, and executed QASM program through
    `ReqMitigation`.
 4. It replaces `job.result.sampling.counts` with the returned counts.
+5. When `mitigation_details_available` is true, it stores the original counts
+    and returned quasi-probabilities under
+    `mitigation_details.ro_error_mitigation`.
 
 The counts path is selected when the `JobContext` does not contain estimation
 Pauli metadata.
@@ -93,6 +99,29 @@ Post-process traverses pipeline steps in reverse order, so REM corrects the
 combined counts before `MultiManualStep` separates them into per-program
 results.
 
+For a normal sampling job, the relevant result shape is:
+
+```json
+{
+    "sampling": {
+        "counts": {"00": 524, "11": 474, "01": 0}
+    },
+    "mitigation_details": {
+        "ro_error_mitigation": {
+            "method": "local_readout_mitigation",
+            "raw_counts": {"00": 475, "11": 430, "01": 48, "10": 47},
+            "quasi_probabilities": {
+                "00": 0.5250000009,
+                "11": 0.4750000008,
+                "01": 0.0005555547,
+                "10": -0.0005555564
+            },
+            "expectation_values": null
+        }
+    }
+}
+```
+
 ## 5. External Library Use
 
 | Operation | Owner |
@@ -113,7 +142,7 @@ sampling-result conversion. External dependency declarations are linked from the
 | Message | Fields used |
 | --- | --- |
 | `ReqMitigationRequest` | `device_topology`, `counts`, `program` |
-| `ReqMitigationResponse` | `counts` |
+| `ReqMitigationResponse` | `counts`, `quasi_probabilities`, `mitigation_details_available` |
 
 Sampling REM does not accept Pauli labels and does not return expectation
 values. Those semantics belong to the separate estimation REM contract.
@@ -127,3 +156,13 @@ values. Those semantics belong to the separate estimation REM contract.
 - The output remains integer-valued. Truncating each corrected probability
     multiplied by the shot count can discard fractional counts.
 - Sampling REM does not validate or process Pauli labels.
+- A legacy Mitigator response has `mitigation_details_available=false`. Core
+    still uses its mitigated counts but omits `mitigation_details`.
+
+## 8. Deployment Compatibility
+
+Deploy Mitigator before Core so new jobs expose intermediate details
+immediately. During a rolling upgrade, a new Core accepts responses from an old
+Mitigator, preserves the existing mitigated-count behavior, and omits details
+that the old server cannot provide. For rollback, roll back Core before
+Mitigator.

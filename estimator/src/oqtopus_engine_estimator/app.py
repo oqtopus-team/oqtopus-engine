@@ -304,6 +304,14 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
                     len(preprocessed_data.circuits),
                 )
         pauli_coeff_map = dict(preprocessed_data.observables.tolist())
+        source_pauli_by_mapped_pauli = {
+            mapped_pauli: _to_indexed_pauli_label(source_pauli)
+            for mapped_pauli, source_pauli in zip(
+                mapped_observable.paulis.to_labels(),
+                op.paulis.to_labels(),
+                strict=True,
+            )
+        }
         grouped_meas_paulis = [
             qc.metadata["meas_paulis"].to_labels() for qc in preprocessed_data.circuits
         ]
@@ -314,7 +322,13 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             [pauli_coeff_map[pauli] for pauli in pauli_list]
             for pauli_list in grouped_orig_paulis
         ]
-        grouped_operators = json.dumps([grouped_meas_paulis, grouped_coeffs])
+        grouped_source_paulis = [
+            [source_pauli_by_mapped_pauli[pauli] for pauli in pauli_list]
+            for pauli_list in grouped_orig_paulis
+        ]
+        grouped_operators = json.dumps(
+            [grouped_meas_paulis, grouped_coeffs, grouped_source_paulis]
+        )
         logger.debug(
             "Estimation preprocess result",
             extra={
@@ -395,6 +409,15 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             stds += np.dot(standard_deviation_upper_bounds, np.abs(coeffs))
 
         return np.real_if_close([exp_value])[0], stds
+
+
+def _to_indexed_pauli_label(pauli: str) -> str:
+    terms = [
+        f"{label} {index}"
+        for index, label in enumerate(reversed(pauli))
+        if label != "I"
+    ]
+    return " ".join(terms) or "I"
 
 
 def create_qiskit_operator(op_string: str, n_qubits: int) -> SparsePauliOp:

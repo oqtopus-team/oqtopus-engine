@@ -81,7 +81,7 @@ def test_ro_error_mitigation_expectation_values(error_mitigator):
     circuit = QuantumCircuit(3, 2)
     circuit.measure([2, 0], [0, 1])
 
-    expectation_values, standard_deviations = (
+    expectation_values, standard_deviations, before_expectation_values = (
         error_mitigator.ro_error_mitigation_expectation_values(
             device_topology,
             counts,
@@ -91,6 +91,7 @@ def test_ro_error_mitigation_expectation_values(error_mitigator):
     )
 
     assert expectation_values == pytest.approx([1.0, -1.0, -1.0, 1.0])
+    assert before_expectation_values == pytest.approx([0.6, -0.7, -0.42, 1.0])
     assert all(value > 0 for value in standard_deviations[:3])
     assert standard_deviations[3] == 0.0
 
@@ -123,7 +124,7 @@ def test_expectation_value_uses_optimized_contraction(
 
     monkeypatch.setattr(np, "einsum", tracked_einsum)
 
-    expectation_values, _ = error_mitigator.ro_error_mitigation_expectation_values(
+    expectation_values, _, _ = error_mitigator.ro_error_mitigation_expectation_values(
         device_topology,
         {"00": 1000},
         qasm3.dumps(circuit),
@@ -153,7 +154,7 @@ def test_ro_error_mitigation_uses_expectation_register(error_mitigator):
     circuit.add_register(ClassicalRegister(1, "__c_Z"))
     circuit.measure(0, circuit.clbits[-1])
 
-    expectation_values, _ = error_mitigator.ro_error_mitigation_expectation_values(
+    expectation_values, _, _ = error_mitigator.ro_error_mitigation_expectation_values(
         device_topology,
         {"10": 500, "11": 500},
         qasm3.dumps(circuit),
@@ -185,6 +186,34 @@ def test_req_expectation_value_mitigation_returns_expectation_values(
 
     assert list(response.expectation_values) == pytest.approx([1.0])
     assert list(response.standard_deviation_upper_bounds)[0] > 0
+    assert list(response.before_expectation_values) == pytest.approx([0.8])
+    assert response.mitigation_details_available is True
+
+
+def test_req_mitigation_returns_quasi_probabilities(
+    error_mitigator: ErrorMitigator,
+):
+    circuit = QuantumCircuit(1, 1)
+    circuit.measure(0, 0)
+    request = mitigator_pb2.ReqMitigationRequest(
+        device_topology=mitigator_pb2.DeviceTopology(
+            qubits=[
+                mitigator_pb2.Qubit(
+                    mes_error=mitigator_pb2.MesError(p0m1=0.1, p1m0=0.0)
+                )
+            ]
+        ),
+        counts={"0": 900, "1": 100},
+        program=qasm3.dumps(circuit),
+    )
+
+    response = error_mitigator.ReqMitigation(request, None)
+
+    assert dict(response.quasi_probabilities) == {
+        "0": pytest.approx(1.0),
+        "1": pytest.approx(0.0, abs=1e-8),
+    }
+    assert response.mitigation_details_available is True
 
 
 def test_ro_error_mitigation(error_mitigator):

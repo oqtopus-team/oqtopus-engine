@@ -113,10 +113,11 @@ When local readout mitigation is enabled for an estimation child:
 3. It creates one assignment matrix per measured qubit from `p0m1` and `p1m0`.
 4. It evaluates each Pauli expectation value directly with the local readout
    mitigator. The optimized contraction uses a greedy `einsum` path.
-5. It returns one corrected expectation value and one standard-deviation upper
-   bound per Pauli label.
-6. Core validates that the Pauli labels, expectation values, and uncertainty
-   bounds have equal lengths, then stores them in the child `JobContext`.
+5. It returns one corrected expectation value, one unmitigated expectation
+   value, and one standard-deviation upper bound per measurement Pauli label.
+6. Core validates the response lengths and stores the values in the child
+   `JobContext` when `mitigation_details_available` is true. A legacy response
+   still contributes its corrected values to the aggregate.
 
 The raw counts remain attached to the sampling child, but the corrected join
 path does not send them to the Estimator service.
@@ -152,7 +153,37 @@ B_{\mathrm{parent}} = \sum_i \lvert c_i \rvert B_i.
 $$
 
 Core writes the aggregated expectation value and uncertainty to the parent
-estimation result.
+estimation result. When every child supplies intermediate values and the
+Estimator supplies source-Pauli metadata, Core also writes per-term values to
+`mitigation_details.ro_error_mitigation.expectation_values`:
+
+```json
+{
+   "estimation": {
+      "exp_value": 1.5711111163,
+      "stds": 0.1054092557
+   },
+   "mitigation_details": {
+      "ro_error_mitigation": {
+         "method": "local_readout_mitigation",
+         "raw_counts": null,
+         "quasi_probabilities": null,
+         "expectation_values": [
+            {
+               "pauli": "X 0 X 1",
+               "coefficient": 1.5,
+               "before_expectation_value": 0.81,
+               "after_expectation_value": 1.0000000033,
+               "standard_deviation_upper_bound": 0.0390404651
+            }
+         ]
+      }
+   }
+}
+```
+
+The published `pauli` is the source operator in canonical indexed notation, not
+the shortened measurement-basis label used internally by the Mitigator.
 
 ## 5. External Library Use
 
@@ -177,7 +208,7 @@ are linked from the
 
 | Service | RPC | Input semantics | Output semantics |
 | --- | --- | --- | --- |
-| Mitigator | `ReqExpectationValueMitigation` | Raw counts and Pauli labels for one estimation measurement group | Corrected expectation values and standard-deviation upper bounds |
+| Mitigator | `ReqExpectationValueMitigation` | Raw counts and Pauli labels for one estimation measurement group | Corrected and unmitigated expectation values, standard-deviation upper bounds, and `mitigation_details_available` |
 | Estimator | `ReqEstimationPostProcessFromExpectationValues` | Corrected expectation-value groups, uncertainty bounds, and grouped operators | Aggregated expectation value and standard-deviation upper bound |
 
 The source definitions are maintained in:
@@ -192,8 +223,8 @@ Generated protobuf and gRPC modules must not be edited manually.
 - The OpenQASM 3 program must parse successfully.
 - Pauli labels must have equal width and contain only `I`, `X`, `Y`, or `Z`.
 - The selected measurement-destination count must match the Pauli-label width.
-- The Mitigator response must contain one expectation value and one uncertainty
-   bound per Pauli label.
+- A details-capable Mitigator response must contain one corrected value, one
+   unmitigated value, and one uncertainty bound per Pauli label.
 - Every child in a join must provide either corrected values and bounds or raw
    counts; mixed child semantics are rejected.
 - The shared limit is 32 measured qubits. Identity-only terms return
@@ -201,16 +232,17 @@ Generated protobuf and gRPC modules must not be edited manually.
 
 ## 8. Deployment Compatibility
 
-The expectation-value methods are new gRPC methods. A new Core calling an older
-Estimator or Mitigator server receives gRPC `UNIMPLEMENTED` because the older
-server does not register those methods.
+The details fields are additive to the existing gRPC methods. A new Core treats
+`mitigation_details_available=false` as a legacy Mitigator response and still
+aggregates the corrected values. If the Estimator response lacks grouped source
+Pauli metadata, Core likewise returns the aggregate without publishing partial
+or ambiguous per-term details.
 
 Use the following rollout order:
 
-1. Deploy the Mitigator service with `ReqExpectationValueMitigation`.
-2. Deploy the Estimator service with
-   `ReqEstimationPostProcessFromExpectationValues`.
-3. Deploy Core after both service methods are available.
+1. Deploy Mitigator with the details-capable responses.
+2. Deploy Estimator with grouped source-Pauli metadata.
+3. Deploy Core after both services are available.
 
 For rollback, reverse the order: roll back Core first, then the Estimator and
 Mitigator services. The existing counts-based RPCs remain available for normal
