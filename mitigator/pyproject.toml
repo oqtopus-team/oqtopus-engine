@@ -18,21 +18,21 @@ classifiers = [
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
-  "grpcio>=1.76.0",
-  "grpcio-reflection>=1.76.0",
-  "numpy>=2.3.5",
-  "opentelemetry-api>=1.27.0",
+  "grpcio>=1.84.1",
+  "grpcio-reflection>=1.84.1",
+  "numpy>=2.5.4",
+  "opentelemetry-api>=1.45.1",
   "opentelemetry-sdk>=1.27.0",
   "opentelemetry-distro>=0.48b0",
   "opentelemetry-exporter-otlp>=1.27.0",
   "opentelemetry-instrumentation-grpc>=0.48b0",
   "opentelemetry-instrumentation-system-metrics>=0.48b0",
-  "protobuf>=6.33.2",
+  "protobuf>=7.36.2",
   "oqtopus-util>=1.0.1",
   "python-json-logger>=4.0.0",
   "pyyaml>=6.0.3",
-  "qiskit==2.5.2",
-  "qiskit-experiments==0.14.1",
+  "qiskit==2.6.1",
+  "qiskit-experiments==0.14.2",
   "qiskit-qasm3-import>=0.6.0",
 ]
 
@@ -42,12 +42,12 @@ repository = "https://github.com/oqtopus-team/oqtopus-engine"
 
 [dependency-groups]
 dev = [
-  "mypy>=1.19.0",
-  "pydantic>=2.12.5",
+  "mypy>=2.4.0",
+  "pydantic>=2.14.1",
   "pytest-cov>=7.0.0",
-  "pytest-mock>=3.15.1",
+  "pytest-mock>=3.17.0",
   "pytest>=9.0.2",
-  "ruff>=0.14.8",
+  "ruff>=0.17.2",
 ]
 
 [build-system]
