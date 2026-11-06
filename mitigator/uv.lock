@@ -983,6 +983,15 @@ wheels = [
 ]
 
 [[package]]
+name = "networkx"
+version = "3.6.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/51/63fe664f3908c97be9d2e4f1158eb633317598cfa6e1fc14af5383f17512/networkx-3.6.1.tar.gz", hash = "sha256:26b7c357accc0c8cde558ad486283728b65b6a95d85ee1cd66bafab4c8168509", size = 2517025, upload-time = "2025-12-08T17:02:39.908Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl", hash = "sha256:d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762", size = 2068504, upload-time = "2025-12-08T17:02:38.159Z" },
+]
+
+[[package]]
 name = "numpy"
 version = "2.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1236,6 +1245,7 @@ source = { editable = "." }
 dependencies = [
     { name = "grpcio" },
     { name = "grpcio-reflection" },
+    { name = "networkx" },
     { name = "numpy" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-distro" },
@@ -1250,6 +1260,8 @@ dependencies = [
     { name = "qiskit" },
     { name = "qiskit-experiments" },
     { name = "qiskit-qasm3-import" },
+    { name = "scipy" },
+    { name = "stim" },
 ]
 
 [package.dev-dependencies]
@@ -1266,6 +1278,7 @@ dev = [
 requires-dist = [
     { name = "grpcio", specifier = ">=1.76.0" },
     { name = "grpcio-reflection", specifier = ">=1.76.0" },
+    { name = "networkx", specifier = ">=3.6.1" },
     { name = "numpy", specifier = ">=2.3.5" },
     { name = "opentelemetry-api", specifier = ">=1.27.0" },
     { name = "opentelemetry-distro", specifier = ">=0.48b0" },
@@ -1280,6 +1293,8 @@ requires-dist = [
     { name = "qiskit", specifier = "==2.5.2" },
     { name = "qiskit-experiments", specifier = "==0.14.1" },
     { name = "qiskit-qasm3-import", specifier = ">=0.6.0" },
+    { name = "scipy", specifier = ">=1.17.1" },
+    { name = "stim", specifier = ">=1.16.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -2127,6 +2142,25 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/db/a1/3b8ed9c1fc3aa6eebb57732d924ddaa0500ecc3b638d0454816320994383/stevedore-5.9.1.tar.gz", hash = "sha256:e97a2667923efda926e8713fde6a73616df68210a3cbc6f02b48967b676fd8bf", size = 518111, upload-time = "2026-08-20T15:25:14.754Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c5/97/bba6e7ec2f5498b9dcb7b1b6400086b80ae5a8ebaff4b25e8c8add75f439/stevedore-5.9.1-py3-none-any.whl", hash = "sha256:5c8ff3a9f336cc1a06ac0f597bc79d11a2f950bfd32e290ca56b5a301fafafbf", size = 54931, upload-time = "2026-08-20T15:25:13.602Z" },
+]
+
+[[package]]
+name = "stim"
+version = "1.16.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/77/bd/c0f5d6241cdb806400a63e0c7febe22982ddf1c8761142bb0ea6b51d3f50/stim-1.16.0.tar.gz", hash = "sha256:9092a996429dcf616d8d4ca01fec886b7b310caf9425a39fcfe499005636bd52", size = 882497, upload-time = "2026-05-22T05:41:56.575Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e4/cf/aeb85a75eca23907ba32c09c95340489a60ff608a9a18ebd26b9ae2e2323/stim-1.16.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:1822adb4920f4616b253792fe1893ad07a9bea8cbc45b2f4cdf7c75a8083cd00", size = 2068071, upload-time = "2026-05-22T05:41:42.237Z" },
+    { url = "https://files.pythonhosted.org/packages/21/40/9499fb076b819b479bffad35afd34e84a93c86f117fb5431dab211adff4f/stim-1.16.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:66dbc6532169df84d127ceede353b15445e845a94aa008c5d0a4062b51cc2b02", size = 1902498, upload-time = "2026-05-22T05:41:43.564Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/d1/6a9bca80b6ffe0fc4a3b0375ac18ff9fb1e815d152691332e55d1a9e5fa2/stim-1.16.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f22a009bad1e7816aeb70bdeafb6789e4840710da070f69cde91e2ac6cf1e800", size = 5307953, upload-time = "2026-05-22T05:41:45.32Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/15/db7f4b80a0903e0962f5d824ca8cb5a962836399bd45fda59961782ebb20/stim-1.16.0-cp313-cp313-win_amd64.whl", hash = "sha256:55231457b5897b0ef798059aae01d9e8247fc8b2089e8a27f9f4bb13b0342af2", size = 2760785, upload-time = "2026-05-22T05:41:47.156Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/f8/4266593404f455c676bfe95785f865d77e98578fc4a35af9835653a65598/stim-1.16.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:1e78fe10ab4c28af9ceb57ac8ed895f3efcde9607d851ef931c53d1f6f80bc8e", size = 2062900, upload-time = "2026-05-22T05:41:48.975Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/d1/a898d8e587a8718daabaf886f2d0c22c126a691886765096a0776b5b463c/stim-1.16.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:1fa60a13ef921d6e6aea420e2fe7551d71a4a07b513d86da89e39259dd3739f9", size = 1898162, upload-time = "2026-05-22T05:41:50.973Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/b2/8535802f6eb5230678b067cde35b81fc612c612698f192b31164c6a19b9f/stim-1.16.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f94040cbeeff786e7fb8860249e54d9ba3f777b5b098d21f1eccd072d3a3c32a", size = 5311829, upload-time = "2026-05-22T05:41:53.291Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/85/be0fe295a5c5426aec0a2f8497360d9db8083d62c04de81bf744d29a131e/stim-1.16.0-cp314-cp314-win_amd64.whl", hash = "sha256:ed3aa70f82690946ba6f70abb9dad448d49ab9499fa5161de5f286da87c30ab1", size = 2825951, upload-time = "2026-05-22T05:41:55.018Z" },
 ]
 
 [[package]]

@@ -7,3 +7,7 @@ proto: # Settings for gRPC server
   grpc_options:
     - ["grpc.max_receive_message_length", ${GRPC_MAX_RECEIVE_MESSAGE_LENGTH, 4194304}]
     - ["grpc.max_send_message_length", ${GRPC_MAX_SEND_MESSAGE_LENGTH, 4194304}]
+qcxt:
+  max_cuts: ${MAX_CUTS, 3} # Maximum number of cuts. If max_cuts = k, then at most 4^k subcircuits will be generated.
+  fidelity_threshold: ${FIDELITY_THRESHOLD, 0.96} # Fidelity threshold for forced cuts
+  min_partition_ratio: ${MIN_PARTITION_RATIO, 0.0} # Minimum partition ratio for barance constraint.

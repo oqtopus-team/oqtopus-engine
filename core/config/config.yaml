@@ -22,6 +22,7 @@ pipeline_manager:
       steps:
         - job_repository_update_step
         - tranqu_step
+        - qcxt_step
         - estimator_step
         - ro_error_mitigation_step
         - mp_auto_combining_step
@@ -122,6 +123,21 @@ di_container:
         transpiler_lib: qiskit
         transpiler_options:
           optimization_level: 1
+
+    qcxt_step:
+      _target_: oqtopus_engine_core.steps.QcxtStep
+      mitigator_address: ${MITIGATOR_ADDRESS, "localhost:51011"}
+      grpc_options: *grpc_options
+      basis_gates:
+        - "cx"
+        - "id"
+        - "rz"
+        - "sx"
+        - "x"
+        - "reset"
+        - "delay"
+        - "measure"
+      enable_qcxt: ${ENABLE_QCXT, true}
 
     estimator_step:
       _target_: oqtopus_engine_core.steps.EstimatorStep

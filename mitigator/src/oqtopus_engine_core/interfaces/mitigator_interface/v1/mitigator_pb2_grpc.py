@@ -121,3 +121,121 @@ class MitigatorService(object):
             timeout,
             metadata,
             _registered_method=True)
+
+
+class QcxtServiceStub(object):
+    """RPC service for qCxT
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.ReqQcxtPreProcess = channel.unary_unary(
+                '/mitigator_interface.v1.QcxtService/ReqQcxtPreProcess',
+                request_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPreProcessRequest.SerializeToString,
+                response_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPreProcessResponse.FromString,
+                _registered_method=True)
+        self.ReqQcxtPostProcess = channel.unary_unary(
+                '/mitigator_interface.v1.QcxtService/ReqQcxtPostProcess',
+                request_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPostProcessRequest.SerializeToString,
+                response_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPostProcessResponse.FromString,
+                _registered_method=True)
+
+
+class QcxtServiceServicer(object):
+    """RPC service for qCxT
+    """
+
+    def ReqQcxtPreProcess(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReqQcxtPostProcess(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_QcxtServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'ReqQcxtPreProcess': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReqQcxtPreProcess,
+                    request_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPreProcessRequest.FromString,
+                    response_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPreProcessResponse.SerializeToString,
+            ),
+            'ReqQcxtPostProcess': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReqQcxtPostProcess,
+                    request_deserializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPostProcessRequest.FromString,
+                    response_serializer=oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPostProcessResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'mitigator_interface.v1.QcxtService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('mitigator_interface.v1.QcxtService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class QcxtService(object):
+    """RPC service for qCxT
+    """
+
+    @staticmethod
+    def ReqQcxtPreProcess(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mitigator_interface.v1.QcxtService/ReqQcxtPreProcess',
+            oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPreProcessRequest.SerializeToString,
+            oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPreProcessResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReqQcxtPostProcess(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/mitigator_interface.v1.QcxtService/ReqQcxtPostProcess',
+            oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPostProcessRequest.SerializeToString,
+            oqtopus__engine__core_dot_interfaces_dot_mitigator__interface_dot_v1_dot_mitigator__pb2.ReqQcxtPostProcessResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
