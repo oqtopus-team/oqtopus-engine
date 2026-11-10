@@ -1,4 +1,5 @@
 import logging
+from http import HTTPStatus
 
 from oqtopus_engine_core.framework import (
     GlobalContext,
@@ -7,6 +8,7 @@ from oqtopus_engine_core.framework import (
     PipelineExceptionHandler,
     resolve_repository_jobs,
 )
+from oqtopus_engine_core.interfaces.oqtopus_cloud.rest import ApiException
 
 logger = logging.getLogger(__name__)
 
@@ -51,9 +53,28 @@ class FailJobRepositoryHandler(PipelineExceptionHandler):
             try:
                 job.status = "failed"
                 job.message = message
-                await gctx.job_repository.update_job_status(  # type: ignore[union-attr]
-                    job=job,
-                )
+                # Go through the per-job_id queue so this terminal PATCH
+                # cannot overtake output uploads or the ready -> running
+                # PATCH queued earlier by steps (e.g. TranquStep,
+                # DeviceGatewayStep), and so it carries the output_files of
+                # uploads that completed before it. The status/message set
+                # above are snapshotted at call time, so they must be set
+                # first.
+                await gctx.job_repository.update_job_status_ordered(job)  # type: ignore[union-attr]
+            except ApiException as update_ex:
+                if update_ex.status == HTTPStatus.CONFLICT:
+                    # The job already reached a terminal state through
+                    # another path (e.g. cancelled by the user). Not an
+                    # engine-side failure, so this is not raised to ERROR.
+                    logger.info(
+                        "failed status rejected; job already terminal",
+                        extra={"job_id": job.job_id, "job_type": job.job_type},
+                    )
+                else:
+                    logger.exception(
+                        "failed to update job status to 'failed' in the repository",
+                        extra={"job_id": job.job_id, "job_type": job.job_type},
+                    )
             except Exception:
                 logger.exception(
                     "failed to update job status to 'failed' in the repository",

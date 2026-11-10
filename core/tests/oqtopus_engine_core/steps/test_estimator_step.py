@@ -95,6 +95,23 @@ async def test_pre_process_calls_grpc_and_creates_children(
 
 
 @pytest.mark.asyncio
+async def test_pre_process_skips_direct_estimation_when_configured() -> None:
+    estimator_step = EstimatorStep(skip_direct_estimation=True)
+    estimator_step._stub = MagicMock()
+    job = _make_estimation_job("direct-job")
+    job.simulator_info = {"estimation_method": "direct"}
+
+    result = await estimator_step.pre_process(
+        MagicMock(),
+        JobContext(initial={}),
+        job,
+    )
+
+    assert result.directive is PipelineDirective.NONE
+    estimator_step._stub.ReqEstimationPreProcess.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_pre_process_uses_transpile_mapping_in_sorted_order(
     estimator_step_instance: EstimatorStep,
 ) -> None:
