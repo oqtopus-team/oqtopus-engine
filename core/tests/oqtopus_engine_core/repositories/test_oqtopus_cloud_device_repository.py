@@ -34,7 +34,7 @@ def make_repo() -> OqtopusCloudDeviceRepository:
             "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.DevicesApi"
         ),
         patch(
-            "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.ApiClient"
+            "oqtopus_engine_core.auth.api_client.ApiClient"
         ),
         patch(
             "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.Configuration"
@@ -71,7 +71,7 @@ async def test_update_device_passes_api_request_timeout_seconds():
             "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.DevicesApi"
         ) as mock_devices_api_cls,
         patch(
-            "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.ApiClient"
+            "oqtopus_engine_core.auth.api_client.ApiClient"
         ),
         patch(
             "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.Configuration"
@@ -95,7 +95,7 @@ async def test_update_device_status_passes_api_request_timeout_seconds():
             "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.DevicesApi"
         ) as mock_devices_api_cls,
         patch(
-            "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.ApiClient"
+            "oqtopus_engine_core.auth.api_client.ApiClient"
         ),
         patch(
             "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.Configuration"
@@ -119,7 +119,7 @@ async def test_update_device_info_passes_api_request_timeout_seconds():
             "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.DevicesApi"
         ) as mock_devices_api_cls,
         patch(
-            "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.ApiClient"
+            "oqtopus_engine_core.auth.api_client.ApiClient"
         ),
         patch(
             "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.Configuration"
@@ -164,11 +164,11 @@ def test_auth_mode_falls_back_to_env(monkeypatch: pytest.MonkeyPatch) -> None:
     ), patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.Configuration"
     ), patch(
-        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.ApiClient"
+        "oqtopus_engine_core.auth.api_client.ApiClient"
     ) as api_client_cls, patch(
-        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.BearerAuthApiClient"
+        "oqtopus_engine_core.auth.api_client.BearerAuthApiClient"
     ) as bearer_cls, patch(
-        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.ClientCredentialsTokenProvider"
+        "oqtopus_engine_core.auth.api_client.ClientCredentialsTokenProvider"
     ):
         OqtopusCloudDeviceRepository(workers=1)
 
@@ -184,9 +184,9 @@ def test_explicit_auth_mode_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
     ), patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.Configuration"
     ), patch(
-        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.ApiClient"
+        "oqtopus_engine_core.auth.api_client.ApiClient"
     ) as api_client_cls, patch(
-        "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.BearerAuthApiClient"
+        "oqtopus_engine_core.auth.api_client.BearerAuthApiClient"
     ) as bearer_cls:
         OqtopusCloudDeviceRepository(workers=1, auth_mode="api_key")
 

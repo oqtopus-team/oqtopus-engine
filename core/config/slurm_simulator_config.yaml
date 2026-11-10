@@ -46,6 +46,15 @@ di_container:
       api_request_timeout_seconds: ${JOB_API_REQUEST_TIMEOUT_SECONDS, 10}
       device_id: ${SLURM_DEVICE_ID, "large-simulator"}
       work_root: ${SLURM_WORK_ROOT}
+      # Auth: shares the Jobs API auth contract (api_key or oidc) with the Job
+      # repository, so the SLURM execution client does not stay on x-api-key
+      # while the other Cloud clients run in OIDC mode.
+      # Precedence: JOB_REPOSITORY_AUTH_MODE > AUTH_MODE > "api_key" (in code).
+      auth_mode: ${JOB_REPOSITORY_AUTH_MODE, ""}
+      oidc_token_url: ${OIDC_TOKEN_URL, ""}
+      oidc_client_id: ${OIDC_CLIENT_ID, ""}
+      oidc_client_secret: ${OIDC_CLIENT_SECRET, ""}
+      oidc_scope: ${OIDC_SCOPE, ""}
 
     process_lock:
       _target_: oqtopus_engine_core.simulator.execution.SingleProcessLock
@@ -109,6 +118,13 @@ di_container:
       api_request_timeout_seconds: ${JOB_API_REQUEST_TIMEOUT_SECONDS, 10}
       file_op_timeout_seconds: ${JOB_FILE_OP_TIMEOUT_SECONDS, 60}
       max_file_size: ${MAX_FILE_SIZE, 10485760}
+      # Auth: "api_key" or "oidc" (OAuth2 client-credentials).
+      # Precedence: JOB_REPOSITORY_AUTH_MODE > AUTH_MODE > "api_key" (in code).
+      auth_mode: ${JOB_REPOSITORY_AUTH_MODE, ""}
+      oidc_token_url: ${OIDC_TOKEN_URL, ""}
+      oidc_client_id: ${OIDC_CLIENT_ID, ""}
+      oidc_client_secret: ${OIDC_CLIENT_SECRET, ""}
+      oidc_scope: ${OIDC_SCOPE, ""}
 
     device_repository:
       _target_: oqtopus_engine_core.repositories.OqtopusCloudDeviceRepository
@@ -117,6 +133,13 @@ di_container:
       workers: ${DEVICE_REPOSITORY_WORKERS, 1}
       api_request_timeout_seconds: ${DEVICE_REPOSITORY_API_REQUEST_TIMEOUT_SECONDS, 10}
       max_file_size: ${MAX_FILE_SIZE, 10485760}
+      # Auth: "api_key" or "oidc" (OAuth2 client-credentials).
+      # Precedence: DEVICE_REPOSITORY_AUTH_MODE > AUTH_MODE > "api_key" (in code).
+      auth_mode: ${DEVICE_REPOSITORY_AUTH_MODE, ""}
+      oidc_token_url: ${OIDC_TOKEN_URL, ""}
+      oidc_client_id: ${OIDC_CLIENT_ID, ""}
+      oidc_client_secret: ${OIDC_CLIENT_SECRET, ""}
+      oidc_scope: ${OIDC_SCOPE, ""}
 
     # buffer configurations
     buffer:
