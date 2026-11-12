@@ -1,13 +1,17 @@
 from __future__ import annotations
 
-from collections import Counter
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
+
+if TYPE_CHECKING:
+    from qiskit import QuantumCircuit  # type: ignore[import-untyped]
 
 
 @dataclass(frozen=True)
 class DeviceData:
-    """Class to hold device information to be used in the MIP solver and simulator.
+    """Device values used by one circuit in the MIP solver and simulator.
+
+    Holds only the qubits and CX pairs that the circuit uses.
 
     Attributes:
         one_qubit_fidelities: One-qubit gate fidelities.
@@ -36,60 +40,64 @@ class DeviceData:
         }
 
     @classmethod
-    def from_dict(cls, device_info: dict[str, Any]) -> Self:
-        """Create a DeviceData instance from a dictionary containing device information.
+    def from_dict(
+        cls, device_info: dict[str, Any], circuit: QuantumCircuit
+    ) -> Self | None:
+        """Extract the device values that the circuit uses.
 
         Args:
             device_info: A dictionary containing device parameters.
+            circuit: The circuit whose qubits and CX pairs are looked up.
 
         Returns:
-            An instance of DeviceData with extracted device information.
-
-        Raises:
-            ValueError: If a required key is missing, a value has a wrong type,
-                a qubit ID is duplicated, or a fidelity or readout error is
-                outside [0, 1].
+            DeviceData holding only the values the circuit uses, or None if any of
+            them is missing, not a number, or outside [0, 1].
 
         """
+        # Barriers are skipped because no device value is read for them.
+        qubits = {
+            circuit.find_bit(qubit).index
+            for instruction in circuit.data
+            if instruction.operation.name != "barrier"
+            for qubit in instruction.qubits
+        }
+        cx_pairs = {
+            (
+                circuit.find_bit(instruction.qubits[0]).index,
+                circuit.find_bit(instruction.qubits[1]).index,
+            )
+            for instruction in circuit.data
+            if instruction.operation.name == "cx"
+        }
+
         try:
-            # Extract (id, fidelity, readout error) of each qubit
-            qubits = [
-                (
-                    int(qubit["id"]),
-                    float(qubit["fidelity"]),
-                    float(qubit["meas_error"]["readout_assignment_error"]),
-                )
-                for qubit in device_info["qubits"]
-            ]
-            # Extract two-qubit fidelities
-            two_qubit_fidelities = {
-                (int(coupling["control"]), int(coupling["target"])): float(
-                    coupling["fidelity"]
-                )
+            qubit_info = {qubit.get("id"): qubit for qubit in device_info["qubits"]}
+            coupling_info = {
+                (coupling.get("control"), coupling.get("target")): coupling
                 for coupling in device_info["couplings"]
             }
-        except (KeyError, TypeError) as e:
-            msg = f"Invalid device_info: {e!r}"
-            raise ValueError(msg) from e
+            one_qubit_fidelities = {
+                qid: float(qubit_info[qid]["fidelity"]) for qid in qubits
+            }
+            readout_errors = {
+                qid: float(qubit_info[qid]["meas_error"]["readout_assignment_error"])
+                for qid in qubits
+            }
+            two_qubit_fidelities = {
+                pair: float(coupling_info[pair]["fidelity"]) for pair in cx_pairs
+            }
+        except (KeyError, TypeError, ValueError):
+            # Absent key or entry, null value, or a value that is not a number.
+            return None
 
-        id_counts = Counter(qid for qid, _, _ in qubits)
-        duplicates = sorted(qid for qid, count in id_counts.items() if count > 1)
-        if duplicates:
-            msg = f"Duplicate qubit ids in device_info: {duplicates}"
-            raise ValueError(msg)
-        one_qubit_fidelities = {qid: fidelity for qid, fidelity, _ in qubits}
-        readout_errors = {qid: error for qid, _, error in qubits}
-
-        # NaN fails these comparisons too, so non-finite values are rejected.
-        for label, values in (
-            ("qubit fidelity", one_qubit_fidelities),
-            ("readout_assignment_error", readout_errors),
-            ("coupling fidelity", two_qubit_fidelities),
-        ):
-            out_of_range = {k: v for k, v in values.items() if not 0.0 <= v <= 1.0}
-            if out_of_range:
-                msg = f"{label} must be in [0, 1]: {out_of_range}"
-                raise ValueError(msg)
+        # NaN fails this comparison too, so non-finite values are rejected.
+        values = [
+            *one_qubit_fidelities.values(),
+            *readout_errors.values(),
+            *two_qubit_fidelities.values(),
+        ]
+        if not all(0.0 <= value <= 1.0 for value in values):
+            return None
 
         return cls(
             one_qubit_fidelities=one_qubit_fidelities,

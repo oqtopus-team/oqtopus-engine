@@ -273,9 +273,8 @@ class Qcxt(mitigator_pb2_grpc.QcxtService):
             request.basis_gates,
         )
         try:
-            device_data = DeviceData.from_dict(json.loads(request.device_info))
             sub_programs, coefficients, selected_cuts = self._preprocess(
-                program, device_data, shots, basis_gates
+                program, json.loads(request.device_info), shots, basis_gates
             )
             logger.debug(
                 "sub_programs:%s, coefficients:%s, selected_cuts:%s",
@@ -340,7 +339,7 @@ class Qcxt(mitigator_pb2_grpc.QcxtService):
     def _preprocess(
         self,
         program: str,
-        device_data: DeviceData,
+        device_info: dict[str, Any],
         shots: int,
         basis_gates: list[str],
     ) -> tuple[list[str], list[float], list[dict[str, Any]]]:
@@ -353,6 +352,11 @@ class Qcxt(mitigator_pb2_grpc.QcxtService):
             qc.num_clbits,
             gate_counts.get("cx", 0),
         )
+
+        device_data = DeviceData.from_dict(device_info, qc)
+        if device_data is None:
+            logger.warning("Invalid device_info. Skipping qcxt.")
+            return [program], [1.0], []
 
         # Select cuts based on the device data and circuit
         selector = CutSelector(

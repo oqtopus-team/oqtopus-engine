@@ -1,58 +1,65 @@
 import pytest
+from qiskit import QuantumCircuit  # type: ignore[import-untyped]
 
 from oqtopus_engine_mitigator.qcxt.device import DeviceData
 
 
-def make_device_info(*, coupling_fidelity: float = 0.98) -> dict:
+def make_device_info() -> dict:
     return {
         "qubits": [
             {
-                "id": "0",
+                "id": 0,
                 "fidelity": 0.999,
                 "meas_error": {"readout_assignment_error": 0.01},
             },
             {
-                "id": "1",
+                "id": 1,
                 "fidelity": 0.998,
                 "meas_error": {"readout_assignment_error": 0.02},
             },
+            {"fidelity": None},  # Unused: no ID and no values.
         ],
         "couplings": [
-            {"control": 0, "target": 1, "fidelity": coupling_fidelity},
+            {"control": 0, "target": 1, "fidelity": 0.98},
+            {"fidelity": 0.97},  # Unused: no control or target.
         ],
     }
 
 
-def test_from_dict_builds_expected_fields():
-    # Test that from_dict constructs a DeviceData object with the expected fields.
-    device_info = make_device_info(coupling_fidelity=0.98)
+def make_circuit() -> QuantumCircuit:
+    # Qubit 2 is touched only by the barrier and has no device values.
+    qc = QuantumCircuit(3)
+    qc.h(0)
+    qc.cx(0, 1)
+    qc.barrier()
+    return qc
 
-    device = DeviceData.from_dict(device_info)
 
-    assert device.one_qubit_fidelities == {0: 0.999, 1: 0.998}
-    assert device.two_qubit_fidelities == {(0, 1): 0.98}
-    assert device.readout_errors == {0: 0.01, 1: 0.02}
-    # id fields given as strings should be converted to int
-    assert all(isinstance(qid, int) for qid in device.one_qubit_fidelities)
+def test_from_dict_extracts_values_used_by_circuit():
+    # Test that from_dict keeps only the values the circuit uses.
+    device = DeviceData.from_dict(make_device_info(), make_circuit())
+
+    assert device == DeviceData(
+        one_qubit_fidelities={0: 0.999, 1: 0.998},
+        two_qubit_fidelities={(0, 1): 0.98},
+        readout_errors={0: 0.01, 1: 0.02},
+    )
 
 
 @pytest.mark.parametrize(
     "mutate",
     [
-        lambda info: info.pop("couplings"),
+        lambda info: info["qubits"][0].pop("fidelity"),
         lambda info: info["qubits"][0].update(fidelity=1.5),
-        lambda info: info["couplings"][0].update(fidelity=float("nan")),
-        lambda info: info["qubits"][1].update(id="0"),
     ],
-    ids=["missing_key", "fidelity_out_of_range", "nan_fidelity", "duplicate_id"],
+    ids=["missing_value", "out_of_range"],
 )
-def test_from_dict_rejects_invalid_device_info(mutate):
-    # Test that from_dict raises ValueError for malformed or out-of-range device_info.
+def test_from_dict_returns_none_for_invalid_used_value(mutate):
+    # Test that from_dict returns None if a value the circuit uses is invalid.
     device_info = make_device_info()
     mutate(device_info)
 
-    with pytest.raises(ValueError):
-        DeviceData.from_dict(device_info)
+    assert DeviceData.from_dict(device_info, make_circuit()) is None
 
 
 def test_error_properties_derived_from_fidelities():

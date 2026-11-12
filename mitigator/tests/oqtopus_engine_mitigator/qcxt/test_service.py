@@ -8,7 +8,6 @@ from oqtopus_engine_core.interfaces.mitigator_interface.v1.mitigator_pb2 import 
     ReqQcxtPostProcessRequest,
     ReqQcxtPreProcessRequest,
 )
-from oqtopus_engine_mitigator.qcxt.device import DeviceData
 from oqtopus_engine_mitigator.qcxt.service import Qcxt, _cut
 from oqtopus_engine_mitigator.qcxt.simulator import Simulator
 from oqtopus_engine_mitigator.qcxt.solver import SelectedCut
@@ -46,14 +45,6 @@ def make_device_info(*, coupling_fidelity: float) -> dict:
             {"control": 0, "target": 1, "fidelity": coupling_fidelity},
         ],
     }
-
-
-def make_device_data(*, coupling_fidelity: float) -> DeviceData:
-    return DeviceData(
-        one_qubit_fidelities={0: 0.999, 1: 0.998},
-        two_qubit_fidelities={(0, 1): coupling_fidelity},
-        readout_errors={0: 0.01, 1: 0.02},
-    )
 
 
 def test_qcxt_treats_negative_max_cuts_as_zero():
@@ -101,11 +92,11 @@ def test_reqqcxt_postprocess_returns_response(qcxt: Qcxt):
 
 def test_preprocess_falls_back_when_judge_false(qcxt: Qcxt):
     # Test that the _preprocess method falls back when the judge method returns False.
-    device_data = make_device_data(coupling_fidelity=0.90)
+    device_info = make_device_info(coupling_fidelity=0.90)
 
     with patch.object(Simulator, "judge", return_value=False):
         sub_programs, coefficients, selected_cuts = qcxt._preprocess(
-            BELL_QASM, device_data, 1000, BASIS_GATES
+            BELL_QASM, device_info, 1000, BASIS_GATES
         )
 
     assert len(sub_programs) == 1
@@ -115,11 +106,11 @@ def test_preprocess_falls_back_when_judge_false(qcxt: Qcxt):
 
 def test_preprocess_applies_cut_when_judge_true(qcxt: Qcxt):
     # Test that the _preprocess method applies a cut when the judge method returns True.
-    device_data = make_device_data(coupling_fidelity=0.90)
+    device_info = make_device_info(coupling_fidelity=0.90)
 
     with patch.object(Simulator, "judge", return_value=True):
         sub_programs, coefficients, selected_cuts = qcxt._preprocess(
-            BELL_QASM, device_data, 1000, BASIS_GATES
+            BELL_QASM, device_info, 1000, BASIS_GATES
         )
 
     assert (
@@ -134,21 +125,43 @@ def test_preprocess_applies_cut_when_judge_true(qcxt: Qcxt):
     assert cut["cx_index"] == 0
 
 
-def make_physical_device_data(*, coupling_fidelity: float) -> DeviceData:
-    return DeviceData(
-        one_qubit_fidelities={9: 0.999, 11: 0.998},
-        two_qubit_fidelities={(9, 11): coupling_fidelity},
-        readout_errors={9: 0.01, 11: 0.02},
-    )
+def test_preprocess_skips_qcxt_when_device_info_is_invalid(qcxt: Qcxt):
+    # Test that the _preprocess method returns the original circuit if device_info lacks a used value.
+    device_info = make_device_info(coupling_fidelity=0.90)
+    device_info.pop("couplings")
+
+    result = qcxt._preprocess(BELL_QASM, device_info, 1000, BASIS_GATES)
+
+    assert result == ([BELL_QASM], [1.0], [])
+
+
+def make_physical_device_info(*, coupling_fidelity: float) -> dict:
+    return {
+        "qubits": [
+            {
+                "id": 9,
+                "fidelity": 0.999,
+                "meas_error": {"readout_assignment_error": 0.01},
+            },
+            {
+                "id": 11,
+                "fidelity": 0.998,
+                "meas_error": {"readout_assignment_error": 0.02},
+            },
+        ],
+        "couplings": [
+            {"control": 9, "target": 11, "fidelity": coupling_fidelity},
+        ],
+    }
 
 
 def test_preprocess_keeps_physical_qubit_notation(qcxt: Qcxt):
     # Test that the exported sub-programs from _preprocess keep the physical qubit notation (e.g., $9, $11).
-    device_data = make_physical_device_data(coupling_fidelity=0.90)
+    device_info = make_physical_device_info(coupling_fidelity=0.90)
 
     with patch.object(Simulator, "judge", return_value=True):
         sub_programs, _coefficients, selected_cuts = qcxt._preprocess(
-            PHYSICAL_BELL_QASM, device_data, 1000, BASIS_GATES
+            PHYSICAL_BELL_QASM, device_info, 1000, BASIS_GATES
         )
 
     assert len(selected_cuts) == 1
