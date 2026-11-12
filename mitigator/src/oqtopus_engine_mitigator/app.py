@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from qiskit.circuit.quantumcircuitdata import (  # type: ignore[import-untyped]
         CircuitInstruction,
     )
-from oqtopus_engine_mitigator.qcxt.app import Qcxt
+from oqtopus_engine_mitigator.qcxt.service import Qcxt
 
 logger = logging.getLogger("oqtopus_engine_mitigator")
 tracer = trace.get_tracer("oqtopus_engine_mitigator")

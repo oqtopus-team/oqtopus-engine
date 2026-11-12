@@ -1,15 +1,15 @@
 import json
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import patch
 from qiskit import QuantumCircuit  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.interfaces.mitigator_interface.v1.mitigator_pb2 import (  # type: ignore[attr-defined]
     ReqQcxtPostProcessRequest,
     ReqQcxtPreProcessRequest,
 )
-from oqtopus_engine_mitigator.qcxt.app import Qcxt, _cut
 from oqtopus_engine_mitigator.qcxt.device import DeviceData
+from oqtopus_engine_mitigator.qcxt.service import Qcxt, _cut
 from oqtopus_engine_mitigator.qcxt.simulator import Simulator
 from oqtopus_engine_mitigator.qcxt.solver import SelectedCut
 
@@ -199,9 +199,7 @@ def test_cut_single_cx_with_z_and_measure():
         assert ops.get("measure", 0) == 2
 
         replacement_ops = {
-            name: count
-            for name, count in ops.items()
-            if name not in {"z", "measure"}
+            name: count for name, count in ops.items() if name not in {"z", "measure"}
         }
         assert set(replacement_ops).issubset(replacement_allowed_ops)
         replacement_gate_totals.append(sum(replacement_ops.values()))
