@@ -43,9 +43,6 @@ DUMMY_DEVICE_INFO = json.dumps(
 DUMMY_EXPVAL = 0.6
 DUMMY_STDS = 0.1
 DUMMY_EXECUTION_TIMES = [0.111, 0.222, 0.333, 0.444]
-DUMMY_TRANSPILER_INFO = {
-    "transpiler_options": {"initial_layout": [1, 0], "optimization_level": 3}
-}
 DUMMY_TRANSPILE_RESULT = TranspileResult(
     transpiled_program="transpiled-program",
     stats={"depth": 5},
@@ -204,7 +201,7 @@ async def test_pre_process_uses_transpiled_program_and_updates_children(
 ) -> None:
     jctx = JobContext(initial={})
     job = _make_qcxt_job("job-2")
-    job.transpiler_info = DUMMY_TRANSPILER_INFO
+    job.transpiler_info = {"transpiler_options": {"initial_layout": [1, 0], "optimization_level": 3}}
     job.transpile_result = DUMMY_TRANSPILE_RESULT
 
     result = await step.pre_process(_make_gctx(), jctx, job)
@@ -218,9 +215,7 @@ async def test_pre_process_uses_transpiled_program_and_updates_children(
         assert child.transpile_result.transpiled_program == DUMMY_SUB_PROGRAMS[i]
         assert child.transpile_result.stats == {}
         assert child.transpile_result.virtual_physical_mapping == DUMMY_TRANSPILE_RESULT.virtual_physical_mapping
-        # initial_layout is cleared so that mp_auto is disabled for children.
-        assert child.transpiler_info["transpiler_options"]["initial_layout"] is None
-        assert child.transpiler_info["transpiler_options"]["optimization_level"] == DUMMY_TRANSPILER_INFO["transpiler_options"]["optimization_level"]
+        assert child.transpiler_info["transpiler_lib"] is None
 
 
 @pytest.mark.asyncio

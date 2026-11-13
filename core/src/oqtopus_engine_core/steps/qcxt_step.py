@@ -63,10 +63,8 @@ def _build_child_job(
 
     child_transpiler_info = deepcopy(parent_job.transpiler_info)
     if child_transpiler_info:
-        child_transpiler_options = child_transpiler_info.get("transpiler_options", {})
-        if child_transpiler_options.get("initial_layout", None) is not None:
-            # Update the initial layout to None in order to disable mp_auto
-            child_transpiler_info["transpiler_options"]["initial_layout"] = None
+        # Update transpiler_lib to None in order to disable mp_auto
+        child_transpiler_info["transpiler_lib"] = None
 
     return Job(
         job_id=child_job_id,
