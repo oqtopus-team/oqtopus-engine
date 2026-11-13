@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from qiskit.circuit.quantumcircuitdata import (  # type: ignore[import-untyped]
         CircuitInstruction,
     )
+from oqtopus_engine_mitigator.qcxt.service import Qcxt
 
 logger = logging.getLogger("oqtopus_engine_mitigator")
 tracer = trace.get_tracer("oqtopus_engine_mitigator")
@@ -522,15 +523,28 @@ def serve(config_yaml_path: str, logging_yaml_path: str) -> None:
     max_workers = int(config_yaml["proto"].get("max_workers") or 10)
     address = str(config_yaml["proto"].get("address") or "[::]:51011")
 
+    max_cuts = int(config_yaml["qcxt"].get("max_cuts", 3))
+    fidelity_threshold = float(config_yaml["qcxt"].get("fidelity_threshold", 0.96))
+    min_partition_ratio = float(config_yaml["qcxt"].get("min_partition_ratio", 0.0))
+
     # create the gRPC server
     server = grpc.server(
         futures.ThreadPoolExecutor(max_workers=max_workers),
         options=config_yaml["proto"]["grpc_options"],
     )
     mitigator_pb2_grpc.add_MitigatorServiceServicer_to_server(ErrorMitigator(), server)
+    mitigator_pb2_grpc.add_QcxtServiceServicer_to_server(
+        Qcxt(
+            max_cuts=max_cuts,
+            fidelity_threshold=fidelity_threshold,
+            min_partition_ratio=min_partition_ratio,
+        ),
+        server,
+    )
 
     service_names = (
         DESCRIPTOR.services_by_name["MitigatorService"].full_name,
+        DESCRIPTOR.services_by_name["QcxtService"].full_name,
         reflection.SERVICE_NAME,
     )
     reflection.enable_server_reflection(service_names, server)
