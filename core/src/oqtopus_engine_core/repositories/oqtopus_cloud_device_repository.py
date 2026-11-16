@@ -185,6 +185,9 @@ class OqtopusCloudDeviceRepository(DeviceRepository):
         """
         body = DevicesUpdateDeviceRequest(
             n_qubits=device.n_qubits,
+            max_shots=(device.max_shots or 0)
+            if "max_shots" in device.model_fields_set
+            else None,
         )
 
         def _call() -> tuple[object, int, dict]:

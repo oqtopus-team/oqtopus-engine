@@ -12,6 +12,7 @@ class Device(BaseModel):
     status: str
     available_at: datetime | None = None
     n_qubits: int
+    max_shots: int | None = None
     basis_gates: list[str]
     instructions: list[str]
     device_info: str | None = None

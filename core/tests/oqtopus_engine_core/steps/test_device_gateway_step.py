@@ -52,10 +52,38 @@ def _make_job(job_type: str) -> MagicMock:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("job_type", ["sampling", "multi_manual"])
+async def test_pre_process_rejects_internal_job_above_device_limit(
+    gateway_step: DeviceGatewayStep, job_type: str
+) -> None:
+    gctx = MagicMock(device=SimpleNamespace(max_shots=99))
+    gctx.job_repository.update_job_status_nowait = AsyncMock()
+    job = _make_job(job_type)
+
+    with pytest.raises(ValueError, match="device limit of 99"):
+        await gateway_step.pre_process(gctx, JobContext(), job)
+
+    gateway_step._stub.CallJob.assert_not_awaited()
+    gctx.job_repository.update_job_status_nowait.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pre_process_accepts_shots_at_device_limit(
+    gateway_step: DeviceGatewayStep,
+) -> None:
+    gctx = MagicMock(device=SimpleNamespace(max_shots=100))
+    gctx.job_repository.update_job_status_nowait = AsyncMock()
+
+    await gateway_step.pre_process(gctx, JobContext(), _make_job("sampling"))
+
+    gateway_step._stub.CallJob.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_pre_process_ordinary_sampling_job_updates_its_own_status(
     gateway_step: DeviceGatewayStep,
 ) -> None:
-    gctx = MagicMock()
+    gctx = MagicMock(device=None)
     gctx.job_repository.update_job_status_nowait = AsyncMock()
     jctx = JobContext()
     job = _make_job("sampling")
@@ -90,7 +118,7 @@ async def test_pre_process_internal_jobs_serialize_gateway_execution(
 
     gateway_step._stub.CallJob = AsyncMock(side_effect=call_job_side_effect)
 
-    gctx = MagicMock()
+    gctx = MagicMock(device=None)
     gctx.job_repository.update_job_status_nowait = AsyncMock()
     jctx = JobContext()
     job_a = _make_job("sampling")
@@ -115,7 +143,7 @@ async def test_pre_process_internal_jobs_serialize_gateway_execution(
 async def test_pre_process_estimation_job_raises_configuration_error(
     gateway_step: DeviceGatewayStep,
 ) -> None:
-    gctx = MagicMock()
+    gctx = MagicMock(device=None)
     gctx.job_repository.update_job_status_nowait = AsyncMock()
     job = _make_job("estimation")
 
@@ -130,7 +158,7 @@ async def test_pre_process_estimation_job_raises_configuration_error(
 async def test_pre_process_unsupported_job_type_raises_configuration_error(
     gateway_step: DeviceGatewayStep,
 ) -> None:
-    gctx = MagicMock()
+    gctx = MagicMock(device=None)
     gctx.job_repository.update_job_status_nowait = AsyncMock()
     job = _make_job("bogus_job_type")
 
@@ -148,7 +176,7 @@ async def test_pre_process_estimation_child_updates_parent_status(
     """N:1, an estimation child (job_id != repository_job_id) updates its
     parent's status, not its own (it has no Cloud record of its own).
     """
-    gctx = MagicMock()
+    gctx = MagicMock(device=None)
     gctx.job_repository.update_job_status_nowait = AsyncMock()
 
     parent_job = _make_job("sampling")
@@ -175,7 +203,7 @@ async def test_pre_process_combined_job_updates_each_childs_own_status(
     """1:0, a combined job (sampling + mp) with no Cloud record of its own
     delegates the status update to each child, which owns its own record.
     """
-    gctx = MagicMock()
+    gctx = MagicMock(device=None)
     gctx.job_repository.update_job_status_nowait = AsyncMock()
 
     combined = _make_job("sampling")
@@ -212,7 +240,7 @@ async def test_pre_process_estimation_children_update_parent_status_only_once(
     both resolve to the same parent, but the parent is only PATCHed once
     (the second call sees status already "running" and is skipped).
     """
-    gctx = MagicMock()
+    gctx = MagicMock(device=None)
     gctx.job_repository.update_job_status_nowait = AsyncMock()
 
     parent = _make_job("sampling")
@@ -255,7 +283,7 @@ async def test_pre_process_marks_combined_job_and_children_running_locally(
     children are marked "running" locally, in addition to the existing
     PATCH of the children (which own their own job repository records).
     """
-    gctx = MagicMock()
+    gctx = MagicMock(device=None)
     gctx.job_repository.update_job_status_nowait = AsyncMock()
 
     combined = _make_job("sampling")
@@ -297,7 +325,7 @@ async def test_pre_process_marks_nested_estimation_children_running_locally(
     estimation parent two levels up) still gets those children marked
     "running" locally, even though they are never individually PATCHed.
     """
-    gctx = MagicMock()
+    gctx = MagicMock(device=None)
     gctx.job_repository.update_job_status_nowait = AsyncMock()
 
     parent_a = _make_job("sampling")
@@ -343,7 +371,7 @@ async def test_pre_process_does_not_touch_running_or_terminal_descendants(
     """Descendants that are already "running" or reached a terminal status
     through another path are left untouched.
     """
-    gctx = MagicMock()
+    gctx = MagicMock(device=None)
     gctx.job_repository.update_job_status_nowait = AsyncMock()
 
     combined = _make_job("sampling")

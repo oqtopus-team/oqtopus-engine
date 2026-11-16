@@ -4,6 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from oqtopus_engine_core.framework import Device
+from oqtopus_engine_core.interfaces.oqtopus_cloud import ApiClient
 from oqtopus_engine_core.interfaces.oqtopus_cloud.models import (
     DevicesDeviceInfoUploadPresignedURL,
     DevicesDeviceInfoUploadResponse,
@@ -81,10 +82,23 @@ async def test_update_device_passes_api_request_timeout_seconds():
         mock_devices_api.patch_device_with_http_info.return_value = ({}, 200, {})
 
         repo = OqtopusCloudDeviceRepository(workers=1, api_request_timeout_seconds=15)
-        await repo.update_device(make_test_device())
+        device = make_test_device()
+        await repo.update_device(device)
+        _, kwargs = mock_devices_api.patch_device_with_http_info.call_args
+        assert "max_shots" not in ApiClient().sanitize_for_serialization(kwargs["body"])
+
+        device.max_shots = 1000
+        await repo.update_device(device)
 
         _, kwargs = mock_devices_api.patch_device_with_http_info.call_args
         assert kwargs["_request_timeout"] == 15
+        assert kwargs["body"].max_shots == 1000
+
+        device.max_shots = None
+        await repo.update_device(device)
+        _, kwargs = mock_devices_api.patch_device_with_http_info.call_args
+        assert kwargs["body"].max_shots == 0
+        assert ApiClient().sanitize_for_serialization(kwargs["body"])["max_shots"] == 0
 
 
 @pytest.mark.asyncio

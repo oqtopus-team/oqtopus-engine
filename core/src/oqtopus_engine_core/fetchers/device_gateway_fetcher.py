@@ -71,6 +71,7 @@ class DeviceGatewayFetcher(DeviceFetcher):
         self._loop_interval_seconds = loop_interval_seconds
         self._loop_backoff_max_seconds = loop_backoff_max_seconds
         self._enable_device_info_update = enable_device_info_update
+        self._device_update_pending = False
 
         logger.info(
             "DeviceGatewayFetcher was initialized",
@@ -104,9 +105,9 @@ class DeviceGatewayFetcher(DeviceFetcher):
             status=service_status_to_label(service_status_resp.service_status),
             # provider_id=device_info_resp.body.provider_id,  # noqa: ERA001
             n_qubits=device_info_resp.body.max_qubits,
+            max_shots=device_info_resp.body.max_shots or None,
             basis_gates=[],
             instructions=[],
-            # max_shots=device_info_resp.body.max_shots,  # noqa: ERA001
             device_info=device_info_resp.body.device_info,
             calibrated_at=device_info_resp.body.calibrated_at,
             description="",
@@ -213,18 +214,27 @@ class DeviceGatewayFetcher(DeviceFetcher):
             )
             device_ctx.is_connected = device.is_connected
 
-        # Check n_qubits
-        if device.n_qubits != device_ctx.n_qubits:
+        if (
+            device.n_qubits != device_ctx.n_qubits
+            or device.max_shots != device_ctx.max_shots
+        ):
             logger.info(
-                "device n_qubits changed",
+                "device limits changed",
                 extra={
                     "device_id": device.device_id,
                     "prev_n_qubits": device_ctx.n_qubits,
                     "curr_n_qubits": device.n_qubits,
+                    "prev_max_shots": device_ctx.max_shots,
+                    "curr_max_shots": device.max_shots,
                 },
             )
             device_ctx.n_qubits = device.n_qubits
+            device_ctx.max_shots = device.max_shots
+            self._device_update_pending = True
+
+        if self._device_update_pending:
             await device_repo.update_device(device)
+            self._device_update_pending = False
 
         # Check device_info and calibrated_at
         if (device.device_info != device_ctx.device_info) or (
