@@ -195,11 +195,13 @@ def test_req_mitigation_returns_quasi_probabilities(
 ):
     circuit = QuantumCircuit(1, 1)
     circuit.measure(0, 0)
-    request = mitigator_pb2.ReqMitigationRequest(
-        device_topology=mitigator_pb2.DeviceTopology(
+    request = mitigator_pb2.ReqMitigationRequest(  # type: ignore[attr-defined]
+        device_topology=mitigator_pb2.DeviceTopology(  # type: ignore[attr-defined]
             qubits=[
-                mitigator_pb2.Qubit(
-                    mes_error=mitigator_pb2.MesError(p0m1=0.1, p1m0=0.0)
+                mitigator_pb2.Qubit(  # type: ignore[attr-defined]
+                    mes_error=mitigator_pb2.MesError(  # type: ignore[attr-defined]
+                        p0m1=0.1, p1m0=0.0
+                    )
                 )
             ]
         ),

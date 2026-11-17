@@ -326,9 +326,11 @@ class Estimator(estimator_pb2_grpc.EstimatorServiceServicer):
             [source_pauli_by_mapped_pauli[pauli] for pauli in pauli_list]
             for pauli_list in grouped_orig_paulis
         ]
-        grouped_operators = json.dumps(
-            [grouped_meas_paulis, grouped_coeffs, grouped_source_paulis]
-        )
+        grouped_operators = json.dumps([
+            grouped_meas_paulis,
+            grouped_coeffs,
+            grouped_source_paulis,
+        ])
         logger.debug(
             "Estimation preprocess result",
             extra={

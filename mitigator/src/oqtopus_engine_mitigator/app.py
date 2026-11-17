@@ -227,13 +227,11 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                     expectation_values,
                     standard_deviation_upper_bounds,
                     before_expectation_values,
-                ) = (
-                    self.ro_error_mitigation_expectation_values(
-                        request.device_topology,
-                        request.counts,
-                        request.program,
-                        request.paulis,
-                    )
+                ) = self.ro_error_mitigation_expectation_values(
+                    request.device_topology,
+                    request.counts,
+                    request.program,
+                    request.paulis,
                 )
                 logger.debug(
                     "Expectation-value readout-error mitigation result",
@@ -242,9 +240,7 @@ class ErrorMitigator(mitigator_pb2_grpc.MitigatorServiceServicer):
                         "standard_deviation_upper_bounds": (
                             standard_deviation_upper_bounds
                         ),
-                        "before_expectation_values": (
-                            before_expectation_values
-                        ),
+                        "before_expectation_values": (before_expectation_values),
                     },
                 )
                 return ReqExpectationValueMitigationResponse(
