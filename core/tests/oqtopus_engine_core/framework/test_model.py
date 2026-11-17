@@ -1,4 +1,20 @@
-from oqtopus_engine_core.framework.model import Job, resolve_repository_jobs
+from oqtopus_engine_core.framework.model import (
+    Job,
+    JobResult,
+    MitigationResult,
+    resolve_repository_jobs,
+)
+
+
+def test_mitigation_result_accepts_extensible_details():
+    first = MitigationResult()
+    second = MitigationResult()
+    first.details["another_method"] = {"values": [1, "custom", None]}
+
+    assert second.details == {}
+    assert JobResult(mitigation=first).model_dump()["mitigation"] == {
+        "details": {"another_method": {"values": [1, "custom", None]}}
+    }
 
 
 def test_job_repr_and_str_output():

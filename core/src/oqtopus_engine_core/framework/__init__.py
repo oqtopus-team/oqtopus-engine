@@ -7,17 +7,14 @@ from .exception_handler import PipelineExceptionHandler
 from .job_fetcher import JobFetcher
 from .job_repository import JobOutput, JobRepository
 from .model import (
-    LOCAL_READOUT_MITIGATION_METHOD,
     TERMINAL_JOB_STATUSES,
     Device,
     EstimationResult,
     Job,
     JobInput,
     JobResult,
-    MitigationDetails,
-    MitigationExpectationValue,
+    MitigationResult,
     OperatorItem,
-    ReadoutErrorMitigationDetails,
     SamplingResult,
     TranspileResult,
     mark_job_terminal,
@@ -33,7 +30,6 @@ from .step import (
 )
 
 __all__ = [
-    "LOCAL_READOUT_MITIGATION_METHOD",
     "TERMINAL_JOB_STATUSES",
     "Buffer",
     "Device",
@@ -49,15 +45,13 @@ __all__ = [
     "JobOutput",
     "JobRepository",
     "JobResult",
-    "MitigationDetails",
-    "MitigationExpectationValue",
+    "MitigationResult",
     "OperatorItem",
     "PipelineBuilder",
     "PipelineDirective",
     "PipelineExceptionHandler",
     "PipelineExecutor",
     "PipelineManager",
-    "ReadoutErrorMitigationDetails",
     "SamplingResult",
     "Step",
     "StepResult",

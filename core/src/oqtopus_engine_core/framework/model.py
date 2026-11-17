@@ -3,8 +3,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-LOCAL_READOUT_MITIGATION_METHOD = "local_readout_mitigation"
-
 
 class Device(BaseModel):
     """Device information model."""
@@ -51,29 +49,10 @@ class EstimationResult(BaseModel):
     stds: float | None = None
 
 
-class MitigationExpectationValue(BaseModel):
-    """Before-and-after expectation values for one Pauli term."""
-
-    pauli: str
-    coefficient: float
-    before_expectation_value: float
-    after_expectation_value: float
-    standard_deviation_upper_bound: float
-
-
-class ReadoutErrorMitigationDetails(BaseModel):
-    """Intermediate information produced by readout-error mitigation."""
-
-    method: str
-    raw_counts: dict[str, Any] | None = None
-    quasi_probabilities: dict[str, float] | None = None
-    expectation_values: list[MitigationExpectationValue] | None = None
-
-
-class MitigationDetails(BaseModel):
+class MitigationResult(BaseModel):
     """Intermediate information produced by error mitigation."""
 
-    ro_error_mitigation: ReadoutErrorMitigationDetails | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 class JobResult(BaseModel):
@@ -81,7 +60,7 @@ class JobResult(BaseModel):
 
     sampling: SamplingResult | None = None
     estimation: EstimationResult | None = None
-    mitigation_details: MitigationDetails | None = None
+    mitigation: MitigationResult | None = None
 
 
 class JobInput(BaseModel):

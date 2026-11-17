@@ -27,8 +27,8 @@ Sampling and estimation consume measurement results differently:
 
 | Result path | Input | Output | Detailed flow |
 | --- | --- | --- | --- |
-| Sampling | Raw counts | Mitigated integer counts plus raw counts and quasi-probabilities in `mitigation_details` | [Sampling REM](./sampling.md) |
-| Estimation | Raw counts and Pauli labels | Aggregated estimate plus per-source-Pauli before/after values in `mitigation_details` | [Estimation REM](./estimation.md) |
+| Sampling | Raw counts | Mitigated integer counts plus raw counts and quasi-probabilities in `mitigation.details` | [Sampling REM](./sampling.md) |
+| Estimation | Raw counts and Pauli labels | Aggregated estimate plus per-source-Pauli before/after values in `mitigation.details` | [Estimation REM](./estimation.md) |
 
 Core owns orchestration and determines which result contract is required. The
 Mitigator service owns numerical mitigation and exposes separate RPCs:

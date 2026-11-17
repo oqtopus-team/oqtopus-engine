@@ -155,7 +155,7 @@ $$
 Core writes the aggregated expectation value and uncertainty to the parent
 estimation result. When every child supplies intermediate values and the
 Estimator supplies source-Pauli metadata, Core also writes per-term values to
-`mitigation_details.ro_error_mitigation.expectation_values`:
+`mitigation.details.ro_error_mitigation.expectation_values`:
 
 ```json
 {
@@ -163,7 +163,8 @@ Estimator supplies source-Pauli metadata, Core also writes per-term values to
       "exp_value": 1.5711111163,
       "stds": 0.1054092557
    },
-   "mitigation_details": {
+   "mitigation": {
+     "details": {
       "ro_error_mitigation": {
          "method": "local_readout_mitigation",
          "raw_counts": null,
@@ -176,6 +177,7 @@ Estimator supplies source-Pauli metadata, Core also writes per-term values to
                "after_expectation_value": 1.0000000033,
                "standard_deviation_upper_bound": 0.0390404651
             }
+     }
          ]
       }
    }

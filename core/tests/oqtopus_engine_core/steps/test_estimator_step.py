@@ -271,10 +271,12 @@ async def test_join_jobs_calls_grpc_and_updates_parent_result(
     ]
     assert parent_job.result.estimation.exp_value == 0.25
     assert parent_job.result.estimation.stds == 0.05
-    details = parent_job.result.mitigation_details.ro_error_mitigation
-    assert details.method == "local_readout_mitigation"
-    assert details.raw_counts is None
-    assert [item.model_dump() for item in details.expectation_values] == [
+    mitigation = parent_job.result.model_dump()["mitigation"]
+    details = mitigation["details"]["ro_error_mitigation"]
+    assert details["method"] == "local_readout_mitigation"
+    assert details["raw_counts"] is None
+    assert details["quasi_probabilities"] is None
+    assert details["expectation_values"] == [
         {
             "pauli": "X 0 X 1",
             "coefficient": 2.0,
@@ -342,7 +344,7 @@ async def test_join_jobs_legacy_grouped_operators_omit_mitigation_details(
     )
 
     assert parent_job.result.estimation.exp_value == 0.8
-    assert parent_job.result.mitigation_details is None
+    assert parent_job.result.mitigation is None
 
 
 @pytest.mark.asyncio

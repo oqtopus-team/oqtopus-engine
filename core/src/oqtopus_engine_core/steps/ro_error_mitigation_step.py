@@ -7,12 +7,10 @@ from typing import Any, Protocol
 import grpc  # type: ignore[import-untyped]
 
 from oqtopus_engine_core.framework import (
-    LOCAL_READOUT_MITIGATION_METHOD,
     GlobalContext,
     Job,
     JobContext,
-    MitigationDetails,
-    ReadoutErrorMitigationDetails,
+    MitigationResult,
     SamplingResult,
     Step,
     StepResult,
@@ -26,6 +24,7 @@ from oqtopus_engine_core.steps.estimator_step import (
     ESTIMATION_EXPECTATION_VALUES_KEY,
     ESTIMATION_PAULIS_KEY,
     ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY,
+    LOCAL_READOUT_MITIGATION_METHOD,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,8 +51,10 @@ def _apply_expectation_value_mitigation_response(
 ) -> None:
     expectation_values = list(response.expectation_values)
     standard_deviation_upper_bounds = list(response.standard_deviation_upper_bounds)
-    if not len(expectation_values) == len(standard_deviation_upper_bounds) == len(
-        paulis
+    if (
+        not len(expectation_values)
+        == len(standard_deviation_upper_bounds)
+        == len(paulis)
     ):
         message = (
             "mitigator response expectation values, standard-deviation upper "
@@ -87,7 +88,7 @@ def _apply_expectation_value_mitigation_response(
     )
 
 
-def _require_sampling_result(job: Job) -> SamplingResult:
+def _require_sampling_result(job: Job) -> tuple[SamplingResult, dict[str, Any]]:
     if job.result is None:  # pragma: no cover
         message = "job.result is None. Cannot perform readout error mitigation."
         raise ValueError(message)
@@ -102,7 +103,7 @@ def _require_sampling_result(job: Job) -> SamplingResult:
             "Cannot perform readout error mitigation."
         )
         raise ValueError(message)
-    return job.result.sampling
+    return job.result.sampling, job.result.sampling.counts
 
 
 class ReadoutErrorMitigationStep(Step):
@@ -237,8 +238,7 @@ class ReadoutErrorMitigationStep(Step):
                 )
                 return StepResult()
 
-            sampling = _require_sampling_result(job)
-            orig_counts = sampling.counts
+            sampling, orig_counts = _require_sampling_result(job)
             paulis: list[str] = jctx.get(ESTIMATION_PAULIS_KEY, [])
 
             if paulis:
@@ -302,12 +302,17 @@ class ReadoutErrorMitigationStep(Step):
                 mitigated_counts = dict(response.counts)
                 sampling.counts = mitigated_counts
                 if response.mitigation_details_available:
-                    job.result.mitigation_details = MitigationDetails(  # type: ignore[union-attr]
-                        ro_error_mitigation=ReadoutErrorMitigationDetails(
-                            method=LOCAL_READOUT_MITIGATION_METHOD,
-                            raw_counts=dict(orig_counts),
-                            quasi_probabilities=dict(response.quasi_probabilities),
-                        )
+                    job.result.mitigation = MitigationResult(  # type: ignore[union-attr]
+                        details={
+                            "ro_error_mitigation": {
+                                "method": LOCAL_READOUT_MITIGATION_METHOD,
+                                "raw_counts": dict(orig_counts),
+                                "quasi_probabilities": dict(
+                                    response.quasi_probabilities
+                                ),
+                                "expectation_values": None,
+                            }
+                        }
                     )
                 logger.debug(
                     "Readout-error-mitigated counts",

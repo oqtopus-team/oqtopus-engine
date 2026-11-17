@@ -3,7 +3,7 @@
 This document describes the local readout-mitigation path for sampling results.
 The path converts raw measurement counts into mitigated integer counts, stores
 them in the sampling result, and preserves the raw counts and intermediate
-quasi-probabilities under `mitigation_details`. It covers pipeline
+quasi-probabilities under `mitigation.details`. It covers pipeline
 responsibilities, the correction algorithm, external-library usage, and the
 gRPC contract.
 
@@ -73,7 +73,7 @@ operations:
 4. It replaces `job.result.sampling.counts` with the returned counts.
 5. When `mitigation_details_available` is true, it stores the original counts
     and returned quasi-probabilities under
-    `mitigation_details.ro_error_mitigation`.
+    `mitigation.details.ro_error_mitigation`.
 
 The counts path is selected when the `JobContext` does not contain estimation
 Pauli metadata.
@@ -106,7 +106,8 @@ For a normal sampling job, the relevant result shape is:
     "sampling": {
         "counts": {"00": 524, "11": 474, "01": 0}
     },
-    "mitigation_details": {
+    "mitigation": {
+      "details": {
         "ro_error_mitigation": {
             "method": "local_readout_mitigation",
             "raw_counts": {"00": 475, "11": 430, "01": 48, "10": 47},
@@ -118,6 +119,7 @@ For a normal sampling job, the relevant result shape is:
             },
             "expectation_values": null
         }
+      }
     }
 }
 ```
@@ -157,7 +159,7 @@ values. Those semantics belong to the separate estimation REM contract.
     multiplied by the shot count can discard fractional counts.
 - Sampling REM does not validate or process Pauli labels.
 - A legacy Mitigator response has `mitigation_details_available=false`. Core
-    still uses its mitigated counts but omits `mitigation_details`.
+    still uses its mitigated counts but leaves `mitigation` null.
 
 ## 8. Deployment Compatibility
 
