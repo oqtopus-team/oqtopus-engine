@@ -95,6 +95,23 @@ async def test_pre_process_calls_grpc_and_creates_children(
 
 
 @pytest.mark.asyncio
+async def test_pre_process_skips_direct_estimation_when_configured() -> None:
+    estimator_step = EstimatorStep(skip_direct_estimation=True)
+    estimator_step._stub = MagicMock()
+    job = _make_estimation_job("direct-job")
+    job.simulator_info = {"estimation_method": "direct"}
+
+    result = await estimator_step.pre_process(
+        MagicMock(),
+        JobContext(initial={}),
+        job,
+    )
+
+    assert result.directive is PipelineDirective.NONE
+    estimator_step._stub.ReqEstimationPreProcess.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_pre_process_uses_transpile_mapping_in_sorted_order(
     estimator_step_instance: EstimatorStep,
 ) -> None:
@@ -335,6 +352,10 @@ async def test_same_step_split_and_join_flow() -> None:
     assert parent_job.result.estimation.exp_value == 0.75
     assert parent_job.result.estimation.stds == 0.125
     assert parent_job.message == "child-1"
+    # Children have no job repository record of their own and never reach
+    # JobRepositoryUpdateStep; EstimatorStep.post_process must mark them
+    # succeeded itself at their JOIN point (Issue D).
+    assert all(child.status == "succeeded" for child in parent_job.children)
     estimator_step._stub.ReqEstimationPostProcess.assert_awaited_once()
     estimator_step._stub.ReqEstimationPostProcessFromExpectationValues.assert_not_awaited()
     assert parent_jctx.step_history == [
@@ -388,3 +409,43 @@ async def test_estimation_parent_skips_join_gate(
     result = await estimator_step_instance.post_process(gctx, jctx, job)
 
     assert result.directive == PipelineDirective.NONE
+
+
+@pytest.mark.asyncio
+async def test_post_process_marks_join_reaching_child_succeeded(
+    estimator_step_instance: EstimatorStep,
+) -> None:
+    """A split child reaching the JOIN point is marked succeeded locally by
+    this step (it has no job repository record of its own — see
+    `_build_child_job` — and the framework never processes it again once
+    JOIN is signaled).
+    """
+    gctx = MagicMock()
+    jctx = JobContext(initial={ESTIMATION_CHILD_INDEX_KEY: 0})
+    child = _make_estimation_job("job-7-child")
+    child.job_type = "sampling"
+    child.status = "running"
+
+    result = await estimator_step_instance.post_process(gctx, jctx, child)
+
+    assert result.directive == PipelineDirective.JOIN
+    assert child.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_post_process_does_not_overwrite_already_failed_child(
+    estimator_step_instance: EstimatorStep,
+) -> None:
+    """A child already marked "failed" through another path before reaching
+    JOIN must not be flipped back to "succeeded".
+    """
+    gctx = MagicMock()
+    jctx = JobContext(initial={ESTIMATION_CHILD_INDEX_KEY: 0})
+    child = _make_estimation_job("job-8-child")
+    child.job_type = "sampling"
+    child.status = "failed"
+
+    result = await estimator_step_instance.post_process(gctx, jctx, child)
+
+    assert result.directive == PipelineDirective.JOIN
+    assert child.status == "failed"

@@ -134,6 +134,31 @@ class Job(BaseModel):
         return self.__repr__()
 
 
+# Local Job.status values that mean a job's own pipeline execution is
+# finished and must never be silently overwritten. Shared by
+# `mark_job_terminal` below and any code that polls a Job's local status
+# until it stops changing (e.g. `fetchers/sse_engine_gateway.py`), so both
+# stay in sync by construction.
+TERMINAL_JOB_STATUSES = frozenset({"succeeded", "failed", "cancelled"})
+
+
+def mark_job_terminal(job: Job, status: str) -> None:
+    """Set `job.status` to a terminal value, unless it already has one.
+
+    Used by whichever code is in a position to know that `job`'s own local
+    pipeline processing has definitively ended — a step returning JOIN or
+    SPLIT_WITHOUT_JOIN for a job with no job repository record of its own
+    (it will never reach `JobRepositoryUpdateStep`, the usual place a
+    Cloud-tracked job's terminal status is set), or the pipeline framework
+    itself when a job's path ends in an exception. Never overwriting an
+    existing terminal status protects e.g. a join that fails after its
+    children already succeeded, and the succeeded-then-fallback-to-failed
+    handling in `JobRepositoryUpdateStep.post_process`.
+    """
+    if job.status not in TERMINAL_JOB_STATUSES:
+        job.status = status
+
+
 def resolve_repository_jobs(job: Job) -> list[Job]:
     """Resolve the Job objects that a repository (Cloud) update applies to.
 

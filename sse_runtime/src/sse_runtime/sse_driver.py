@@ -1,6 +1,8 @@
 import datetime
+import itertools
 import json
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -90,14 +92,43 @@ def submit_job(
         return job
 
 
+# One SSE container runs a single Python process for the whole lifetime of
+# the parent SSE job, so a process-wide counter uniquely numbers every
+# internal (sampling/estimation) call the user's program makes, however many
+# there are. The lock guards against the user's program calling submit_job()
+# from multiple threads concurrently.
+_internal_call_index_lock = threading.Lock()
+_internal_call_index = itertools.count()
+
+
+def _next_internal_job_id(parent_job_id: str) -> str:
+    """Build an engine-unique job_id for one internal sampling/estimation call.
+
+    0-origin, matching the engine's own `{parent}-estimation-{index}` scheme
+    for estimation children (see
+    oqtopus_engine_core/steps/estimator_step.py).
+
+    Returns:
+        A job_id unique to this call, distinct from `parent_job_id` itself.
+
+    """
+    with _internal_call_index_lock:
+        index = next(_internal_call_index)
+    return f"{parent_job_id}-sse-{index}"
+
+
 def _make_request(
     job_id: str,
     input_job: JobsSubmitJobRequest,
     upload_info: JobsS3SubmitJobInfo,
 ) -> dict[str, Any]:
     request = _convert_to_engine_job_model(input_job, upload_info)
-    # set job_id of parent SSE job and status
-    request["job_id"] = job_id
+    # Each internal call gets its own engine-unique job_id (see
+    # _next_internal_job_id); it is intentionally NOT the parent SSE job's
+    # own job_id, unlike the comment this replaces used to set. See
+    # docs/design/pipeline_execution.md (Job ID Conventions) for why this
+    # job_id no longer collides with the parent's.
+    request["job_id"] = _next_internal_job_id(job_id)
     request["status"] = "ready"
     return request
 

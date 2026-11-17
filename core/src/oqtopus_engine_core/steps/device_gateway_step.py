@@ -43,6 +43,29 @@ def _select_program(job: Job) -> str:
     return transpile_result.transpiled_program
 
 
+def _mark_ready_descendants_running(job: Job) -> None:
+    """Mark `job` and its "ready" descendants "running", locally only.
+
+    `_update_jobs_status` only PATCHes `resolve_repository_jobs(job)`
+    targets, which never include a job with no job repository record of its
+    own (e.g. an MP-combined job) nor, transitively, that job's own
+    descendants (e.g. estimation children combined into it — they never
+    reach this step individually). Without this, their local status stays
+    "ready" for the rest of the run. A job_id visited-set guards against
+    cycles, though parent/child links are one-directional by convention.
+    """
+    visited: set[str] = set()
+    stack = [job]
+    while stack:
+        current = stack.pop()
+        if current.job_id in visited:
+            continue
+        visited.add(current.job_id)
+        if current.status == "ready":
+            current.status = "running"
+        stack.extend(current.children)
+
+
 class DeviceGatewayStep(Step):
     """Step that sends a job to the device gateway via gRPC during pre_process."""
 
@@ -56,8 +79,12 @@ class DeviceGatewayStep(Step):
             options=grpc_options,
         )
         self._stub = qpu_pb2_grpc.QpuServiceStub(self._channel)
-        # Engine owns device access orchestration, so all jobs, including
-        # internal estimation children, must serialize gateway execution here.
+        # Guards the "ready" -> "running" check-and-set below (status
+        # update + local bookkeeping) so concurrent sibling estimation
+        # jobs never transition the same parent twice. It does NOT
+        # serialize gateway execution: GetServiceStatus and CallJob run
+        # outside this lock. Gateway execution is serialized separately,
+        # by the buffer's max_concurrency (see config.yaml).
         self._execution_lock = asyncio.Lock()
         logger.info(
             "DeviceGatewayStep was initialized",
@@ -84,7 +111,9 @@ class DeviceGatewayStep(Step):
             job: The job object.
 
         Raises:
-            RuntimeError: If the device status is not available.
+            RuntimeError: If the device status is not available, if `job`
+                is an unsplit estimation job, or if `job.job_type` is not
+                one this step supports.
 
         Returns:
             StepResult: NONE directive — the pipeline continues normally.
@@ -96,6 +125,11 @@ class DeviceGatewayStep(Step):
             # Identify all jobs that require a status update
             update_targets = _collect_status_update_targets(job)
             await self._update_jobs_status(gctx, update_targets)
+            # Local-only bookkeeping for jobs with no job repository record
+            # of their own; kept out of the PATCH loop above so it never
+            # sends a status update for a job `_is_repository_tracked`
+            # would reject.
+            _mark_ready_descendants_running(job)
 
         # Check device status immediately before using the gateway.
         service_status = await self._stub.GetServiceStatus(
@@ -158,6 +192,9 @@ class DeviceGatewayStep(Step):
             job.message = job_response.result.message
         elif job.job_type == "estimation":
             message = "estimation jobs must be split before reaching device gateway"
+            raise RuntimeError(message)
+        else:
+            message = f"unsupported job_type at device gateway: {job.job_type}"
             raise RuntimeError(message)
         return StepResult()
 
