@@ -27,6 +27,7 @@ class JobsJobStatus(object):
     SUBMITTED = "submitted"
     READY = "ready"
     RUNNING = "running"
+    CANCELLING = "cancelling"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
