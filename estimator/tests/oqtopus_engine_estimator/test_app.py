@@ -112,7 +112,50 @@ def test_preprocess(estimator):
         qasms[1]
         == 'OPENQASM 3.0;\ninclude "stdgates.inc";\nbit[2] __c_ZY;\nqubit[2] q;\nh q[0];\ncx q[0], q[1];\nsx q[0];\nrz(pi/2) q[0];\n__c_ZY[0] = measure q[0];\n__c_ZY[1] = measure q[1];\n'
     )
-    assert op == '[[["XX"], ["ZY"]], [[1.5], [1.2]]]'
+    assert op == (
+        '[[["XX"], ["ZY"]], [[1.5], [1.2]], '
+        '[["X 0 X 1"], ["Y 0 Z 1"]]]'
+    )
+
+
+def test_preprocess_preserves_source_paulis_across_mapping(estimator):
+    qasm_code = (
+        'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[3] q;\n'
+        "h q[0];\ncx q[0], q[1];\n"
+    )
+    operators = '[["X 0 X 1", 1.5], ["Y 1 Z 2", 1.2]]'
+    basis_gates = ["cx", "id", "rz", "sx", "x", "reset", "delay", "measure"]
+
+    _, grouped_operators_json = estimator._preprocess(
+        qasm_code,
+        operators,
+        basis_gates,
+        [2, 0, 1],
+    )
+
+    grouped_operators = json.loads(grouped_operators_json)
+    assert grouped_operators[0] == [["ZY"], ["XX"]]
+    assert grouped_operators[2] == [["Y 1 Z 2"], ["X 0 X 1"]]
+
+
+def test_preprocess_canonicalizes_and_combines_duplicate_source_paulis(estimator):
+    qasm_code = (
+        'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[2] q;\nh q[0];\n'
+    )
+    basis_gates = ["id", "rz", "sx", "x", "reset", "delay", "measure"]
+
+    _, grouped_operators_json = estimator._preprocess(
+        qasm_code,
+        '[["X 0", 1.5], ["X0", 2.5]]',
+        basis_gates,
+        [],
+    )
+
+    assert json.loads(grouped_operators_json) == [
+        [["X"]],
+        [[4.0]],
+        [["X 0"]],
+    ]
 
 
 class counts:

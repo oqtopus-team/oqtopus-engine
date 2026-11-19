@@ -13,6 +13,7 @@ from oqtopus_engine_core.framework import (
     Job,
     JobContext,
     JobResult,
+    MitigationResult,
     PipelineDirective,
     SamplingResult,
     Step,
@@ -34,6 +35,9 @@ ESTIMATION_EXPECTATION_VALUES_KEY = "estimation_expectation_values"
 ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY = (
     "estimation_standard_deviation_upper_bounds"
 )
+ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY = "estimation_before_expectation_values"
+GROUPED_SOURCE_PAULIS_INDEX = 2
+LOCAL_READOUT_MITIGATION_METHOD = "local_readout_mitigation"
 
 
 class EstimationJoinInfo:
@@ -191,6 +195,69 @@ def _build_estimation_postprocess_request(
         grouped_operators=grouped_operators,
     )
     return "ReqEstimationPostProcess", request
+
+
+def _build_estimation_mitigation_details(
+    child_contexts: list[JobContext],
+    grouped_operators: list[list],
+) -> MitigationResult:
+    expectation_values: list[dict[str, Any]] = []
+    for index, child_jctx in enumerate(child_contexts):
+        paulis: list[str] = grouped_operators[GROUPED_SOURCE_PAULIS_INDEX][index]
+        coefficients: list[float] = grouped_operators[1][index]
+        values: list[float] = child_jctx[ESTIMATION_EXPECTATION_VALUES_KEY]
+        standard_deviations: list[float] = child_jctx[
+            ESTIMATION_STANDARD_DEVIATION_UPPER_BOUNDS_KEY
+        ]
+        before_values: list[float] = child_jctx[
+            ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY
+        ]
+        if (
+            not len(paulis)
+            == len(coefficients)
+            == len(values)
+            == len(standard_deviations)
+            == len(before_values)
+        ):
+            message = (
+                "before and after expectation values, Pauli labels, "
+                "coefficients, and standard-deviation upper bounds must have "
+                "equal lengths during estimation join"
+            )
+            raise RuntimeError(message)
+        expectation_values.extend(
+            {
+                "pauli": pauli,
+                "coefficient": float(coefficient),
+                "before_expectation_value": float(before_value),
+                "after_expectation_value": float(value),
+                "standard_deviation_upper_bound": float(standard_deviation),
+            }
+            for (
+                pauli,
+                coefficient,
+                before_value,
+                value,
+                standard_deviation,
+            ) in zip(
+                paulis,
+                coefficients,
+                before_values,
+                values,
+                standard_deviations,
+                strict=True,
+            )
+        )
+    return MitigationResult(
+        details={
+            "ro_error_mitigation": {
+                "method": LOCAL_READOUT_MITIGATION_METHOD,
+                "raw_counts": None,
+                "quasi_probabilities": None,
+                "expectation_values": expectation_values,
+            }
+        }
+    )
 
 
 class EstimatorStep(Step):
@@ -392,6 +459,14 @@ class EstimatorStep(Step):
             parent_job,
             child_order,
         )
+        has_mitigation_details = bool(
+            child_contexts
+            and len(join_info.grouped_operators) > GROUPED_SOURCE_PAULIS_INDEX
+            and all(
+                ESTIMATION_BEFORE_EXPECTATION_VALUES_KEY in child_jctx
+                for child_jctx in child_contexts
+            )
+        )
         rpc_name, request = _build_estimation_postprocess_request(
             ordered_children,
             child_contexts,
@@ -437,6 +512,11 @@ class EstimatorStep(Step):
             parent_job.result.estimation = EstimationResult()
         parent_job.result.estimation.exp_value = float(expectation_value)
         parent_job.result.estimation.stds = float(standard_deviation)
+        if has_mitigation_details:
+            parent_job.result.mitigation = _build_estimation_mitigation_details(
+                child_contexts,
+                join_info.grouped_operators,
+            )
         parent_job.execution_time = float(
             f"{sum(child.execution_time or 0.0 for child in parent_job.children):.3f}"
         )

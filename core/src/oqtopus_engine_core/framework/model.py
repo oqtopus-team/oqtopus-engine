@@ -49,11 +49,18 @@ class EstimationResult(BaseModel):
     stds: float | None = None
 
 
+class MitigationResult(BaseModel):
+    """Intermediate information produced by error mitigation."""
+
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 class JobResult(BaseModel):
     """Job result model."""
 
     sampling: SamplingResult | None = None
     estimation: EstimationResult | None = None
+    mitigation: MitigationResult | None = None
 
 
 class JobInput(BaseModel):
