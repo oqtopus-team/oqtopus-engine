@@ -208,9 +208,7 @@ def _make_cloud_repo() -> OqtopusCloudJobRepository:
     """Create a real OqtopusCloudJobRepository with patched HTTP clients."""
     with (
         patch("oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.JobsApi"),
-        patch(
-            "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.ApiClient"
-        ),
+        patch("oqtopus_engine_core.auth.api_client.ApiClient"),
         patch(
             "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.Configuration"
         ),

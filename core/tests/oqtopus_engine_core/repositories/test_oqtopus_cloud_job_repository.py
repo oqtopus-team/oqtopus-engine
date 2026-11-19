@@ -47,7 +47,7 @@ def make_repo() -> OqtopusCloudJobRepository:
     with patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.JobsApi"
     ), patch(
-        "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.ApiClient"
+        "oqtopus_engine_core.auth.api_client.ApiClient"
     ), patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.Configuration"
     ):
@@ -396,7 +396,7 @@ async def test_get_jobs_passes_api_request_timeout_seconds():
     with patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.JobsApi"
     ) as mock_jobs_api_cls, patch(
-        "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.ApiClient"
+        "oqtopus_engine_core.auth.api_client.ApiClient"
     ), patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.Configuration"
     ):

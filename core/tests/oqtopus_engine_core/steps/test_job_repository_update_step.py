@@ -80,9 +80,7 @@ async def test_post_process_uploads_to_file_urls(tmp_path: Path) -> None:
 
     with (
         patch("oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.JobsApi"),
-        patch(
-            "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.ApiClient"
-        ),
+        patch("oqtopus_engine_core.auth.api_client.ApiClient"),
         patch(
             "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.Configuration"
         ),
