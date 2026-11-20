@@ -165,9 +165,10 @@ async def test_pre_process_splits_into_children(step: QcxtStep) -> None:
     assert len(result.child_jobs) == len(result.child_contexts) == len(DUMMY_SUB_PROGRAMS)
 
     assert job.result is not None
-    assert job.result.mitigation_details is not None
-    assert job.result.mitigation_details.qcxt is not None
-    assert job.result.mitigation_details.qcxt.virtual_couplings == [
+    assert job.result.mitigation is not None
+    assert job.result.mitigation.details is not None
+    assert job.result.mitigation.details["qcxt"] is not None
+    assert job.result.mitigation.details["qcxt"]["virtual_couplings"] == [
         json.loads(vc) for vc in DUMMY_VIRTUAL_COUPLINGS
     ]
 

@@ -13,9 +13,8 @@ from oqtopus_engine_core.framework import (
     Job,
     JobContext,
     JobResult,
-    MitigationDetails,
+    MitigationResult,
     PipelineDirective,
-    QcxtDetails,
     Step,
     StepResult,
     mark_job_terminal,
@@ -227,13 +226,16 @@ class QcxtStep(Step):
 
         if job.result is None:
             job.result = JobResult()
-        if job.result.mitigation_details is None:
-            job.result.mitigation_details = MitigationDetails()
-        if job.result.mitigation_details.qcxt is None:
-            job.result.mitigation_details.qcxt = QcxtDetails()
-        job.result.mitigation_details.qcxt.virtual_couplings = [
-            json.loads(vc) for vc in response.virtual_couplings
-        ]
+        if job.result.mitigation is None:
+            job.result.mitigation = MitigationResult(
+                details={
+                    "qcxt": {
+                        "virtual_couplings": [
+                            json.loads(vc) for vc in response.virtual_couplings
+                        ]
+                    }
+                }
+            )
 
         join_info = QcxtJoinInfo()
         join_info.coefficients = response.coefficients
