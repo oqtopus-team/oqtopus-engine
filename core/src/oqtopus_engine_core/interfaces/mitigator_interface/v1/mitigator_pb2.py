@@ -35,6 +35,8 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_REQMITIGATIONREQUEST_COUNTSENTRY']._serialized_options = b'8\001'
   _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._loaded_options = None
   _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._serialized_options = b'8\001'
+  _globals['_REQMITIGATIONRESPONSE_QUASIPROBABILITIESENTRY']._loaded_options = None
+  _globals['_REQMITIGATIONRESPONSE_QUASIPROBABILITIESENTRY']._serialized_options = b'8\001'
   _globals['_REQEXPECTATIONVALUEMITIGATIONREQUEST_COUNTSENTRY']._loaded_options = None
   _globals['_REQEXPECTATIONVALUEMITIGATIONREQUEST_COUNTSENTRY']._serialized_options = b'8\001'
   _globals['_MESERROR']._serialized_start=97
@@ -48,11 +50,13 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_REQMITIGATIONREQUEST_COUNTSENTRY']._serialized_start=608
   _globals['_REQMITIGATIONREQUEST_COUNTSENTRY']._serialized_end=665
   _globals['_REQMITIGATIONRESPONSE']._serialized_start=668
-  _globals['_REQMITIGATIONRESPONSE']._serialized_end=833
+  _globals['_REQMITIGATIONRESPONSE']._serialized_end=1090
   _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._serialized_start=608
   _globals['_REQMITIGATIONRESPONSE_COUNTSENTRY']._serialized_end=665
-  _globals['_REQEXPECTATIONVALUEMITIGATIONREQUEST']._serialized_start=836
-  _globals['_REQEXPECTATIONVALUEMITIGATIONREQUEST']._serialized_end=1162
+  _globals['_REQMITIGATIONRESPONSE_QUASIPROBABILITIESENTRY']._serialized_start=1021
+  _globals['_REQMITIGATIONRESPONSE_QUASIPROBABILITIESENTRY']._serialized_end=1090
+  _globals['_REQEXPECTATIONVALUEMITIGATIONREQUEST']._serialized_start=1093
+  _globals['_REQEXPECTATIONVALUEMITIGATIONREQUEST']._serialized_end=1419
   _globals['_REQEXPECTATIONVALUEMITIGATIONREQUEST_COUNTSENTRY']._serialized_start=608
   _globals['_REQEXPECTATIONVALUEMITIGATIONREQUEST_COUNTSENTRY']._serialized_end=665
   _globals['_REQEXPECTATIONVALUEMITIGATIONRESPONSE']._serialized_start=1165
