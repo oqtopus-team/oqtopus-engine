@@ -51,3 +51,33 @@ message ReqExpectationValueMitigationResponse{
     repeated double before_expectation_values = 3;
     bool mitigation_details_available = 4;
 }
+
+// RPC service for qCxT
+service QcxtService {
+    rpc ReqQcxtPreProcess (ReqQcxtPreProcessRequest) returns (ReqQcxtPreProcessResponse);
+    rpc ReqQcxtPostProcess (ReqQcxtPostProcessRequest) returns (ReqQcxtPostProcessResponse);
+}
+
+message ReqQcxtPreProcessRequest {
+    string program = 1;
+    string device_info = 2;
+    uint32 shots = 3;
+    repeated string basis_gates = 4;
+}
+
+message ReqQcxtPreProcessResponse {
+    repeated string sub_programs = 1;
+    repeated float coefficients = 2;
+    repeated string virtual_couplings = 3;
+}
+
+message ReqQcxtPostProcessRequest {
+    repeated float sub_expvals = 1;
+    repeated float sub_stds = 2;
+    repeated float coefficients = 3;
+}
+
+message ReqQcxtPostProcessResponse {
+    float exp_val = 1;
+    float stds = 2;
+}

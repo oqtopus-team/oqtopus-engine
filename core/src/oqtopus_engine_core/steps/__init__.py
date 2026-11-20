@@ -3,6 +3,7 @@ from .device_gateway_step import DeviceGatewayStep
 from .estimator_step import EstimatorStep
 from .job_repository_update_step import JobRepositoryUpdateStep
 from .multi_manual_step import MultiManualStep
+from .qcxt_step import QcxtStep
 from .ro_error_mitigation_step import ReadoutErrorMitigationStep
 from .simulator_lifecycle_step import SimulatorLifecycleStep
 from .slurm_simulator_step import (
@@ -20,6 +21,7 @@ __all__ = [
     "JobCancelledError",
     "JobRepositoryUpdateStep",
     "MultiManualStep",
+    "QcxtStep",
     "ReadoutErrorMitigationStep",
     "SimulatorLifecycleStep",
     "SlurmCancellationPendingError",
