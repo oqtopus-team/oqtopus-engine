@@ -1,9 +1,19 @@
+import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from oqtopus_engine_core.buffers import QueueBuffer
 from oqtopus_engine_core.fetchers.sse_engine_gateway import SseEngineGatewayServicer
+from oqtopus_engine_core.framework import Device, GlobalContext
 from oqtopus_engine_core.framework.model import Job
+from oqtopus_engine_core.framework.pipeline import PipelineExecutor
+from oqtopus_engine_core.handlers.fail_job_repository_handler import (
+    FailJobRepositoryHandler,
+)
+from oqtopus_engine_core.repositories.null_job_repository import NullJobRepository
+from oqtopus_engine_core.steps.device_gateway_step import DeviceGatewayStep
 
 
 def _job_json(*, job_id: str = "parent-1-sse-0", **overrides: object) -> str:
@@ -60,3 +70,31 @@ def test_get_job_from_request_raises_when_job_json_invalid() -> None:
 
     with pytest.raises(ValueError, match="failed to convert JSON to a Job object"):
         SseEngineGatewayServicer._get_job_from_request(request)
+
+
+@pytest.mark.asyncio
+async def test_sse_internal_job_reports_device_shot_limit() -> None:
+    gateway = DeviceGatewayStep()
+    gateway._stub = MagicMock(CallJob=AsyncMock())
+    pipeline = PipelineExecutor(
+        [gateway], QueueBuffer(), exception_handler=FailJobRepositoryHandler()
+    )
+    device = Device(
+        device_id="test-device",
+        device_type="QPU",
+        status="active",
+        n_qubits=1,
+        max_shots=1000,
+        basis_gates=[],
+        instructions=[],
+        description="",
+    )
+    gctx = GlobalContext(config={}, device=device, job_repository=NullJobRepository())
+    service = SseEngineGatewayServicer(pipeline, gctx)
+
+    response = await service.SseEngine(SimpleNamespace(job_json=_job_json()), None)
+
+    job = json.loads(response.job_json)
+    assert job["status"] == "failed"
+    assert "1000" in job["message"]
+    gateway._stub.CallJob.assert_not_awaited()

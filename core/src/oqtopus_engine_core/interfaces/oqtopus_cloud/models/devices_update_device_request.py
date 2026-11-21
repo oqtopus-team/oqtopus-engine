@@ -28,19 +28,24 @@ class DevicesUpdateDeviceRequest(object):
                             and the value is json key in definition.
     """
     swagger_types = {
-        'n_qubits': 'int'
+        'n_qubits': 'int',
+        'max_shots': 'int'
     }
 
     attribute_map = {
-        'n_qubits': 'n_qubits'
+        'n_qubits': 'n_qubits',
+        'max_shots': 'max_shots'
     }
 
-    def __init__(self, n_qubits=None):  # noqa: E501
+    def __init__(self, n_qubits=None, max_shots=None):  # noqa: E501
         """DevicesUpdateDeviceRequest - a model defined in Swagger"""  # noqa: E501
         self._n_qubits = None
+        self._max_shots = None
         self.discriminator = None
         if n_qubits is not None:
             self.n_qubits = n_qubits
+        if max_shots is not None:
+            self.max_shots = max_shots
 
     @property
     def n_qubits(self):
@@ -62,6 +67,29 @@ class DevicesUpdateDeviceRequest(object):
         """
 
         self._n_qubits = n_qubits
+
+    @property
+    def max_shots(self):
+        """Gets the max_shots of this DevicesUpdateDeviceRequest.  # noqa: E501
+
+        Maximum shots per device execution. Zero clears an unknown limit; omission leaves it unchanged.  # noqa: E501
+
+        :return: The max_shots of this DevicesUpdateDeviceRequest.  # noqa: E501
+        :rtype: int
+        """
+        return self._max_shots
+
+    @max_shots.setter
+    def max_shots(self, max_shots):
+        """Sets the max_shots of this DevicesUpdateDeviceRequest.
+
+        Maximum shots per device execution. Zero clears an unknown limit; omission leaves it unchanged.  # noqa: E501
+
+        :param max_shots: The max_shots of this DevicesUpdateDeviceRequest.  # noqa: E501
+        :type: int
+        """
+
+        self._max_shots = max_shots
 
     def to_dict(self):
         """Returns the model properties as a dict"""

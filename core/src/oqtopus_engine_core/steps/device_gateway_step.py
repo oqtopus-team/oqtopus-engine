@@ -111,6 +111,7 @@ class DeviceGatewayStep(Step):
             job: The job object.
 
         Raises:
+            ValueError: If shots exceeds the device limit.
             RuntimeError: If the device status is not available, if `job`
                 is an unsplit estimation job, or if `job.job_type` is not
                 one this step supports.
@@ -120,6 +121,17 @@ class DeviceGatewayStep(Step):
 
         """
         start = time.perf_counter()
+
+        if job.job_type in {"sampling", "multi_manual"}:
+            max_shots = gctx.device.max_shots if gctx.device is not None else None
+            if max_shots is None:
+                logger.warning(
+                    "device max_shots is unknown",
+                    extra={"job_id": job.job_id},
+                )
+            elif job.shots > max_shots:
+                message = f"shots exceeds device limit of {max_shots}"
+                raise ValueError(message)
 
         async with self._execution_lock:
             # Identify all jobs that require a status update
