@@ -3,8 +3,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-LOCAL_READOUT_MITIGATION_METHOD = "local_readout_mitigation"
-
 
 class Device(BaseModel):
     """Device information model."""
