@@ -21,11 +21,12 @@ _HTTP_UNAUTHORIZED = 401
 class BearerAuthApiClient(ApiClient):
     """Generated ApiClient that injects a fresh ``Authorization: Bearer`` header.
 
-    The bearer token is supplied by a token provider on every request, so token
-    rotation/expiry is handled transparently (the generated client reads
-    ``default_headers`` on each call). On an unexpected ``401`` the token is
-    force-refreshed and the request is retried exactly once, which recovers from
-    clock skew, key rotation, or server-side revocation.
+    The bearer token is read from the token provider for every request and set on
+    that request's own header dict (via ``update_params_for_auth``), never on the
+    shared ``default_headers``. Concurrent calls and 401 retries therefore share no
+    mutable state. On an unexpected ``401`` the cached token is force-refreshed and
+    the request is retried exactly once, which recovers from clock skew, key
+    rotation, or server-side revocation.
     """
 
     def __init__(
@@ -44,10 +45,11 @@ class BearerAuthApiClient(ApiClient):
         self._token_provider = token_provider
 
     def call_api(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        """Inject the bearer token, then delegate to the generated client.
+        """Delegate to the generated client, retrying once on ``401``.
 
-        Retries once with a force-refreshed token if the first attempt fails
-        with ``401 Unauthorized``.
+        On ``401 Unauthorized`` the provider's cached token is force-refreshed and
+        the request is sent again; the retry picks up the refreshed token in
+        ``update_params_for_auth``.
 
         Returns:
             Whatever the generated ``ApiClient.call_api`` returns.
@@ -56,16 +58,21 @@ class BearerAuthApiClient(ApiClient):
             ApiException: If the request fails (after one retry on ``401``).
 
         """
-        self._apply_bearer(force_refresh=False)
         try:
             return super().call_api(*args, **kwargs)
         except ApiException as exc:
             if exc.status != _HTTP_UNAUTHORIZED:
                 raise
             logger.info("provider API returned 401; refreshing token and retrying")
-            self._apply_bearer(force_refresh=True)
+            self._token_provider.get_token(force_refresh=True)
             return super().call_api(*args, **kwargs)
 
-    def _apply_bearer(self, *, force_refresh: bool) -> None:
-        token = self._token_provider.get_token(force_refresh=force_refresh)
-        self.set_default_header("Authorization", f"Bearer {token}")
+    def update_params_for_auth(
+        self,
+        headers: dict[str, Any],
+        querys: list[tuple[str, Any]],  # noqa: ARG002
+        auth_settings: list[str] | None,  # noqa: ARG002
+    ) -> None:
+        """Set the bearer token on this request's own ``headers`` dict."""
+        token = self._token_provider.get_token()
+        headers["Authorization"] = f"Bearer {token}"
