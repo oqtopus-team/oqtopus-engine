@@ -213,7 +213,7 @@ def _make_cloud_repo() -> OqtopusCloudJobRepository:
             "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.Configuration"
         ),
     ):
-        return OqtopusCloudJobRepository(workers=2)
+        return OqtopusCloudJobRepository(workers=2, auth_mode="api_key")
 
 
 def _prepare_upload_and_patch_mocks(

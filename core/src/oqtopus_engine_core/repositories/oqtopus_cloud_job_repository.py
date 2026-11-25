@@ -53,8 +53,8 @@ class OqtopusCloudJobRepository(JobRepository):
             file_op_timeout_seconds: Timeout for file upload and download.
             max_file_size: Maximum allowed size for uploaded ZIP payloads.
             auth_mode: ``"api_key"`` (static ``x-api-key`` header) or ``"oidc"``
-                (OAuth2 client-credentials bearer token). Empty (default) falls
-                back to the ``AUTH_MODE`` env var, then to ``"api_key"``.
+                (OAuth2 client-credentials bearer token). Required: an
+                empty value raises ``ValueError``.
             oidc_token_url: IdP token endpoint (``auth_mode="oidc"``).
             oidc_client_id: Confidential client id (``auth_mode="oidc"``).
             oidc_client_secret: Confidential client secret (``auth_mode="oidc"``).

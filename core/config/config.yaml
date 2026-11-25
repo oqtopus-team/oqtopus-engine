@@ -79,8 +79,8 @@ di_container:
       file_op_timeout_seconds: ${JOB_FILE_OP_TIMEOUT_SECONDS, 60}
       max_file_size: ${MAX_FILE_SIZE, 10485760}
       # Auth: "api_key" or "oidc" (OAuth2 client-credentials).
-      # Precedence: JOB_REPOSITORY_AUTH_MODE > AUTH_MODE > "api_key" (resolved in code).
-      auth_mode: ${JOB_REPOSITORY_AUTH_MODE, ""}
+      # Required: set explicitly (the env var only overrides the default shown).
+      auth_mode: ${JOB_REPOSITORY_AUTH_MODE, "api_key"}
       oidc_token_url: ${OIDC_TOKEN_URL, ""}
       oidc_client_id: ${OIDC_CLIENT_ID, ""}
       oidc_client_secret: ${OIDC_CLIENT_SECRET, ""}
@@ -96,8 +96,8 @@ di_container:
       workers: ${DEVICE_REPOSITORY_WORKERS, 1}
       api_request_timeout_seconds: ${DEVICE_REPOSITORY_API_REQUEST_TIMEOUT_SECONDS, 10}
       # Auth: "api_key" or "oidc" (OAuth2 client-credentials).
-      # Precedence: DEVICE_REPOSITORY_AUTH_MODE > AUTH_MODE > "api_key" (resolved in code).
-      auth_mode: ${DEVICE_REPOSITORY_AUTH_MODE, ""}
+      # Required: set explicitly (the env var only overrides the default shown).
+      auth_mode: ${DEVICE_REPOSITORY_AUTH_MODE, "api_key"}
       oidc_token_url: ${OIDC_TOKEN_URL, ""}
       oidc_client_id: ${OIDC_CLIENT_ID, ""}
       oidc_client_secret: ${OIDC_CLIENT_SECRET, ""}

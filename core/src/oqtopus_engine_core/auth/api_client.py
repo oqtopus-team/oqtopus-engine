@@ -7,8 +7,6 @@ static ``x-api-key`` header and an OIDC (OAuth2 client-credentials) bearer token
 
 from __future__ import annotations
 
-import os
-
 from oqtopus_auth.client import ClientCredentialsTokenProvider
 
 from oqtopus_engine_core.auth.bearer_api_client import BearerAuthApiClient
@@ -20,23 +18,25 @@ _VALID_AUTH_MODES = ("api_key", "oidc")
 def resolve_auth_mode(auth_mode: str) -> str:
     """Normalize and validate the auth mode.
 
-    Precedence: an explicit per-repository ``auth_mode`` > the ``AUTH_MODE`` env
-    var > ``"api_key"``. Any value other than ``"api_key"`` / ``"oidc"`` is
-    rejected: a typo (e.g. ``"oidcc"``) must raise a configuration error, never
-    silently fall through to the legacy ``x-api-key`` path and downgrade the
-    intended authentication method.
+    ``auth_mode`` is required. An empty value, or any value other than
+    ``"api_key"`` / ``"oidc"``, is rejected so that a missing value or a typo
+    (e.g. ``"oidcc"``) raises an error instead of silently selecting an
+    authentication method.
 
     Args:
-        auth_mode: The configured per-repository auth mode (possibly empty).
+        auth_mode: ``"api_key"`` or ``"oidc"`` (case-insensitive).
 
     Returns:
         The normalized mode, one of ``_VALID_AUTH_MODES``.
 
     Raises:
-        ValueError: If the resolved mode is not a supported value.
+        ValueError: If ``auth_mode`` is empty or not a supported value.
 
     """
-    mode = (auth_mode or os.getenv("AUTH_MODE", "")).strip().lower() or "api_key"
+    mode = (auth_mode or "").strip().lower()
+    if not mode:
+        message = f"auth_mode is required; expected one of {_VALID_AUTH_MODES}"
+        raise ValueError(message)
     if mode not in _VALID_AUTH_MODES:
         message = f"invalid auth_mode {mode!r}; expected one of {_VALID_AUTH_MODES}"
         raise ValueError(message)
@@ -54,13 +54,12 @@ def build_api_client(  # noqa: PLR0913
     oidc_scope: str,
     oidc_expiry_skew_seconds: int,
 ) -> ApiClient:
-    """Build the generated ApiClient for the configured auth mode.
+    """Build the generated ApiClient for the given auth mode.
 
     Args:
-        rest_config: The generated-client configuration (host, proxy, ...).
+        rest_config: Passed through to the generated client.
         api_key: Static API key for ``auth_mode="api_key"``.
-        auth_mode: ``"api_key"`` or ``"oidc"``. Empty falls back to the
-            ``AUTH_MODE`` env var, then to ``"api_key"``. Any other value raises.
+        auth_mode: ``"api_key"`` or ``"oidc"`` (see :func:`resolve_auth_mode`).
         oidc_token_url: IdP token endpoint for ``auth_mode="oidc"``.
         oidc_client_id: Confidential client id for ``auth_mode="oidc"``.
         oidc_client_secret: Confidential client secret for ``auth_mode="oidc"``.
@@ -69,8 +68,8 @@ def build_api_client(  # noqa: PLR0913
 
     Returns:
         A ``BearerAuthApiClient`` for ``oidc`` mode, else a plain ``ApiClient``
-        carrying the static ``x-api-key`` header. Raises ``ValueError`` (via
-        :func:`resolve_auth_mode`) for an unsupported ``auth_mode``.
+        carrying the static ``x-api-key`` header. ``resolve_auth_mode`` raises
+        ``ValueError`` if ``auth_mode`` is empty or not a supported value.
 
     """
     mode = resolve_auth_mode(auth_mode)

@@ -40,7 +40,7 @@ def make_repo() -> OqtopusCloudDeviceRepository:
             "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.Configuration"
         ),
     ):
-        return OqtopusCloudDeviceRepository(workers=2)
+        return OqtopusCloudDeviceRepository(workers=2, auth_mode="api_key")
 
 
 def make_test_device(device_id: str = "device-1") -> Device:
@@ -80,7 +80,9 @@ async def test_update_device_passes_api_request_timeout_seconds():
         mock_devices_api = mock_devices_api_cls.return_value
         mock_devices_api.patch_device_with_http_info.return_value = ({}, 200, {})
 
-        repo = OqtopusCloudDeviceRepository(workers=1, api_request_timeout_seconds=15)
+        repo = OqtopusCloudDeviceRepository(
+            workers=1, api_request_timeout_seconds=15, auth_mode="api_key"
+        )
         await repo.update_device(make_test_device())
 
         _, kwargs = mock_devices_api.patch_device_with_http_info.call_args
@@ -104,7 +106,9 @@ async def test_update_device_status_passes_api_request_timeout_seconds():
         mock_devices_api = mock_devices_api_cls.return_value
         mock_devices_api.patch_device_status_with_http_info.return_value = ({}, 200, {})
 
-        repo = OqtopusCloudDeviceRepository(workers=1, api_request_timeout_seconds=15)
+        repo = OqtopusCloudDeviceRepository(
+            workers=1, api_request_timeout_seconds=15, auth_mode="api_key"
+        )
         await repo.update_device_status(make_test_device())
 
         _, kwargs = mock_devices_api.patch_device_status_with_http_info.call_args
@@ -142,7 +146,7 @@ async def test_update_device_info_passes_api_request_timeout_seconds():
             "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.OqtopusStorage.upload"
         ):
             repo = OqtopusCloudDeviceRepository(
-                workers=1, api_request_timeout_seconds=15
+                workers=1, api_request_timeout_seconds=15, auth_mode="api_key"
             )
             await repo.update_device_info(make_test_device())
 
@@ -151,34 +155,25 @@ async def test_update_device_info_passes_api_request_timeout_seconds():
 
 
 # ---------------------------------------------------------------------------
-# auth_mode resolution precedence:
-#   explicit auth_mode  >  AUTH_MODE env  >  "api_key"
+# auth_mode is required and is not read from the environment
 # ---------------------------------------------------------------------------
 
 
-def test_auth_mode_falls_back_to_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With no per-repo auth_mode, the AUTH_MODE env var selects the mode."""
+def test_missing_auth_mode_raises_even_if_env_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An empty auth_mode raises; the AUTH_MODE env var is not a fallback."""
     monkeypatch.setenv("AUTH_MODE", "oidc")
     with patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.DevicesApi"
     ), patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.Configuration"
-    ), patch(
-        "oqtopus_engine_core.auth.api_client.ApiClient"
-    ) as api_client_cls, patch(
-        "oqtopus_engine_core.auth.api_client.BearerAuthApiClient"
-    ) as bearer_cls, patch(
-        "oqtopus_engine_core.auth.api_client.ClientCredentialsTokenProvider"
-    ):
+    ), pytest.raises(ValueError, match="auth_mode is required"):
         OqtopusCloudDeviceRepository(workers=1)
 
-    bearer_cls.assert_called_once()
-    api_client_cls.assert_not_called()
 
-
-def test_explicit_auth_mode_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An explicit auth_mode overrides the AUTH_MODE env var."""
-    monkeypatch.setenv("AUTH_MODE", "oidc")
+def test_explicit_auth_mode_selects_client() -> None:
+    """An explicit auth_mode selects the matching client."""
     with patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_device_repository.DevicesApi"
     ), patch(

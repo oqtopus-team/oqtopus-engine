@@ -85,7 +85,7 @@ async def test_post_process_uploads_to_file_urls(tmp_path: Path) -> None:
             "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.Configuration"
         ),
     ):
-        repository = OqtopusCloudJobRepository(workers=2)
+        repository = OqtopusCloudJobRepository(workers=2, auth_mode="api_key")
 
     repository._jobs_api.get_upload_with_http_info.return_value = (  # noqa: SLF001
         [
