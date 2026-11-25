@@ -8,9 +8,9 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
+from oqtopus_engine_core.auth import build_api_client
 from oqtopus_engine_core.framework import Job
 from oqtopus_engine_core.interfaces.oqtopus_cloud import (
-    ApiClient,
     Configuration,
     JobsApi,
 )
@@ -84,6 +84,12 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
         proxy: str | None = None,
         workers: int = 5,
         api_request_timeout_seconds: int = 10,
+        auth_mode: str = "",
+        oidc_token_url: str = "",
+        oidc_client_id: str = "",
+        oidc_client_secret: str = "",
+        oidc_scope: str = "",
+        oidc_expiry_skew_seconds: int = 60,
         jobs_api: ExecutionJobsApi | None = None,
     ) -> None:
         if jobs_api is None:
@@ -91,10 +97,19 @@ class OqtopusCloudExecutionRepository(ExecutionRepository):
             configuration.host = url
             if proxy:
                 configuration.proxy = proxy
-            api_client = ApiClient(
-                configuration=configuration,
-                header_name="x-api-key",
-                header_value=api_key,
+            # Same auth contract as the Job/Device Cloud repositories: OIDC
+            # client-credentials bearer when auth_mode="oidc", else x-api-key.
+            # Without this the SLURM execution client would keep sending
+            # x-api-key while the other Cloud clients run in OIDC mode.
+            api_client = build_api_client(
+                configuration,
+                api_key=api_key,
+                auth_mode=auth_mode,
+                oidc_token_url=oidc_token_url,
+                oidc_client_id=oidc_client_id,
+                oidc_client_secret=oidc_client_secret,
+                oidc_scope=oidc_scope,
+                oidc_expiry_skew_seconds=oidc_expiry_skew_seconds,
             )
             jobs_api = JobsApi(api_client=api_client)
         self._jobs_api = jobs_api

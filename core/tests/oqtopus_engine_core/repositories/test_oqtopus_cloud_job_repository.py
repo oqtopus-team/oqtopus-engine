@@ -47,11 +47,11 @@ def make_repo() -> OqtopusCloudJobRepository:
     with patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.JobsApi"
     ), patch(
-        "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.ApiClient"
+        "oqtopus_engine_core.auth.api_client.ApiClient"
     ), patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.Configuration"
     ):
-        return OqtopusCloudJobRepository(workers=2)
+        return OqtopusCloudJobRepository(workers=2, auth_mode="api_key")
 
 
 # ---------------------------------------------------------------------------
@@ -396,14 +396,16 @@ async def test_get_jobs_passes_api_request_timeout_seconds():
     with patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.JobsApi"
     ) as mock_jobs_api_cls, patch(
-        "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.ApiClient"
+        "oqtopus_engine_core.auth.api_client.ApiClient"
     ), patch(
         "oqtopus_engine_core.repositories.oqtopus_cloud_job_repository.Configuration"
     ):
         mock_jobs_api = mock_jobs_api_cls.return_value
         mock_jobs_api.get_jobs_with_http_info.return_value = ([], 200, {})
 
-        repo = OqtopusCloudJobRepository(workers=2, api_request_timeout_seconds=15)
+        repo = OqtopusCloudJobRepository(
+            workers=2, api_request_timeout_seconds=15, auth_mode="api_key"
+        )
         await repo.get_jobs(device_id="test-device")
 
         _, kwargs = mock_jobs_api.get_jobs_with_http_info.call_args

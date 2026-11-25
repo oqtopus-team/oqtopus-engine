@@ -1,6 +1,7 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -14,6 +15,55 @@ from oqtopus_engine_core.simulator import (
     ExecutionState,
     OqtopusCloudExecutionRepository,
 )
+
+_JOBS_API = (
+    "oqtopus_engine_core.simulator.execution.cloud_execution_repository.JobsApi"
+)
+
+
+def test_oidc_mode_builds_bearer_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """auth_mode="oidc" wires the SLURM execution client to an OIDC bearer
+    client (the same contract as the Job/Device repositories), not x-api-key."""
+    monkeypatch.delenv("AUTH_MODE", raising=False)
+    with (
+        patch("oqtopus_engine_core.auth.api_client.BearerAuthApiClient") as bearer_cls,
+        patch("oqtopus_engine_core.auth.api_client.ClientCredentialsTokenProvider"),
+        patch("oqtopus_engine_core.auth.api_client.ApiClient") as api_cls,
+        patch(_JOBS_API),
+    ):
+        OqtopusCloudExecutionRepository(
+            device_id="d",
+            work_root="/tmp/x",
+            auth_mode="oidc",
+            oidc_token_url="https://idp.example/token",
+            oidc_client_id="c",
+            oidc_client_secret="s",
+            oidc_scope="provider.write",
+        )
+    bearer_cls.assert_called_once()
+    api_cls.assert_not_called()
+
+
+def test_api_key_mode_builds_plain_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AUTH_MODE", raising=False)
+    with (
+        patch("oqtopus_engine_core.auth.api_client.ApiClient") as api_cls,
+        patch("oqtopus_engine_core.auth.api_client.BearerAuthApiClient") as bearer_cls,
+        patch(_JOBS_API),
+    ):
+        OqtopusCloudExecutionRepository(
+            device_id="d", work_root="/tmp/x", auth_mode="api_key", api_key="k"
+        )
+    api_cls.assert_called_once()
+    bearer_cls.assert_not_called()
+
+
+def test_invalid_auth_mode_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("AUTH_MODE", raising=False)
+    with patch(_JOBS_API), pytest.raises(ValueError, match="invalid auth_mode"):
+        OqtopusCloudExecutionRepository(
+            device_id="d", work_root="/tmp/x", auth_mode="oidcc"
+        )
 
 
 class StubJobsApi:

@@ -50,3 +50,27 @@ def test_slurm_config_wires_shared_runtime_components(monkeypatch):
         "slurm_simulator_step",
     ]
     assert container.get("estimator_step")._skip_direct_estimation is True
+
+
+def test_slurm_config_wires_oidc_into_all_cloud_clients(monkeypatch):
+    """All three Cloud clients (Job, Device, SLURM execution) must receive the
+    OIDC configuration. Before this, slurm_simulator_config.yaml passed only
+    API-key settings, so in an OIDC deployment the Job/Device repos ran with an
+    empty token config and the execution repo stayed on x-api-key."""
+    monkeypatch.setenv("JOB_REPOSITORY_AUTH_MODE", "oidc")
+    monkeypatch.setenv("DEVICE_REPOSITORY_AUTH_MODE", "oidc")
+    monkeypatch.setenv("OIDC_TOKEN_URL", "https://idp.example/token")
+    monkeypatch.setenv("OIDC_CLIENT_ID", "engine")
+    monkeypatch.setenv("OIDC_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("OIDC_SCOPE", "provider.write")
+    config_path = Path(__file__).parents[2] / "config" / "slurm_simulator_config.yaml"
+
+    registry = load_config(str(config_path))["di_container"]["registry"]
+
+    for name in ("job_repository", "device_repository", "execution_repository"):
+        entry = registry[name]
+        assert entry["auth_mode"] == "oidc", name
+        assert entry["oidc_token_url"] == "https://idp.example/token", name
+        assert entry["oidc_client_id"] == "engine", name
+        assert entry["oidc_client_secret"] == "secret", name
+        assert entry["oidc_scope"] == "provider.write", name
