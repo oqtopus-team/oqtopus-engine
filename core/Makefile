@@ -4,8 +4,10 @@ SHELL := bash
 
 .PHONY: install run run-sse run-slurm-simulator format lint test test-slurm-process verify help
 
-install: ## Install dependencies
+install: ## Install dependencies and make the SLURM scripts executable
 	@uv sync --all-groups
+	@chmod +x ../deployment/slurm/run_qulacs_mpi.py ../deployment/slurm/run_qulacs_mpi_job.sh
+	@chmod +x ../test-infra/scheduler/slurm/host-bridge.sh ../test-infra/scheduler/slurm/run_qulacs_mpi_job.sh ../test-infra/scheduler/slurm/smoke.sh ../test-infra/scheduler/slurm/host-cli/*
 
 run: ## Run application
 	@uv run python -m oqtopus_engine_core.app -c config/config.yaml -l config/logging.yaml
