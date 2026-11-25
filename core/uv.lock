@@ -847,7 +847,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-system-metrics", specifier = ">=0.48b0" },
     { name = "opentelemetry-instrumentation-urllib3", specifier = ">=0.48b0" },
     { name = "opentelemetry-sdk", specifier = ">=1.27.0" },
-    { name = "oqtopus-auth", extras = ["client"], specifier = ">=1.0.0,<2" },
+    { name = "oqtopus-auth", extras = ["client"], specifier = ">=1.0.0" },
     { name = "oqtopus-util", specifier = ">=1.0.1" },
     { name = "protobuf", specifier = ">=6.33.2" },
     { name = "pydantic", specifier = ">=2.12.5" },
